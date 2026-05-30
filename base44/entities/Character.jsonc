@@ -1,0 +1,184 @@
+{
+  "name": "Character",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Character full name"
+    },
+    "faction": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "Named",
+        "General",
+        "Admiral",
+        "Diplomat",
+        "Princess",
+        "Spy",
+        "Assassin",
+        "Merchant",
+        "Priest",
+        "Witch",
+        "Heretic",
+        "Inquisitor"
+      ],
+      "default": "General"
+    },
+    "sex": {
+      "type": "string",
+      "enum": [
+        "male",
+        "female"
+      ],
+      "default": "male"
+    },
+    "is_leader": {
+      "type": "boolean",
+      "default": false
+    },
+    "is_heir": {
+      "type": "boolean",
+      "default": false
+    },
+    "age": {
+      "type": "number",
+      "default": 30
+    },
+    "pos_x": {
+      "type": "number",
+      "default": 0
+    },
+    "pos_y": {
+      "type": "number",
+      "default": 0
+    },
+    "offmap": {
+      "type": "boolean",
+      "default": false
+    },
+    "portrait": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "hero": {
+      "type": "string"
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "N",
+        "NE",
+        "E",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW"
+      ],
+      "default": "S"
+    },
+    "traits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "ancillaries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "army_units": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "siege_ram": {
+      "type": "number",
+      "default": 0
+    },
+    "siege_tower": {
+      "type": "number",
+      "default": 0
+    },
+    "siege_ladder": {
+      "type": "number",
+      "default": 0
+    },
+    "siege_sappoint": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "name",
+    "faction",
+    "type"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "data.faction": "{{user.data.faction}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}
