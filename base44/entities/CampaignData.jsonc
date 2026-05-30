@@ -1,0 +1,86 @@
+{
+  "name": "CampaignData",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Campaign name/identifier",
+      "default": "imperial_campaign"
+    },
+    "start_year": {
+      "type": "number",
+      "default": 1080
+    },
+    "start_season": {
+      "type": "string",
+      "enum": [
+        "summer",
+        "winter"
+      ],
+      "default": "summer"
+    },
+    "end_year": {
+      "type": "number",
+      "default": 1530
+    },
+    "end_season": {
+      "type": "string",
+      "enum": [
+        "summer",
+        "winter"
+      ],
+      "default": "winter"
+    },
+    "timescale": {
+      "type": "number",
+      "default": 0.5
+    },
+    "brigand_spawn": {
+      "type": "number",
+      "default": 15
+    },
+    "pirate_spawn": {
+      "type": "number",
+      "default": 10
+    },
+    "free_upkeep": {
+      "type": "boolean",
+      "default": false
+    },
+    "free_upkeep_value": {
+      "type": "number",
+      "default": 0
+    },
+    "script_file": {
+      "type": "string"
+    },
+    "advanced_options": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
