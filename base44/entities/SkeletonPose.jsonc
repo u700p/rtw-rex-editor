@@ -1,0 +1,73 @@
+{
+  "name": "SkeletonPose",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Display name for the pose preset"
+    },
+    "joint_names": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Ordered list of joint names this pose was created for"
+    },
+    "rotations": {
+      "type": "object",
+      "description": "Map of bone index to {rx, ry, rz} rotation overrides in radians",
+      "additionalProperties": true
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Tags for organizing poses (e.g. 'attack', 'idle', 'march')"
+    }
+  },
+  "required": [
+    "name",
+    "rotations"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {},
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}
