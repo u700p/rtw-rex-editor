@@ -1,8 +1,34 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { encodeStringsBin } from '../components/strings/stringsBinCodec';
+import { getStringsBinStore, setStringsBinStore } from '../lib/stringsBinStore';
 import { Globe, FolderOpen, Download, Plus, Trash2, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { parseDescrCulturesFull, serializeDescrCulturesFull, SETTLEMENT_TYPES, AGENT_TYPES } from '../components/cultures/culturesParser';
+
+// Automatically add/update the 4 expanded.txt string entries for a culture
+// in the shared strings bin store (expanded.txt.strings.bin).
+function upsertCultureStrings(cultureName) {
+  const key = cultureName.toUpperCase();
+  const display = cultureName.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  const newEntries = [
+    { key,                          value: display   },
+    { key: `EMT_${key}_PRIEST`,     value: 'Priest'  },
+    { key: `EMT_${key}_PRIEST_1`,   value: 'Bishop'  },
+    { key: `EMT_${key}_PRIEST_2`,   value: 'Cardinal'},
+  ];
+  const store = getStringsBinStore();
+  const BIN_NAME = 'expanded.txt.strings.bin';
+  const existing = store[BIN_NAME] || { entries: [], magic1: 2, magic2: 2048 };
+  // Replace or append each key
+  const entryMap = {};
+  for (const e of existing.entries) entryMap[e.key] = e.value;
+  for (const e of newEntries) entryMap[e.key] = e.value;
+  const merged = Object.entries(entryMap).map(([k, v]) => ({ key: k, value: v }));
+  const updated = { ...existing, entries: merged };
+  store[BIN_NAME] = updated;
+  setStringsBinStore(store);
+  window.dispatchEvent(new CustomEvent('strings-bin-updated', { detail: { name: BIN_NAME } }));
+}
 
 function downloadText(text, filename) {
   const a = document.createElement('a');
@@ -373,6 +399,8 @@ export default function CulturesEditor() {
     const updated = [...cultures, base];
     setCultures(updated);
     setSelectedIdx(updated.length - 1);
+    // Automatically add string entries to expanded.txt.strings.bin
+    upsertCultureStrings(base.name);
   };
 
   const handleDeleteCulture = (idx) => {
@@ -469,7 +497,7 @@ export default function CulturesEditor() {
                   <div>
                     <p className="text-[9px] text-slate-500 mb-0.5 uppercase font-semibold">Culture Internal Name</p>
                     <p className="text-[9px] text-slate-600 italic mb-1">No spaces. Used everywhere in game files.</p>
-                    <input value={selected.name} onChange={e => setField('name', e.target.value.replace(/\s/g, '_'))}
+                    <input value={selected.name} onChange={e => { const v = e.target.value.replace(/\s/g, '_'); setField('name', v); upsertCultureStrings(v); }}
                       className="h-7 px-2 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-slate-200 font-mono w-full" />
                   </div>
                   <div>
