@@ -14,6 +14,7 @@ import LuaScripts from './pages/LuaScripts';
 import UnitEditor from './pages/UnitEditor';
 import StringsBinEditor from './pages/StringsBinEditor';
 import AssetsConverter from './pages/AssetsConverter';
+import UnitCardGenerator from './pages/UnitCardGenerator';
 import AnimationEditor from './pages/AnimationEditor';
 import GoatTools from './pages/GoatTools';
 import ScriptEditor from './pages/ScriptEditor';
@@ -85,6 +86,7 @@ const AuthenticatedApp = () => {
       <Route path="/UnitEditor" element={<LayoutWrapper currentPageName="UnitEditor"><UnitEditor /></LayoutWrapper>} />
       <Route path="/StringsBinEditor" element={<LayoutWrapper currentPageName="StringsBinEditor"><StringsBinEditor /></LayoutWrapper>} />
       <Route path="/AssetsConverter" element={<LayoutWrapper currentPageName="AssetsConverter"><AssetsConverter /></LayoutWrapper>} />
+      <Route path="/UnitCardGenerator" element={<LayoutWrapper currentPageName="UnitCardGenerator"><UnitCardGenerator /></LayoutWrapper>} />
       <Route path="/AnimationEditor" element={<LayoutWrapper currentPageName="AnimationEditor"><AnimationEditor /></LayoutWrapper>} />
       <Route path="/GoatTools" element={<LayoutWrapper currentPageName="GoatTools"><GoatTools /></LayoutWrapper>} />
       <Route path="/ScriptEditor" element={<LayoutWrapper currentPageName="ScriptEditor"><ScriptEditor /></LayoutWrapper>} />

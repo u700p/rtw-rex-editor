@@ -1,0 +1,131 @@
+{
+  "name": "Region",
+  "type": "object",
+  "properties": {
+    "province_in": {
+      "type": "string",
+      "description": "Province internal name"
+    },
+    "province_out": {
+      "type": "string",
+      "description": "Province display name"
+    },
+    "city_in": {
+      "type": "string",
+      "description": "City internal name"
+    },
+    "city_out": {
+      "type": "string",
+      "description": "City display name"
+    },
+    "color_r": {
+      "type": "number",
+      "default": 0
+    },
+    "color_g": {
+      "type": "number",
+      "default": 0
+    },
+    "color_b": {
+      "type": "number",
+      "default": 0
+    },
+    "city_x": {
+      "type": "number",
+      "default": 0
+    },
+    "city_y": {
+      "type": "number",
+      "default": 0
+    },
+    "port_x": {
+      "type": "number",
+      "default": 0
+    },
+    "port_y": {
+      "type": "number",
+      "default": 0
+    },
+    "castle": {
+      "type": "boolean",
+      "default": false
+    },
+    "population": {
+      "type": "number",
+      "default": 400
+    },
+    "level": {
+      "type": "number",
+      "default": 0
+    },
+    "agriculture": {
+      "type": "number",
+      "default": 0
+    },
+    "victory_points": {
+      "type": "number",
+      "default": 0
+    },
+    "buildings": {
+      "type": "array",
+      "description": "Buildings present in the settlement",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "resources": {
+      "type": "array",
+      "description": "Resources present in the region",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "religions": {
+      "type": "array",
+      "description": "Religion percentages, order matches descr_religions.txt",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Religion name from descr_religions.txt"
+          },
+          "percentage": {
+            "type": "number",
+            "description": "Religion percentage (0-100)",
+            "default": 0
+          }
+        }
+      },
+      "default": []
+    },
+    "faction": {
+      "type": "string",
+      "description": "Controlling faction"
+    },
+    "original_faction": {
+      "type": "string",
+      "description": "Creator faction"
+    },
+    "rebels": {
+      "type": "string",
+      "description": "Rebel faction"
+    },
+    "music": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "province_in",
+    "province_out",
+    "city_in",
+    "city_out",
+    "color_r",
+    "color_g",
+    "color_b",
+    "city_x",
+    "city_y"
+  ]
+}

@@ -6,7 +6,7 @@ import { RefDataProvider } from './components/edb/RefDataContext';
 import { TraitsProvider } from './components/traits/TraitsContext';
 import { AncillariesProvider } from './components/ancillaries/AncillariesContext';
 import { ModDataProvider } from './components/shared/ModDataContext';
-import { Castle, Download, Home, Shield, Package, Code2, Swords, Map, Globe, Volume2, FileText, ScrollText, Gem } from 'lucide-react';
+import { Castle, Download, Home, Shield, Package, Code2, Swords, Map, Globe, Volume2, FileText, ScrollText, Gem, Image } from 'lucide-react';
 import AppErrorBoundary from './components/AppErrorBoundary';
 
 // localStorage keys that indicate a given editor has data loaded
@@ -19,6 +19,7 @@ const NAV_DATA_KEYS = {
   ScriptEditor:      ['m2tw_lua_scripts'],
   MinorFiles:        ['m2tw_rebel_factions_file', 'm2tw_religions_file'],
   CulturesEditor:    ['m2tw_cultures_file'],
+  UnitCardGenerator: ['m2tw_unitcard_entries'],
   FactionsEditor:    ['m2tw_factions_file'],
   StringsBinEditor:  ['m2tw_edb_txt_file'],
   LuaScripts:        ['m2tw_lua_scripts'],
@@ -63,6 +64,7 @@ const navItems = [
 { name: 'Sound Files', icon: Volume2, page: 'SoundEditor' },
 { name: 'Strings Editor', icon: FileText, page: 'StringsBinEditor' },
 { name: '3D Model Viewer', icon: Package, page: 'AssetsConverter' },
+{ name: 'Unit Card Gen', icon: Image, page: 'UnitCardGenerator' },
 { name: 'Animations', icon: Swords, page: 'AnimationEditor' },
 { name: 'GOAT Tools', icon: Swords, page: 'GoatTools' },
 { name: 'Lua Scripts', icon: Code2, page: 'LuaScripts' },

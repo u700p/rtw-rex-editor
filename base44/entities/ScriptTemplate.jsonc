@@ -1,0 +1,37 @@
+{
+  "name": "ScriptTemplate",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Short name for the snippet"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "monitor",
+        "condition",
+        "command",
+        "counter",
+        "loop",
+        "diplomacy",
+        "spawn",
+        "misc"
+      ],
+      "description": "Snippet category"
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief explanation of what the snippet does"
+    },
+    "code": {
+      "type": "string",
+      "description": "The actual script code to insert"
+    }
+  },
+  "required": [
+    "title",
+    "category",
+    "code"
+  ]
+}

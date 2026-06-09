@@ -1,0 +1,175 @@
+{
+  "name": "Faction",
+  "type": "object",
+  "properties": {
+    "name_in": {
+      "type": "string",
+      "description": "Internal faction name"
+    },
+    "name_out": {
+      "type": "string",
+      "description": "Display faction name"
+    },
+    "culture": {
+      "type": "string"
+    },
+    "religion": {
+      "type": "string"
+    },
+    "music": {
+      "type": "string"
+    },
+    "special_type": {
+      "type": "string"
+    },
+    "color1_r": {
+      "type": "number",
+      "default": 0
+    },
+    "color1_g": {
+      "type": "number",
+      "default": 0
+    },
+    "color1_b": {
+      "type": "number",
+      "default": 0
+    },
+    "color2_r": {
+      "type": "number",
+      "default": 0
+    },
+    "color2_g": {
+      "type": "number",
+      "default": 0
+    },
+    "color2_b": {
+      "type": "number",
+      "default": 0
+    },
+    "custom_battle": {
+      "type": "boolean",
+      "default": false
+    },
+    "naval_invasion": {
+      "type": "boolean",
+      "default": false
+    },
+    "has_princess": {
+      "type": "boolean",
+      "default": false
+    },
+    "can_death": {
+      "type": "boolean",
+      "default": false
+    },
+    "disband_pool": {
+      "type": "boolean",
+      "default": false
+    },
+    "build_tower": {
+      "type": "boolean",
+      "default": false
+    },
+    "playability": {
+      "type": "number",
+      "default": 0,
+      "description": "0=not playable, 1=playable, 2=unlockable, 3=hidden"
+    },
+    "money": {
+      "type": "number",
+      "default": 0
+    },
+    "kings_purse": {
+      "type": "number",
+      "default": 0
+    },
+    "label_ai": {
+      "type": "string",
+      "enum": [
+        "default",
+        "catholic",
+        "papal_faction",
+        "slave_faction"
+      ]
+    },
+    "economic_ai": {
+      "type": "string",
+      "enum": [
+        "balanced",
+        "religious",
+        "trader",
+        "comfortable",
+        "bureaucrat",
+        "craftsman",
+        "sailor",
+        "fortified"
+      ]
+    },
+    "military_ai": {
+      "type": "string",
+      "enum": [
+        "smith",
+        "mao",
+        "genghis",
+        "stalin",
+        "napoleon",
+        "henry",
+        "caesar"
+      ]
+    },
+    "emerging": {
+      "type": "string",
+      "enum": [
+        "spawned_on_event",
+        "shadowed_by",
+        "shadowing"
+      ],
+      "default": "spawned_on_event"
+    },
+    "reemergent": {
+      "type": "boolean",
+      "default": false
+    },
+    "undiscovered": {
+      "type": "boolean",
+      "default": false
+    },
+    "dead_until_resurrected": {
+      "type": "boolean",
+      "default": false
+    },
+    "dead_until_emerged": {
+      "type": "boolean",
+      "default": false
+    },
+    "can_horde": {
+      "type": "boolean",
+      "default": false
+    },
+    "horde_min_units": {
+      "type": "number",
+      "default": 1
+    },
+    "horde_max_units": {
+      "type": "number",
+      "default": 1
+    },
+    "short_victory_hold": {
+      "type": "number",
+      "default": 0
+    },
+    "long_victory_hold": {
+      "type": "number",
+      "default": 0
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name_in",
+    "name_out",
+    "culture",
+    "religion"
+  ]
+}

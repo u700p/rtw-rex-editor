@@ -1,0 +1,57 @@
+{
+  "name": "HistoricEvent",
+  "type": "object",
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "historic",
+        "counter",
+        "emergent_faction",
+        "earthquake",
+        "volcano",
+        "flood",
+        "storm",
+        "horde",
+        "dustbowl",
+        "locusts",
+        "plague"
+      ],
+      "default": "historic"
+    },
+    "title": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "date1": {
+      "type": "number",
+      "default": 0
+    },
+    "date2": {
+      "type": "number"
+    },
+    "movie": {
+      "type": "string"
+    },
+    "positions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "regions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    }
+  },
+  "required": [
+    "event_type",
+    "date1"
+  ]
+}
