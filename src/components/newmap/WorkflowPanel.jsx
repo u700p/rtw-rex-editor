@@ -1,26 +1,34 @@
-import React from 'react';
-import { CheckCircle, Circle, ChevronRight, Wand2, AlertCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle, Circle, ChevronRight, Wand2, AlertCircle, Paintbrush } from 'lucide-react';
+import { CLIMATE_PALETTE } from '@/lib/mapLayerStore';
+import GroundTypeRangeEditor, { DEFAULT_GROUND_RANGES } from '@/components/newmap/GroundTypeRangeEditor';
 
 /**
  * WorkflowPanel — drives the step-by-step layer editing flow.
  * Steps: heights → ground → climates → features → regions
- * Each step has: validate → proceed to next.
  */
 
 const STEPS = [
-  { id: 'heights',  label: 'Heightmap',   file: 'map_heights.tga',      desc: 'Paint elevation. Sea = blue (0,0,255). Land = grayscale 1–255.' },
-  { id: 'ground',   label: 'Ground Types', file: 'map_ground_types.tga', desc: 'Terrain type per tile. Auto-generated from heightmap + topo reference.' },
-  { id: 'climates', label: 'Climates',    file: 'map_climates.tga',     desc: 'Climate zones per tile. Paint using the M2TW palette.' },
-  { id: 'features', label: 'Features',    file: 'map_features.tga',     desc: 'Rivers, cliffs, fords. Rivers must start with a white origin dot.' },
-  { id: 'regions',  label: 'Regions',     file: 'map_regions.tga',      desc: 'Settlement placement. Each region = black pixel + unique RGB surround.' },
+  { id: 'heights',  label: 'Heightmap',    file: 'map_heights.tga',      desc: 'Paint elevation. Sea = blue (0,0,255). Land = grayscale 1–255.' },
+  { id: 'ground',   label: 'Ground Types', file: 'map_ground_types.tga', desc: 'Terrain type per tile. Configure height ranges below, then auto-generate.' },
+  { id: 'climates', label: 'Climates',     file: 'map_climates.tga',     desc: 'Climate zones per tile. Auto-generate from ground types or fill with a single climate.' },
+  { id: 'features', label: 'Features',     file: 'map_features.tga',     desc: 'Rivers, cliffs, fords. Rivers must start with a white origin dot.' },
+  { id: 'regions',  label: 'Regions',      file: 'map_regions.tga',      desc: 'Settlement placement. Each region = black pixel + unique RGB surround.' },
 ];
 
 export default function WorkflowPanel({
   layers, activeLayerId, onSetActive,
-  onValidateAndNext, currentStepId, onAutoGenerateGround,
-  generatingGround,
+  onValidateAndNext, currentStepId,
+  onAutoGenerateGround, generatingGround,
+  onAutoGenerateClimates, generatingClimates,
+  onFillClimate,
+  groundRanges, onGroundRangesChange,
 }) {
   const currentIdx = STEPS.findIndex(s => s.id === currentStepId);
+  const [showRangeEditor, setShowRangeEditor] = useState(false);
+  const [selectedFillClimate, setSelectedFillClimate] = useState(CLIMATE_PALETTE[0].id);
+
+  const ranges = groundRanges ?? DEFAULT_GROUND_RANGES;
 
   return (
     <div className="p-3 space-y-2">
@@ -36,8 +44,8 @@ export default function WorkflowPanel({
           <div key={step.id}
             className={`rounded border p-2 transition-colors ${
               isActive ? 'border-amber-500/60 bg-slate-800' :
-              isDone ? 'border-green-600/40 bg-slate-900' :
-              'border-slate-700 bg-slate-900 opacity-50'
+              isDone   ? 'border-green-600/40 bg-slate-900' :
+                         'border-slate-700 bg-slate-900 opacity-50'
             }`}>
             <div className="flex items-center gap-2">
               {isDone
@@ -60,15 +68,72 @@ export default function WorkflowPanel({
               <div className="mt-2 space-y-2">
                 <p className="text-[10px] text-slate-400">{step.desc}</p>
 
-                {/* Auto-generate ground from heights */}
+                {/* Ground type step: range editor + auto-generate */}
                 {step.id === 'ground' && (
-                  <button
-                    onClick={onAutoGenerateGround}
-                    disabled={generatingGround || !layers.heights?.imageData}
-                    className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] bg-blue-700 border border-blue-600 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors font-semibold">
-                    <Wand2 className={`w-3 h-3 ${generatingGround ? 'animate-spin' : ''}`} />
-                    {generatingGround ? 'Generating…' : 'Auto-generate from Heightmap'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setShowRangeEditor(v => !v)}
+                      className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 transition-colors">
+                      ⚙ {showRangeEditor ? 'Hide' : 'Configure'} Height → Ground Type Ranges
+                    </button>
+
+                    {showRangeEditor && (
+                      <div className="rounded border border-slate-700 bg-slate-900/80 p-2">
+                        <GroundTypeRangeEditor
+                          ranges={ranges}
+                          onChange={onGroundRangesChange}
+                        />
+                        <button
+                          onClick={() => onGroundRangesChange(DEFAULT_GROUND_RANGES)}
+                          className="mt-2 text-[9px] px-2 py-0.5 rounded bg-slate-700 text-slate-400 hover:bg-slate-600 border border-slate-600 transition-colors">
+                          Reset to Defaults
+                        </button>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={onAutoGenerateGround}
+                      disabled={generatingGround || !layers.heights?.imageData}
+                      className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] bg-blue-700 border border-blue-600 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors font-semibold">
+                      <Wand2 className={`w-3 h-3 ${generatingGround ? 'animate-spin' : ''}`} />
+                      {generatingGround ? 'Generating…' : 'Auto-generate from Heightmap'}
+                    </button>
+                  </>
+                )}
+
+                {/* Climates step: auto-gen from ground or fill solid */}
+                {step.id === 'climates' && (
+                  <>
+                    <button
+                      onClick={onAutoGenerateClimates}
+                      disabled={generatingClimates || !layers.ground?.imageData}
+                      className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] bg-blue-700 border border-blue-600 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors font-semibold">
+                      <Wand2 className={`w-3 h-3 ${generatingClimates ? 'animate-spin' : ''}`} />
+                      {generatingClimates ? 'Generating…' : 'Auto-generate from Ground Types'}
+                    </button>
+
+                    <div className="space-y-1.5">
+                      <p className="text-[9px] text-slate-500">— or fill entire map with one climate —</p>
+                      <select
+                        value={selectedFillClimate}
+                        onChange={e => setSelectedFillClimate(e.target.value)}
+                        className="w-full h-7 px-1.5 text-[10px] bg-slate-800 border border-slate-600 rounded text-slate-200 focus:outline-none focus:border-amber-500">
+                        {CLIMATE_PALETTE.map(p => (
+                          <option key={p.id} value={p.id}>{p.label}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => onFillClimate(selectedFillClimate)}
+                        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] bg-slate-700 border border-slate-600 text-slate-200 hover:bg-slate-600 transition-colors font-semibold">
+                        <Paintbrush className="w-3 h-3" />
+                        Fill Entire Map
+                      </button>
+                    </div>
+
+                    <p className="text-[9px] text-slate-500">
+                      You can also switch to the <strong className="text-slate-300">Paint</strong> tab to paint climate zones manually.
+                    </p>
+                  </>
                 )}
 
                 {/* Features: waterway map link */}
@@ -84,13 +149,15 @@ export default function WorkflowPanel({
                   disabled={!hasData}
                   className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] bg-amber-600 border border-amber-500 text-white hover:bg-amber-500 disabled:opacity-40 transition-colors font-semibold">
                   <ChevronRight className="w-3 h-3" />
-                  {idx < STEPS.length - 1 ? `Validate & Next →` : 'Validate & Finish'}
+                  {idx < STEPS.length - 1 ? 'Validate & Next →' : 'Validate & Finish'}
                 </button>
 
                 {!hasData && (
                   <p className="text-[9px] text-slate-500 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3 text-amber-500" />
-                    Paint or import this layer first.
+                    {step.id === 'climates'
+                      ? 'Use Auto-generate or Fill above, or paint this layer in the Paint tab.'
+                      : 'Paint or import this layer first.'}
                   </p>
                 )}
               </div>

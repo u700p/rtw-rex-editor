@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { getLayerDimensions, LAYER_DEFS } from '@/lib/mapLayerStore';
+import { getLayerDimensions, LAYER_DEFS, CLIMATE_PALETTE, hexToRgb } from '@/lib/mapLayerStore';
 import {
   Map, Download, Crop, Edit3, MousePointer, Layers,
   Settings, Paintbrush, GitBranch, Package
@@ -16,7 +16,8 @@ import WorkflowPanel from '../components/newmap/WorkflowPanel';
 import RegionsWorkshop from '../components/newmap/RegionsWorkshop';
 import { useReferenceLayers, ReferenceLayerControls } from '../components/newmap/ReferenceLayers';
 import { OhmOverlayControls } from '../components/newmap/OhmOverlay';
-import { autoGenerateGroundTypes } from '@/lib/autoGroundTypes';
+import { autoGenerateGroundTypes, autoGenerateClimates, fillSolidColor } from '@/lib/autoGroundTypes';
+import { DEFAULT_GROUND_RANGES } from '@/components/newmap/GroundTypeRangeEditor';
 
 const PHASES = [
   { id: 'browse',     label: 'Select Area',     icon: MousePointer },
@@ -63,6 +64,8 @@ export default function NewMapEditor() {
   const [mapHeight, setMapHeight] = useState(512);
   const [regionName, setRegionName] = useState('');
   const [generatingGround, setGeneratingGround] = useState(false);
+  const [generatingClimates, setGeneratingClimates] = useState(false);
+  const [groundRanges, setGroundRanges] = useState(DEFAULT_GROUND_RANGES);
 
   const { refLayers, toggleRef, setRefOpacity } = useReferenceLayers();
   const [ohmVisible, setOhmVisible] = useState(false);
@@ -97,19 +100,34 @@ export default function NewMapEditor() {
 
   const handleImportFile = (layerId, file) => {
     if (!file) return;
-    const img = new Image();
-    img.onload = () => {
-      const def = LAYER_DEFS.find(d => d.id === layerId);
-      const { width, height } = getLayerDimensions(def, mapWidth, mapHeight);
+    const url = URL.createObjectURL(file);
+    const def = LAYER_DEFS.find(d => d.id === layerId);
+    const { width, height } = getLayerDimensions(def, mapWidth, mapHeight);
+
+    const drawToLayer = (source) => {
       const canvas = document.createElement('canvas');
       canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext('2d');
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, 0, 0, width, height);
+      ctx.drawImage(source, 0, 0, width, height);
       const imageData = ctx.getImageData(0, 0, width, height);
       handleLayerUpdate(layerId, { imageData, visible: true, opacity: 0.8, dirty: true });
+      URL.revokeObjectURL(url);
     };
-    img.src = URL.createObjectURL(file);
+
+    // Use createImageBitmap for large files (no size limit like <img>)
+    if (typeof createImageBitmap !== 'undefined') {
+      createImageBitmap(file).then(drawToLayer).catch(() => {
+        // Fallback to <img>
+        const img = new Image();
+        img.onload = () => drawToLayer(img);
+        img.src = url;
+      });
+    } else {
+      const img = new Image();
+      img.onload = () => drawToLayer(img);
+      img.src = url;
+    }
   };
 
   const handleSelectionUpdate = ({ start, end }) => {
@@ -170,10 +188,29 @@ export default function NewMapEditor() {
     if (!heightLayer?.imageData) return;
     setGeneratingGround(true);
     await new Promise(r => setTimeout(r, 50));
-    const topoLayer = layers.topo_ref;
-    const result = autoGenerateGroundTypes(heightLayer.imageData, topoLayer?.imageData || null);
+    const result = autoGenerateGroundTypes(heightLayer.imageData, groundRanges);
     handleLayerUpdate('ground', { imageData: result, visible: true, opacity: 1, dirty: true });
     setGeneratingGround(false);
+  };
+
+  const handleAutoGenerateClimates = async () => {
+    const groundLayer = layers.ground;
+    if (!groundLayer?.imageData) return;
+    setGeneratingClimates(true);
+    await new Promise(r => setTimeout(r, 50));
+    const result = autoGenerateClimates(groundLayer.imageData);
+    handleLayerUpdate('climates', { imageData: result, visible: true, opacity: 1, dirty: true });
+    setGeneratingClimates(false);
+  };
+
+  const handleFillClimate = (climateId) => {
+    const climateDef = CLIMATE_PALETTE.find(p => p.id === climateId);
+    if (!climateDef) return;
+    const { r, g, b } = hexToRgb(climateDef.color);
+    const def = LAYER_DEFS.find(d => d.id === 'climates');
+    const { width, height } = getLayerDimensions(def, mapWidth, mapHeight);
+    const result = fillSolidColor(width, height, r, g, b);
+    handleLayerUpdate('climates', { imageData: result, visible: true, opacity: 1, dirty: true });
   };
 
   const phaseIndex = PHASES.findIndex(p => p.id === phase);
@@ -411,6 +448,11 @@ export default function NewMapEditor() {
                   currentStepId={workflowStep}
                   onAutoGenerateGround={handleAutoGenerateGround}
                   generatingGround={generatingGround}
+                  onAutoGenerateClimates={handleAutoGenerateClimates}
+                  generatingClimates={generatingClimates}
+                  onFillClimate={handleFillClimate}
+                  groundRanges={groundRanges}
+                  onGroundRangesChange={setGroundRanges}
                 />
                 {workflowStep === 'regions' && (
                   <div className="px-3 pb-3 border-t border-slate-700 mt-2 pt-2">
