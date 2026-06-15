@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import BannersTab from '@/components/factions/BannersTab';
+import { parseBannersXml, serialiseBannersXml } from '@/components/minorfiles/banners/bannersParser';
 import DescriptionsTab from '@/components/factions/DescriptionsTab';
 import MiscTab from '@/components/factions/MiscTab';
 
@@ -658,6 +659,47 @@ export default function FactionsEditor() {
     const updated = [...factions, dup];
     setFactions(updated);
     setSelectedIdx(updated.length - 1);
+    
+    // Copy banner texture entries from source faction to new faction
+    try {
+      const srcBannersData = localStorage.getItem(`m2tw_banners_${src.name}`);
+      if (srcBannersData) {
+        const parsed = parseBannersXml(srcBannersData);
+        const newFactionName = duplicateName.trim();
+        
+        parsed.factionBanners = parsed.factionBanners.map((banner) => {
+          const sourceTextures = banner.textures.filter(t => 
+            t.faction.toLowerCase() === src.name.toLowerCase()
+          );
+          
+          if (sourceTextures.length === 0) return banner;
+          
+          const existingTextureIndices = banner.textures
+            .map((t, i) => t.faction.toLowerCase() === newFactionName.toLowerCase() ? i : -1)
+            .filter(i => i !== -1);
+          
+          let newTextures = [...banner.textures];
+          existingTextureIndices.forEach(idx => {
+            newTextures[idx] = null;
+          });
+          newTextures = newTextures.filter(t => t !== null);
+          
+          sourceTextures.forEach(sourceTex => {
+            newTextures.push({
+              faction: newFactionName,
+              diffuseMap: sourceTex.diffuseMap,
+              translucencyMap: sourceTex.translucencyMap
+            });
+          });
+          
+          return { ...banner, textures: newTextures };
+        });
+        
+        const newText = serialiseBannersXml(parsed);
+        localStorage.setItem(`m2tw_banners_${newFactionName}`, newText);
+      }
+    } catch {}
+    
     setDuplicateModalOpen(false);
     setDuplicateSourceIdx(null);
     setDuplicateName('');

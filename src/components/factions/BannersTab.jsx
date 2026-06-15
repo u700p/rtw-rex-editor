@@ -30,19 +30,7 @@ export default function BannersTab({ factionName }) {
     a.click();
   };
 
-  const updateFactionBanner = (bannerIdx, field, value) => {
-    if (!parsedData) return;
-    const updated = { ...parsedData };
-    updated.factionBanners = updated.factionBanners.map((b, i) =>
-      i === bannerIdx ? { ...b, [field]: value } : b
-    );
-    setParsedData(updated);
-    const text = serialiseBannersXml(updated);
-    setBannersData(text);
-    localStorage.setItem(`m2tw_banners_${factionName}`, text);
-  };
-
-  const updateFactionTexture = (bannerIdx, textureIdx, field, value) => {
+  const updateTexture = (bannerIdx, textureIdx, field, value) => {
     if (!parsedData) return;
     const updated = { ...parsedData };
     updated.factionBanners = updated.factionBanners.map((b, i) => {
@@ -58,7 +46,7 @@ export default function BannersTab({ factionName }) {
     localStorage.setItem(`m2tw_banners_${factionName}`, text);
   };
 
-  const addTextureToFactionBanner = (bannerIdx) => {
+  const addTexture = (bannerIdx) => {
     if (!parsedData) return;
     const updated = { ...parsedData };
     updated.factionBanners = updated.factionBanners.map((b, i) => {
@@ -74,13 +62,52 @@ export default function BannersTab({ factionName }) {
     localStorage.setItem(`m2tw_banners_${factionName}`, text);
   };
 
-  const removeTextureFromFactionBanner = (bannerIdx, textureIdx) => {
+  const removeTexture = (bannerIdx, textureIdx) => {
     if (!parsedData) return;
     const updated = { ...parsedData };
     updated.factionBanners = updated.factionBanners.map((b, i) => {
       if (i !== bannerIdx) return b;
       return { ...b, textures: b.textures.filter((_, j) => j !== textureIdx) };
     });
+    setParsedData(updated);
+    const text = serialiseBannersXml(updated);
+    setBannersData(text);
+    localStorage.setItem(`m2tw_banners_${factionName}`, text);
+  };
+
+  // Copy textures from another faction to this one
+  const copyFromFaction = (sourceFactionName) => {
+    if (!parsedData || !sourceFactionName) return;
+    const updated = { ...parsedData };
+    
+    updated.factionBanners = updated.factionBanners.map((banner) => {
+      const sourceTextures = banner.textures.filter(t => 
+        t.faction.toLowerCase() === sourceFactionName.toLowerCase()
+      );
+      
+      if (sourceTextures.length === 0) return banner;
+      
+      const existingTextureIndices = banner.textures
+        .map((t, i) => t.faction.toLowerCase() === factionName.toLowerCase() ? i : -1)
+        .filter(i => i !== -1);
+      
+      let newTextures = [...banner.textures];
+      existingTextureIndices.forEach(idx => {
+        newTextures[idx] = null;
+      });
+      newTextures = newTextures.filter(t => t !== null);
+      
+      sourceTextures.forEach(sourceTex => {
+        newTextures.push({
+          faction: factionName,
+          diffuseMap: sourceTex.diffuseMap,
+          translucencyMap: sourceTex.translucencyMap
+        });
+      });
+      
+      return { ...banner, textures: newTextures };
+    });
+    
     setParsedData(updated);
     const text = serialiseBannersXml(updated);
     setBannersData(text);
@@ -98,15 +125,28 @@ export default function BannersTab({ factionName }) {
     } catch {}
   }, [factionName]);
 
-  // Get all faction banners and filter textures for this faction
   const factionBanners = parsedData?.factionBanners || [];
+  
+  const textureEntries = [];
+  factionBanners.forEach((banner, bIdx) => {
+    banner.textures.forEach((texture, tIdx) => {
+      if (texture.faction.toLowerCase() === factionName.toLowerCase()) {
+        textureEntries.push({
+          bannerIdx: bIdx,
+          textureIdx: tIdx,
+          bannerName: banner.name,
+          texture
+        });
+      }
+    });
+  });
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between border-b border-slate-600 pb-2">
         <div>
-          <p className="text-sm font-semibold text-slate-200">Banners Configuration</p>
-          <p className="text-xs text-slate-400">Edit faction-specific entries in descr_banners_new.xml for {factionName}</p>
+          <p className="text-sm font-semibold text-slate-200">Banner Textures</p>
+          <p className="text-xs text-slate-400">Edit texture paths for {factionName}</p>
         </div>
         <div className="flex gap-2">
           <input ref={fileRef} type="file" accept=".xml" className="hidden" onChange={loadBanners} />
@@ -123,147 +163,60 @@ export default function BannersTab({ factionName }) {
 
       {parsedData ? (
         <div className="space-y-4">
-          <div className="border border-slate-600 rounded-lg p-4 bg-slate-800/50">
-            <h3 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              Faction Banners
-            </h3>
-            
-            {factionBanners.length === 0 ? (
-              <div className="text-center py-6 text-slate-500 border border-dashed border-slate-700 rounded">
-                <p className="text-xs">No faction banners in this file</p>
-              </div>
-            ) : (
-              <div className="space-y-4 max-h-96 overflow-auto">
-                {factionBanners.map((banner, bIdx) => {
-                  const factionTextures = banner.textures.filter(t => 
-                    t.faction.toLowerCase() === factionName.toLowerCase()
-                  );
-                  
-                  return (
-                    <div key={banner.name} className="border border-slate-700 rounded p-3 space-y-3">
-                      <div className="flex items-center gap-4 border-b border-slate-700 pb-2">
-                        <span className="text-[10px] text-slate-400 w-24">Banner Name:</span>
-                        <Input
-                          className="h-6 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100 font-mono"
-                          value={banner.name}
-                          onChange={(e) => updateFactionBanner(bIdx, 'name', e.target.value)}
-                        />
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400 w-20">Main Mesh:</span>
-                          <Input
-                            className="h-6 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100 font-mono flex-1"
-                            value={banner.mainMesh}
-                            onChange={(e) => updateFactionBanner(bIdx, 'mainMesh', e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400 w-20">Mini Mesh:</span>
-                          <Input
-                            className="h-6 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100 font-mono flex-1"
-                            value={banner.miniMesh}
-                            onChange={(e) => updateFactionBanner(bIdx, 'miniMesh', e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400 w-20">General Mesh:</span>
-                          <Input
-                            className="h-6 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100 font-mono flex-1"
-                            value={banner.generalMesh}
-                            onChange={(e) => updateFactionBanner(bIdx, 'generalMesh', e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400 w-20">Building Mesh:</span>
-                          <Input
-                            className="h-6 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100 font-mono flex-1"
-                            value={banner.buildingMesh}
-                            onChange={(e) => updateFactionBanner(bIdx, 'buildingMesh', e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="border-t border-slate-700 pt-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] text-slate-300 font-semibold">
-                            Textures for {factionName} ({factionTextures.length})
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-6 text-[9px]"
-                            onClick={() => addTextureToFactionBanner(bIdx)}
-                          >
-                            <Plus className="w-3 h-3 mr-1" /> Add Texture
-                          </Button>
-                        </div>
-                        
-                        {factionTextures.length === 0 ? (
-                          <p className="text-[10px] text-slate-500 italic">No textures for this faction</p>
-                        ) : (
-                          factionTextures.map((texture, tIdx) => {
-                            const originalTextureIdx = banner.textures.indexOf(texture);
-                            return (
-                              <div key={tIdx} className="grid grid-cols-3 gap-2 mb-2 p-2 bg-slate-700/50 rounded">
-                                <div className="flex items-center gap-1">
-                                  <span className="text-[9px] text-slate-400 w-16">Faction:</span>
-                                  <Input
-                                    className="h-5 text-[9px] px-1 bg-slate-600 border-slate-500 text-slate-100 font-mono"
-                                    value={texture.faction}
-                                    onChange={(e) => updateFactionTexture(bIdx, originalTextureIdx, 'faction', e.target.value)}
-                                  />
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-[9px] text-slate-400 w-16">Diffuse:</span>
-                                  <Input
-                                    className="h-5 text-[9px] px-1 bg-slate-600 border-slate-500 text-slate-100 font-mono"
-                                    value={texture.diffuseMap}
-                                    onChange={(e) => updateFactionTexture(bIdx, originalTextureIdx, 'diffuseMap', e.target.value)}
-                                  />
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-[9px] text-slate-400 w-16">Translucency:</span>
-                                  <Input
-                                    className="h-5 text-[9px] px-1 bg-slate-600 border-slate-500 text-slate-100 font-mono flex-1"
-                                    value={texture.translucencyMap}
-                                    onChange={(e) => updateFactionTexture(bIdx, originalTextureIdx, 'translucencyMap', e.target.value)}
-                                  />
-                                  <button
-                                    onClick={() => removeTextureFromFactionBanner(bIdx, originalTextureIdx)}
-                                    className="text-red-400 hover:text-red-300 p-1"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
+          {textureEntries.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-700 rounded-lg">
+              <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No texture entries for {factionName}</p>
+              <p className="text-xs mt-1">Use "Copy From Faction" to add entries from another faction</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {textureEntries.map((entry, idx) => (
+                <div key={idx} className="border border-slate-600 rounded p-3 bg-slate-800/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-300">{entry.bannerName}</span>
+                    <button
+                      onClick={() => removeTexture(entry.bannerIdx, entry.textureIdx)}
+                      className="text-red-400 hover:text-red-300"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-400 w-20">Diffuse Map:</span>
+                      <Input
+                        className="h-7 text-[10px] bg-slate-700 border-slate-600 text-slate-200 font-mono flex-1"
+                        value={entry.texture.diffuseMap}
+                        onChange={(e) => updateTexture(entry.bannerIdx, entry.textureIdx, 'diffuseMap', e.target.value)}
+                        placeholder="path/to/texture.tga"
+                      />
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-400 w-20">Translucency Map:</span>
+                      <Input
+                        className="h-7 text-[10px] bg-slate-700 border-slate-600 text-slate-200 font-mono flex-1"
+                        value={entry.texture.translucencyMap}
+                        onChange={(e) => updateTexture(entry.bannerIdx, entry.textureIdx, 'translucencyMap', e.target.value)}
+                        placeholder="path/to/translucency.tga"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-          <div className="grid grid-cols-3 gap-3">
-            <div className="border border-slate-600 rounded p-3 bg-slate-800/30">
-              <p className="text-[10px] text-slate-400">Unit Banners</p>
-              <p className="text-lg font-semibold text-slate-200">{parsedData.unitBanners?.length || 0}</p>
-            </div>
-            <div className="border border-slate-600 rounded p-3 bg-slate-800/30">
-              <p className="text-[10px] text-slate-400">Holy Banners</p>
-              <p className="text-lg font-semibold text-slate-200">{parsedData.holyBanners?.length || 0}</p>
-            </div>
-            <div className="border border-slate-600 rounded p-3 bg-slate-800/30">
-              <p className="text-[10px] text-slate-400">Royal Banner</p>
-              <p className="text-lg font-semibold text-slate-200">{parsedData.royalBanner?.name || 'N/A'}</p>
-            </div>
-          </div>
+          {textureEntries.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-[10px]"
+              onClick={() => addTexture(textureEntries[0]?.bannerIdx || 0)}
+            >
+              <Plus className="w-3 h-3 mr-1" /> Add New Texture Entry
+            </Button>
+          )}
         </div>
       ) : (
         <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-700 rounded-lg">
