@@ -70,7 +70,7 @@ export function parseDescrCharacter(text) {
       currentType.startingActionPoints = parseInt(tokens[1], 10) || 80;
     } else if (key === 'faction') {
       flushFaction();
-      currentFaction = { faction: tokens[1], dictionary: '', stratModels: [], battleModel: '', battleEquip: '' };
+      currentFaction = { faction: (tokens[1] || '').replace(/,+$/, ''), dictionary: '', stratModels: [], battleModel: '', battleEquip: '' };
     } else if (currentFaction) {
       if (key === 'dictionary') {
         currentFaction.dictionary = tokens[1] || '';

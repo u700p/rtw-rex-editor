@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { parseDescrCharacter, serialiseDescrCharacter, parseDescrModelStrat, serialiseDescrModelStrat } from './stratCharParser';
 import { loadTextureFiles, getTexturePreview, getStoreSize } from '../banners/TextureStore';
+import StratModelPreview from './StratModelPreview';
 
 const CHAR_KEY = 'm2tw_descr_character';
 const STRAT_KEY = 'm2tw_descr_model_strat';
@@ -297,6 +298,7 @@ function TexThumbInline({ path, texCount }) {
 function StratModelCard({ model, onChange, onDelete, texCount, factions }) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(null);
+  const [showModelPreview, setShowModelPreview] = useState(false);
 
   const updateTex = (i, field, val) => onChange({ ...model, textures: model.textures.map((t, idx) => idx === i ? { ...t, [field]: val } : t) });
   const addTex = () => onChange({ ...model, textures: [...model.textures, { faction: '', path: '' }] });
@@ -316,6 +318,8 @@ function StratModelCard({ model, onChange, onDelete, texCount, factions }) {
         <span className="text-[9px] text-slate-500">{model.textures.length} textures</span>
         <button onClick={e => { e.stopPropagation(); setPreview(allTextures); }} title="Preview textures"
           className="text-violet-400 hover:text-violet-300 p-0.5"><Eye className="w-3 h-3" /></button>
+        <button onClick={e => { e.stopPropagation(); setShowModelPreview(true); }} title="3D model preview"
+          className="text-teal-400 hover:text-teal-300 p-0.5" style={{fontSize:'9px', lineHeight:1}}>3D</button>
         <button onClick={e => { e.stopPropagation(); onDelete(); }}
           className="text-red-500 hover:text-red-400 p-0.5"><Trash2 className="w-3 h-3" /></button>
       </div>
@@ -380,6 +384,13 @@ function StratModelCard({ model, onChange, onDelete, texCount, factions }) {
         </div>
       )}
       {preview && <TextureModal items={preview} onClose={() => setPreview(null)} />}
+      {showModelPreview && (
+        <StratModelPreview
+          modelEntry={model}
+          factionHint={model.textures?.[0]?.faction || ''}
+          onClose={() => setShowModelPreview(false)}
+        />
+      )}
     </div>
   );
 }
