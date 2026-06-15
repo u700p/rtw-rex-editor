@@ -104,8 +104,25 @@ export default function BannersTab({ factionName }) {
         setBannersData(data);
         const parsed = parseBannersXml(data);
         setParsedData(parsed);
+      } else {
+        // Clear state if no data for this faction
+        setBannersData(null);
+        setParsedData(null);
       }
     } catch {}
+  }, [factionName]);
+
+  // Listen for custom banners update event (from faction duplication)
+  useEffect(() => {
+    const handleBannersUpdate = (e) => {
+      if (e.detail?.factionName === factionName && e.detail?.data) {
+        setBannersData(e.detail.data);
+        const parsed = parseBannersXml(e.detail.data);
+        setParsedData(parsed);
+      }
+    };
+    window.addEventListener('banners-updated', handleBannersUpdate);
+    return () => window.removeEventListener('banners-updated', handleBannersUpdate);
   }, [factionName]);
 
   // Collect all texture entries for this faction from all sections

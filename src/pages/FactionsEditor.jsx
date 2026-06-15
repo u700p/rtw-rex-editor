@@ -773,6 +773,11 @@ export default function FactionsEditor() {
         
         const newText = serialiseBannersXml(parsed);
         localStorage.setItem(`m2tw_banners_${newFactionName}`, newText);
+        
+        // Dispatch custom event to notify BannersTab of new data
+        window.dispatchEvent(new CustomEvent('banners-updated', { 
+          detail: { factionName: newFactionName, data: newText } 
+        }));
       }
     } catch {}
     
