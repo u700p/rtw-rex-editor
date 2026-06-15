@@ -5,6 +5,7 @@
  */
 
 import { extractDdsFromTexture, ddsToImageData } from '@/lib/textureCodec';
+import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
 
 const store = new Map();
 
@@ -40,7 +41,11 @@ async function fileToDataUrl(file) {
     return canvas.toDataURL('image/png');
   }
 
-  // Fallback for plain PNG/TGA etc — create object URL
+  // Try TGA decoding
+  const tgaUrl = decodeTgaToDataUrl(buffer);
+  if (tgaUrl) return tgaUrl;
+
+  // Fallback for plain PNG/JPG etc — create object URL
   return URL.createObjectURL(file);
 }
 
