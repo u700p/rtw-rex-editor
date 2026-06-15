@@ -27,6 +27,7 @@ export default function SpriteSheetEditor({ label, storageKey }) {
   const [pageImages, setPageImages] = useState({}); // { pageIndex: dataUrl }
   const [activePageIdx, setActivePageIdx] = useState(0);
   const [hoveredIdx, setHoveredIdx] = useState(null);
+  const [selectedIdx, setSelectedIdx] = useState(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [pendingRect, setPendingRect] = useState(null);
   const [newSpriteName, setNewSpriteName] = useState('');
@@ -48,6 +49,7 @@ export default function SpriteSheetEditor({ label, storageKey }) {
     setActivePageIdx(0);
     setPendingRect(null);
     setSelectionMode(false);
+    setSelectedIdx(null);
   }, []);
 
   // --- Load TGA image for a page ---
@@ -131,6 +133,7 @@ export default function SpriteSheetEditor({ label, storageKey }) {
       ...prev,
       sprites: prev.sprites.filter(s => s.index !== index).map((s, i) => ({ ...s, index: i })),
     }));
+    setSelectedIdx(prev => (prev === index ? null : prev));
   };
 
   // --- Update sprite field inline ---
@@ -302,13 +305,15 @@ export default function SpriteSheetEditor({ label, storageKey }) {
             <div className="p-1 space-y-0.5">
               {filteredSprites.map(sp => (
                 <div
-                  key={sp.index}
-                  onMouseEnter={() => { setHoveredIdx(sp.index); setActivePageIdx(sp.page); }}
-                  onMouseLeave={() => setHoveredIdx(null)}
-                  className={`flex items-center gap-1 px-1.5 py-1 rounded cursor-pointer transition-colors text-[9px] group ${
-                    hoveredIdx === sp.index ? 'bg-amber-600/20 text-amber-300' : 'text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
+                   key={sp.index}
+                   onMouseEnter={() => { setHoveredIdx(sp.index); setActivePageIdx(sp.page); }}
+                   onMouseLeave={() => setHoveredIdx(null)}
+                   onClick={() => { setSelectedIdx(sp.index); setActivePageIdx(sp.page); }}
+                   className={`flex items-center gap-1 px-1.5 py-1 rounded cursor-pointer transition-colors text-[9px] group ${
+                     selectedIdx === sp.index ? 'bg-amber-600/30 text-amber-200 ring-1 ring-amber-600/50' :
+                     hoveredIdx === sp.index ? 'bg-amber-600/20 text-amber-300' : 'text-slate-400 hover:bg-slate-800'
+                   }`}
+                 >
                   <span className="font-mono text-slate-500 w-6 shrink-0">{sp.index}</span>
                   <span className="flex-1 truncate font-mono">{sp.name}</span>
                   <span className="text-slate-600 shrink-0">p{sp.page}</span>
@@ -332,9 +337,9 @@ export default function SpriteSheetEditor({ label, storageKey }) {
             </div>
           </ScrollArea>
 
-          {/* Hovered sprite detail */}
-          {hoveredIdx !== null && (() => {
-            const sp = data.sprites.find(s => s.index === hoveredIdx);
+          {/* Selected sprite detail */}
+          {selectedIdx !== null && (() => {
+            const sp = data.sprites.find(s => s.index === selectedIdx);
             if (!sp) return null;
             return (
               <div className="p-2 bg-slate-800/60 border border-slate-700 rounded text-[9px] space-y-1.5">
