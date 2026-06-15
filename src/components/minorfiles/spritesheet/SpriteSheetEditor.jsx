@@ -72,7 +72,12 @@ export default function SpriteSheetEditor({ label, storageKey }) {
     if (!newPageFile.trim()) return;
     setData(prev => ({
       ...prev,
-      pages: [...prev.pages, { file: newPageFile.trim(), width: newPageW, height: newPageH, force32bit: '0' }],
+      pages: [...prev.pages, { 
+        file: newPageFile.trim(), 
+        width: newPageW, 
+        height: newPageH, 
+        force32bit: '0' 
+      }],
     }));
     setNewPageFile('');
     setShowAddPage(false);
@@ -108,7 +113,10 @@ export default function SpriteSheetEditor({ label, storageKey }) {
         name: newSpriteName.trim().toUpperCase(),
         page: activePageIdx,
         ...pendingRect,
-        x_offset: 0, y_offset: 0, alpha: '1', cursor: '0',
+        x_offset: 0,
+        y_offset: 0,
+        alpha: '1',
+        cursor: '0',
       };
       return { ...prev, sprites: [...prev.sprites, sprite] };
     });
@@ -122,7 +130,11 @@ export default function SpriteSheetEditor({ label, storageKey }) {
     setData(prev => {
       const src = prev.sprites.find(s => s.index === index);
       if (!src) return prev;
-      const newSprite = { ...src, index: prev.sprites.length, name: src.name + '_COPY' };
+      const newSprite = { 
+        ...src, 
+        index: prev.sprites.length, 
+        name: src.name + '_COPY' 
+      };
       return { ...prev, sprites: [...prev.sprites, newSprite] };
     });
   };
@@ -182,6 +194,14 @@ export default function SpriteSheetEditor({ label, storageKey }) {
           <Upload className="w-3.5 h-3.5 mr-1" /> Reload XML
         </Button>
         <input ref={xmlInputRef} type="file" accept=".xml,.txt" className="hidden" onChange={handleXmlFile} />
+        {data.format && (
+          <>
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${data.format === 'm2ex' ? 'bg-purple-900/30 text-purple-400 border border-purple-700' : 'bg-blue-900/30 text-blue-400 border border-blue-700'}`}>
+              {data.format === 'm2ex' ? 'M2EX' : 'M2TW'}
+            </span>
+            <span className="text-[10px] text-slate-600">•</span>
+          </>
+        )}
         <span className="text-[10px] font-mono text-slate-500">{data.enumName}</span>
         <span className="text-[10px] text-slate-600">•</span>
         <span className="text-[10px] text-slate-500">{data.sprites.length} sprites / {data.pages.length} pages</span>

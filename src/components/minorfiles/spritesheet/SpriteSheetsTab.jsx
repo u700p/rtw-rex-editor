@@ -5,6 +5,7 @@ const SHEET_TABS = [
   { id: 'strategy', label: 'strategy.sd.xml', key: 'm2tw_strategy_sd_xml' },
   { id: 'battle',   label: 'battle.sd.xml',   key: 'm2tw_battle_sd_xml'   },
   { id: 'shared',   label: 'shared.sd.xml',   key: 'm2tw_shared_sd_xml'   },
+  { id: 'radar',    label: 'radar.sd.xml',    key: 'm2tw_radar_sd_xml'    },
 ];
 
 export default function SpriteSheetsTab() {
