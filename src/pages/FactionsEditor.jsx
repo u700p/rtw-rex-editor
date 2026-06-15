@@ -9,7 +9,6 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import BannersTab from '@/components/factions/BannersTab';
 import { parseBannersXml, serialiseBannersXml } from '@/components/minorfiles/banners/bannersParser';
 import DescriptionsTab from '@/components/factions/DescriptionsTab';
-import StringsTab from '@/components/factions/StringsTab';
 import MiscTab from '@/components/factions/MiscTab';
 
 const VANILLA_FACTION_LIMIT = 31;
@@ -377,11 +376,10 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSav
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-4">
+          <TabsList className="grid w-full grid-cols-4 mb-4">
             <TabsTrigger value="stratmap" className="text-[10px]"><Palette className="w-3 h-3 mr-1" />Stratmap</TabsTrigger>
             <TabsTrigger value="banners" className="text-[10px]"><FileText className="w-3 h-3 mr-1" />Banners</TabsTrigger>
             <TabsTrigger value="descriptions" className="text-[10px]"><ScrollText className="w-3 h-3 mr-1" />Descriptions</TabsTrigger>
-            <TabsTrigger value="strings" className="text-[10px]"><FileText className="w-3 h-3 mr-1" />Strings</TabsTrigger>
             <TabsTrigger value="misc" className="text-[10px]"><Settings className="w-3 h-3 mr-1" />Misc</TabsTrigger>
           </TabsList>
 
@@ -503,10 +501,6 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSav
 
           <TabsContent value="descriptions" className="space-y-4">
             <DescriptionsTab factionName={draft.name} />
-          </TabsContent>
-
-          <TabsContent value="strings" className="space-y-4">
-            <StringsTab factionName={draft.name} />
           </TabsContent>
 
           <TabsContent value="misc" className="space-y-4">
@@ -632,15 +626,6 @@ export default function FactionsEditor() {
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
   const [duplicateSourceIdx, setDuplicateSourceIdx] = useState(null);
   const [duplicateName, setDuplicateName] = useState('');
-  const [duplicateStrings, setDuplicateStrings] = useState({
-    displayName: '',
-    adjective: '',
-    leaderTitle: '',
-    heirTitle: '',
-    strengths: '',
-    weaknesses: '',
-    customUnit: ''
-  });
 
   const openDuplicateModal = (i) => {
     const src = factions[i];
@@ -652,15 +637,6 @@ export default function FactionsEditor() {
     }
     setDuplicateName(newName);
     setDuplicateSourceIdx(i);
-    setDuplicateStrings({
-      displayName: newName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-      adjective: newName,
-      leaderTitle: '',
-      heirTitle: '',
-      strengths: '',
-      weaknesses: '',
-      customUnit: ''
-    });
     setDuplicateModalOpen(true);
   };
 
@@ -669,7 +645,6 @@ export default function FactionsEditor() {
     const src = factions[duplicateSourceIdx];
     const newFactionName = duplicateName.trim();
     const nameUpper = duplicateName.toUpperCase();
-    const { displayName, adjective, leaderTitle, heirTitle, strengths, weaknesses, customUnit } = duplicateStrings;
     const dup = {
       ...src,
       name: newFactionName,
@@ -806,77 +781,9 @@ export default function FactionsEditor() {
       }
     } catch {}
     
-    // Generate strings.bin entries (outside try-catch for banners)
-    try {
-      const stringsEntries = [
-        { key: `${nameUpper}`, value: displayName },
-        { key: `EMT_${nameUpper}_SPY`, value: adjective ? `${adjective} Spy` : '' },
-        { key: `EMT_${nameUpper}_ASSASSIN`, value: adjective ? `${adjective} Assassin` : '' },
-        { key: `EMT_${nameUpper}_DIPLOMAT`, value: adjective ? `${adjective} Diplomat` : '' },
-        { key: `EMT_${nameUpper}_ADMIRAL`, value: adjective ? `${adjective} Navy` : '' },
-        { key: `EMT_${nameUpper}_GENERAL`, value: adjective ? `${adjective} Army` : '' },
-        { key: `EMT_${nameUpper}_NAMED_CHARACTER`, value: adjective ? `${adjective} Family Member` : '' },
-        { key: `EMT_${nameUpper}_NAMED_GENERAL`, value: adjective ? `${adjective} General` : '' },
-        { key: `EMT_${nameUpper}_PRINCESS`, value: adjective ? `${adjective} Princess` : '' },
-        { key: `EMT_${nameUpper}_MERCHANT`, value: adjective ? `${adjective} Merchant` : '' },
-        { key: `EMT_${nameUpper}_PRIEST`, value: adjective ? `${adjective} Priest` : '' },
-        { key: `EMT_${nameUpper}_PRIEST_1`, value: adjective ? `${adjective} Bishop` : '' },
-        { key: `EMT_${nameUpper}_PRIEST_2`, value: adjective ? `${adjective} Cardinal` : '' },
-        { key: `EMT_${nameUpper}_VILLAGE`, value: adjective ? `${adjective} Village` : '' },
-        { key: `EMT_${nameUpper}_TOWN`, value: adjective ? `${adjective} Town` : '' },
-        { key: `EMT_${nameUpper}_LARGE_TOWN`, value: adjective ? `${adjective} Large Town` : '' },
-        { key: `EMT_${nameUpper}_CITY`, value: adjective ? `${adjective} City` : '' },
-        { key: `EMT_${nameUpper}_LARGE_CITY`, value: adjective ? `${adjective} Large City` : '' },
-        { key: `EMT_${nameUpper}_HUGE_CITY`, value: adjective ? `${adjective} Huge City` : '' },
-        { key: `EMT_${nameUpper}_WOODEN_CASTLE`, value: adjective ? `${adjective} Motte and Bailey` : '' },
-        { key: `EMT_${nameUpper}_STONE_KEEP`, value: adjective ? `${adjective} Wooden Castle` : '' },
-        { key: `EMT_${nameUpper}_CASTLE`, value: adjective ? `${adjective} Castle` : '' },
-        { key: `EMT_${nameUpper}_LARGE_CASTLE`, value: adjective ? `${adjective} Fortress` : '' },
-        { key: `EMT_${nameUpper}_FORTRESS`, value: adjective ? `${adjective} Citadel` : '' },
-        { key: `EMT_${nameUpper}_STAR_FORT`, value: adjective ? `${adjective} Star Fort` : '' },
-        { key: `EMT_${nameUpper}_CAPITAL`, value: adjective ? `${adjective} Capital` : '' },
-        { key: `EMT_${nameUpper}_FORT`, value: adjective ? `${adjective} Fort` : '' },
-        { key: `EMT_${nameUpper}_PORT`, value: adjective ? `${adjective} Port` : '' },
-        { key: `EMT_${nameUpper}_DOCK`, value: adjective ? `${adjective} Docks` : '' },
-        { key: `EMT_${nameUpper}_FISHING_VILLAGE`, value: adjective ? `${adjective} Fishing Village` : '' },
-        { key: `EMT_${nameUpper}_WATCHTOWER`, value: adjective ? `${adjective} Watchtower` : '' },
-        { key: `EMT_${nameUpper}_FACTION_LEADER`, value: adjective ? `${adjective} Faction Leader` : '' },
-        { key: `EMT_${nameUpper}_FACTION_HEIR`, value: adjective ? `${adjective} Faction Heir` : '' },
-        { key: `EMT_${nameUpper}_FACTION_LEADER_TITLE`, value: leaderTitle || '' },
-        { key: `EMT_${nameUpper}_FACTION_HEIR_TITLE`, value: heirTitle || '' },
-        { key: `EMT_${nameUpper}_FACTION_LEADER_NAME`, value: leaderTitle ? `${leaderTitle} %S` : '' },
-        { key: `EMT_${nameUpper}_FACTION_HEIR_NAME`, value: heirTitle ? `${heirTitle} %S` : '' },
-        { key: `EMT_${nameUpper}_FORMER_FACTION_LEADER_TITLE`, value: leaderTitle || '' },
-        { key: `EMT_YOUR_FORCES_ATTACK_ARMY_${nameUpper}`, value: adjective ? `Your forces attack a ${adjective} army` : '' },
-        { key: `EMT_YOUR_FORCES_ATTACK_NAVY_${nameUpper}`, value: adjective ? `Your forces attack a ${adjective} navy` : '' },
-        { key: `EMT_YOUR_FORCES_AMBUSH_ARMY_${nameUpper}`, value: adjective ? `Your forces ambush a ${adjective} army` : '' },
-        { key: `EMT_YOUR_FORCES_ATTACKED_ARMY_${nameUpper}`, value: adjective ? `Your forces are attacked by a ${adjective} army` : '' },
-        { key: `EMT_YOUR_FORCES_ATTACKED_NAVY_${nameUpper}`, value: adjective ? `Your forces are attacked by a ${adjective} navy` : '' },
-        { key: `EMT_YOUR_FORCES_AMBUSHED_ARMY_${nameUpper}`, value: adjective ? `Your forces are ambushed by a ${adjective} army` : '' },
-        { key: `EMT_VICTORY_${nameUpper}`, value: displayName ? `The ${displayName} won!` : '' },
-        { key: `${nameUpper}_STRENGTH`, value: strengths || '' },
-        { key: `${nameUpper}_WEAKNESS`, value: weaknesses || '' },
-        { key: `${nameUpper}_UNIT`, value: customUnit || '' }
-      ];
-      
-      // Dispatch event to update StringsTab
-      window.dispatchEvent(new CustomEvent('strings-update-request', { 
-        detail: { factionName: newFactionName, entries: stringsEntries } 
-      }));
-    } catch {}
-    
     setDuplicateModalOpen(false);
     setDuplicateSourceIdx(null);
     setDuplicateName('');
-    setDuplicateStrings({
-      displayName: '',
-      adjective: '',
-      leaderTitle: '',
-      heirTitle: '',
-      strengths: '',
-      weaknesses: '',
-      customUnit: ''
-    });
   };
 
   const onDragEnd = (result) => {
@@ -1054,82 +961,6 @@ export default function FactionsEditor() {
                 className="h-8 text-[11px] px-2 bg-slate-700 border-slate-600 text-slate-100"
                 onKeyDown={(e) => e.key === 'Enter' && confirmDuplicate()}
               />
-            </div>
-            
-            <div className="border-t border-slate-700 pt-3">
-              <p className="text-[10px] text-slate-400 mb-3">Strings.bin Entries (leave empty to skip)</p>
-              
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[9px] text-slate-400 block mb-1">Faction Display Name</label>
-                  <Input
-                    value={duplicateStrings.displayName}
-                    onChange={(e) => setDuplicateStrings(s => ({ ...s, displayName: e.target.value }))}
-                    placeholder="e.g. The Mongols"
-                    className="h-7 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100"
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] text-slate-400 block mb-1">Faction Adjective</label>
-                  <Input
-                    value={duplicateStrings.adjective}
-                    onChange={(e) => setDuplicateStrings(s => ({ ...s, adjective: e.target.value }))}
-                    placeholder="e.g. Mongol"
-                    className="h-7 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100"
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <div>
-                  <label className="text-[9px] text-slate-400 block mb-1">Leader Title (optional)</label>
-                  <Input
-                    value={duplicateStrings.leaderTitle}
-                    onChange={(e) => setDuplicateStrings(s => ({ ...s, leaderTitle: e.target.value }))}
-                    placeholder="e.g. Great Khan"
-                    className="h-7 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100"
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] text-slate-400 block mb-1">Heir Title (optional)</label>
-                  <Input
-                    value={duplicateStrings.heirTitle}
-                    onChange={(e) => setDuplicateStrings(s => ({ ...s, heirTitle: e.target.value }))}
-                    placeholder="e.g. Khan"
-                    className="h-7 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100"
-                  />
-                </div>
-              </div>
-              
-              <div className="mt-3">
-                <label className="text-[9px] text-slate-400 block mb-1">Custom Strengths (optional)</label>
-                <textarea
-                  value={duplicateStrings.strengths}
-                  onChange={(e) => setDuplicateStrings(s => ({ ...s, strengths: e.target.value }))}
-                  placeholder="e.g. Expert horse archers, fast movement"
-                  className="w-full h-16 bg-slate-700 border border-slate-600 rounded p-2 text-[10px] text-slate-100 resize-none"
-                />
-              </div>
-              
-              <div className="mt-3">
-                <label className="text-[9px] text-slate-400 block mb-1">Custom Weaknesses (optional)</label>
-                <textarea
-                  value={duplicateStrings.weaknesses}
-                  onChange={(e) => setDuplicateStrings(s => ({ ...s, weaknesses: e.target.value }))}
-                  placeholder="e.g. Weak in siege defense"
-                  className="w-full h-16 bg-slate-700 border border-slate-600 rounded p-2 text-[10px] text-slate-100 resize-none"
-                />
-              </div>
-              
-              <div className="mt-3">
-                <label className="text-[9px] text-slate-400 block mb-1">Custom Unit Name (optional)</label>
-                <Input
-                  value={duplicateStrings.customUnit}
-                  onChange={(e) => setDuplicateStrings(s => ({ ...s, customUnit: e.target.value }))}
-                  placeholder="e.g. Keshik Guard"
-                  className="h-7 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100"
-                />
-              </div>
             </div>
           </div>
           <DialogFooter>
