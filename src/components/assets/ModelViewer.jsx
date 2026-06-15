@@ -63,7 +63,7 @@ function buildSuperGroups(meshNames, groupComments) {
   return result;
 }
 
-export default function ModelViewer({ parsedMesh, skeletonData, groupComments, className = '' }) {
+export default function ModelViewer({ parsedMesh, skeletonData, groupComments, soloMeshIndex = -1, className = '' }) {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const sceneRef = useRef(null);
@@ -358,6 +358,20 @@ export default function ModelViewer({ parsedMesh, skeletonData, groupComments, c
   useEffect(() => {
     if (skeletonObjRef.current) skeletonObjRef.current.visible = showSkeleton;
   }, [showSkeleton]);
+
+  // ── Solo mesh index (from external slider) ──────────────────────────────
+  useEffect(() => {
+    if (!meshObjsRef.current.length) return;
+    meshObjsRef.current.forEach((obj, idx) => {
+      const visible = soloMeshIndex === -1 || idx === soloMeshIndex;
+      obj.visible = visible;
+    });
+    // Sync meshInfos state so sidebar reflects the change
+    setMeshInfos(prev => prev.map((info, idx) => ({
+      ...info,
+      visible: soloMeshIndex === -1 || idx === soloMeshIndex,
+    })));
+  }, [soloMeshIndex]);
 
   // ── Apply pose (skin vertices + update skeleton vis) ───────────────────
   useEffect(() => {

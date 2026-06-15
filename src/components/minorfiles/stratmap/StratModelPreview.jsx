@@ -20,8 +20,32 @@ function dataUrlToFile(dataUrl, filename) {
   return new File([u8], filename, { type: mime });
 }
 
+// ── Mesh group slider panel ────────────────────────────────────────────────────
+function MeshGroupSlider({ meshes, soloIndex, onChange }) {
+  const total = meshes?.length ?? 0;
+  if (total <= 1) return null;
+  return (
+    <div className="flex items-center gap-3 px-3 py-1.5 bg-slate-950/70 border-b border-slate-800 shrink-0">
+      <span className="text-[10px] text-slate-400 shrink-0 font-mono">Mesh group</span>
+      <input
+        type="range"
+        min={-1}
+        max={total - 1}
+        value={soloIndex}
+        onChange={e => onChange(Number(e.target.value))}
+        className="flex-1 h-1 accent-teal-400"
+      />
+      <span className="text-[10px] font-mono text-teal-300 w-24 truncate shrink-0 text-right">
+        {soloIndex === -1
+          ? `All (${total})`
+          : `[${soloIndex}] ${meshes[soloIndex]?.name ?? ''}`}
+      </span>
+    </div>
+  );
+}
+
 // ── Inner viewer: wraps ModelViewer and auto-applies texture from store ────────
-function ViewerWithAutoTex({ parsedMesh, ms3dFull, modelEntry, factionHint }) {
+function ViewerWithAutoTex({ parsedMesh, ms3dFull, modelEntry, factionHint, soloMeshIndex }) {
   // Find the best available texture data URL from the store
   const bestTexUrl = (() => {
     const candidates = [];
@@ -68,6 +92,7 @@ function ViewerWithAutoTex({ parsedMesh, ms3dFull, modelEntry, factionHint }) {
       parsedMesh={parsedMesh}
       skeletonData={ms3dFull || null}
       groupComments={ms3dFull?.groupComments || null}
+      soloMeshIndex={soloMeshIndex}
       className="w-full h-full"
     />
   );
@@ -77,6 +102,7 @@ function ViewerWithAutoTex({ parsedMesh, ms3dFull, modelEntry, factionHint }) {
 export default function StratModelPreview({ modelEntry, factionHint, onClose }) {
   const [loaded, setLoaded] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [soloIndex, setSoloIndex] = useState(-1); // -1 = show all
   const fileRef = useRef();
 
   const loadFile = useCallback(async (file) => {
@@ -84,6 +110,7 @@ export default function StratModelPreview({ modelEntry, factionHint, onClose }) 
     const buf = await file.arrayBuffer();
     const parsed = parseMs3d(buf);
     const ms3dFull = parseMs3dFull(buf);
+    setSoloIndex(-1);
     setLoaded({
       name: file.name,
       parsed,
@@ -206,6 +233,12 @@ export default function StratModelPreview({ modelEntry, factionHint, onClose }) 
                   ↻ Load
                 </label>
               </div>
+              {/* Mesh group slider */}
+              <MeshGroupSlider
+                meshes={loaded.parsed.meshes}
+                soloIndex={soloIndex}
+                onChange={setSoloIndex}
+              />
               {/* Viewer */}
               <div className="flex-1 min-h-0">
                 <ViewerWithAutoTex
@@ -213,6 +246,7 @@ export default function StratModelPreview({ modelEntry, factionHint, onClose }) 
                   ms3dFull={loaded.ms3dFull}
                   modelEntry={modelEntry}
                   factionHint={factionHint}
+                  soloMeshIndex={soloIndex}
                 />
               </div>
             </div>

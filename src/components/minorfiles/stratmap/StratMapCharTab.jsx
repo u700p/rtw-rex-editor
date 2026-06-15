@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Download, Plus, Trash2, Copy, ChevronDown, ChevronRight, Eye, X } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, Copy, ChevronDown, ChevronRight, Eye, X, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -317,11 +317,11 @@ function StratModelCard({ model, onChange, onDelete, texCount, factions }) {
         <span className="text-[11px] font-mono text-teal-400 flex-1">{model.name || '(unnamed)'}</span>
         <span className="text-[9px] text-slate-500">{model.textures.length} textures</span>
         <button onClick={e => { e.stopPropagation(); setPreview(allTextures); }} title="Preview textures"
-          className="text-violet-400 hover:text-violet-300 p-0.5"><Eye className="w-3 h-3" /></button>
+          className="text-violet-400 hover:text-violet-300 p-1 rounded hover:bg-violet-900/30 transition-colors"><Eye className="w-4 h-4" /></button>
         <button onClick={e => { e.stopPropagation(); setShowModelPreview(true); }} title="3D model preview"
-          className="text-teal-400 hover:text-teal-300 p-0.5" style={{fontSize:'9px', lineHeight:1}}>3D</button>
+          className="text-teal-400 hover:text-teal-300 p-1 rounded hover:bg-teal-900/30 transition-colors text-xs font-bold">3D</button>
         <button onClick={e => { e.stopPropagation(); onDelete(); }}
-          className="text-red-500 hover:text-red-400 p-0.5"><Trash2 className="w-3 h-3" /></button>
+          className="text-red-500 hover:text-red-400 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
       </div>
       {open && (
         <div className="px-3 pb-3 pt-1 space-y-2">
@@ -395,6 +395,159 @@ function StratModelCard({ model, onChange, onDelete, texCount, factions }) {
   );
 }
 
+// ── Bulk Edit Panel ────────────────────────────────────────────────────────────
+function BulkEditPanel({ charData, stratData, factions, onCharDataChange, onStratDataChange, onClose }) {
+  const [sourceFaction, setSourceFaction] = useState('');
+  const [newFaction, setNewFaction] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [done, setDone] = useState(false);
+
+  // Collect all unique factions from charData
+  const allFactions = [...new Set([
+    ...(charData?.types.flatMap(t => t.factions.map(f => f.faction)) || []),
+    ...factions,
+  ])].filter(Boolean).sort();
+
+  const buildPreview = () => {
+    if (!sourceFaction || !newFaction.trim()) return;
+    // For each char type: find faction entries matching sourceFaction and clone with newFaction
+    const charChanges = (charData?.types || []).map(t => {
+      const matches = t.factions.filter(f => f.faction === sourceFaction);
+      return { typeName: t.type, count: matches.length };
+    }).filter(c => c.count > 0);
+
+    // Strat models: find textures with the source faction and clone them
+    const stratChanges = (stratData || []).map(m => {
+      const matches = m.textures.filter(t => t.faction === sourceFaction);
+      return { modelName: m.name, count: matches.length };
+    }).filter(c => c.count > 0);
+
+    setPreview({ charChanges, stratChanges });
+  };
+
+  const applyBulkDuplicate = () => {
+    const nf = newFaction.trim();
+    if (!sourceFaction || !nf) return;
+
+    // Update charData — for each type, clone all entries of sourceFaction with newFaction
+    if (charData) {
+      const newTypes = charData.types.map(t => {
+        const toClone = t.factions.filter(f => f.faction === sourceFaction);
+        if (!toClone.length) return t;
+        const clones = toClone.map(f => ({ ...f, faction: nf }));
+        // Insert clones right after the last occurrence of sourceFaction
+        const factions = [...t.factions];
+        const lastIdx = factions.map((f, i) => f.faction === sourceFaction ? i : -1).filter(i => i >= 0).pop();
+        factions.splice(lastIdx + 1, 0, ...clones);
+        return { ...t, factions };
+      });
+      onCharDataChange({ ...charData, types: newTypes });
+    }
+
+    // Update stratData — for each model, clone texture entries of sourceFaction with newFaction
+    if (stratData) {
+      const newStratData = stratData.map(m => {
+        const toClone = m.textures.filter(t => t.faction === sourceFaction);
+        if (!toClone.length) return m;
+        const clones = toClone.map(t => ({ ...t, faction: nf }));
+        const textures = [...m.textures];
+        const lastIdx = textures.map((t, i) => t.faction === sourceFaction ? i : -1).filter(i => i >= 0).pop();
+        textures.splice(lastIdx + 1, 0, ...clones);
+        return { ...m, textures };
+      });
+      onStratDataChange(newStratData);
+    }
+
+    setDone(true);
+    setPreview(null);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-600 rounded-xl shadow-2xl w-[520px] max-w-[95vw] flex flex-col"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700">
+          <Layers className="w-4 h-4 text-amber-400" />
+          <span className="text-sm font-semibold text-amber-300 flex-1">Bulk Edit — Duplicate Faction Entries</span>
+          <button onClick={onClose} className="text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <p className="text-[11px] text-slate-400">
+            Duplicate all character type faction entries and strat model textures from one faction to a new faction name.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] text-slate-400 font-mono mb-1 block">Source Faction</label>
+              <select
+                className="w-full h-8 text-[11px] px-2 rounded border border-input bg-background text-foreground"
+                value={sourceFaction}
+                onChange={e => { setSourceFaction(e.target.value); setPreview(null); setDone(false); }}
+              >
+                <option value="">— select source —</option>
+                {allFactions.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 font-mono mb-1 block">New Faction Name</label>
+              <Input
+                className="h-8 text-[11px]"
+                value={newFaction}
+                onChange={e => { setNewFaction(e.target.value); setPreview(null); setDone(false); }}
+                placeholder="e.g. my_new_faction"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="text-[11px] h-7"
+              onClick={buildPreview} disabled={!sourceFaction || !newFaction.trim()}>
+              Preview Changes
+            </Button>
+            <Button size="sm" className="text-[11px] h-7 bg-amber-700 hover:bg-amber-600 text-white"
+              onClick={applyBulkDuplicate} disabled={!sourceFaction || !newFaction.trim()}>
+              Apply Duplicate
+            </Button>
+          </div>
+
+          {done && (
+            <div className="rounded bg-green-900/30 border border-green-700 px-3 py-2 text-[11px] text-green-300">
+              ✓ Done! Entries duplicated for <span className="font-mono">{newFaction}</span>. Close this panel and export your files.
+            </div>
+          )}
+
+          {preview && !done && (
+            <div className="rounded bg-slate-800 border border-slate-700 px-3 py-2 space-y-2 text-[11px]">
+              <p className="text-slate-300 font-semibold">Preview — entries to be cloned:</p>
+              {preview.charChanges.length > 0 ? (
+                <div>
+                  <p className="text-amber-400 text-[10px] font-mono mb-1">descr_character.txt</p>
+                  {preview.charChanges.map((c, i) => (
+                    <div key={i} className="text-slate-400 pl-2">
+                      + <span className="font-mono text-slate-300">{c.typeName}</span>: {c.count} faction row(s)
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-slate-500 italic">No character entries found for this faction.</p>}
+              {preview.stratChanges.length > 0 ? (
+                <div>
+                  <p className="text-teal-400 text-[10px] font-mono mb-1 mt-2">descr_model_strat.txt</p>
+                  {preview.stratChanges.map((c, i) => (
+                    <div key={i} className="text-slate-400 pl-2">
+                      + <span className="font-mono text-slate-300">{c.modelName}</span>: {c.count} texture row(s)
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-slate-500 italic mt-1">No strat model textures found for this faction.</p>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function StratMapCharTab() {
   const [charData, setCharData] = useState(null);
@@ -403,6 +556,7 @@ export default function StratMapCharTab() {
   const [factions, setFactions] = useState([]);
   const [texCount, setTexCount] = useState(0);
   const [activeView, setActiveView] = useState('characters');
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
 
   const charRef = useRef();
   const stratRef = useRef();
@@ -551,6 +705,14 @@ export default function StratMapCharTab() {
 
         <div className="flex-1" />
 
+        {(charData || stratData) && (
+          <Button size="sm" variant="outline"
+            className="text-[10px] h-7 text-amber-400 border-amber-700 hover:bg-amber-900/30"
+            onClick={() => setShowBulkEdit(true)}>
+            <Layers className="w-3 h-3 mr-1" /> Bulk Edit
+          </Button>
+        )}
+
         {charData && (
           <Button size="sm" variant="outline" className="text-[10px] h-7" onClick={exportChar}>
             <Download className="w-3 h-3 mr-1" /> Export descr_character
@@ -626,6 +788,17 @@ export default function StratMapCharTab() {
             )}
           </ScrollArea>
         </>
+      )}
+
+      {showBulkEdit && (
+        <BulkEditPanel
+          charData={charData}
+          stratData={stratData}
+          factions={factions}
+          onCharDataChange={setCharData}
+          onStratDataChange={(updated) => { setStratData(updated); setStratModelMap(buildModelMap(updated)); }}
+          onClose={() => setShowBulkEdit(false)}
+        />
       )}
     </div>
   );
