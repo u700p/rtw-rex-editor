@@ -797,7 +797,6 @@ export default function FactionsEditor() {
       
       const srcNameUpper = src.name.toUpperCase();
       const srcNameLower = src.name.toLowerCase();
-      const newFactionLower = newFactionName.toLowerCase();
       const srcAdj = (sourceAdjective || '').trim();
       const newAdj = (adjective || '').trim();
       
@@ -809,29 +808,23 @@ export default function FactionsEditor() {
       
       // Create new entries by replacing source faction name with new faction name in keys
       const newEntries = srcEntries.map(entry => {
-        // Replace faction name in the KEY (e.g., {BYZANTIUM} -> {BULGARIA})
+        // Replace faction name in the KEY (e.g., {MILAN} -> {MANTUA})
         const newKey = entry.key.replace(new RegExp(srcNameUpper, 'g'), nameUpper);
         
         // Start with the original value
         let newValue = entry.value;
         
-        // Replace faction name references in the VALUE
-        newValue = newValue
-          .replace(new RegExp(src.name, 'gi'), newFactionName)
-          .replace(new RegExp(srcNameLower, 'gi'), newFactionLower);
-        
-        // Replace source adjective with new adjective if provided (case-insensitive, preserves case pattern)
+        // Replace source adjective with new adjective EXACTLY as entered (case-sensitive)
         if (srcAdj && newAdj) {
-          newValue = newValue.replace(
-            new RegExp(srcAdj, 'gi'),
-            (match) => {
-              // Preserve capitalization: if source was capitalized, capitalize the replacement
-              if (match[0] === match[0].toUpperCase()) {
-                return newAdj.charAt(0).toUpperCase() + newAdj.slice(1);
-              }
-              return newAdj.toLowerCase();
-            }
-          );
+          // Exact case-sensitive replacement
+          newValue = newValue.replace(new RegExp(srcAdj, 'g'), newAdj);
+        }
+        
+        // Replace faction name references in the VALUE using displayName
+        if (displayName) {
+          newValue = newValue
+            .replace(new RegExp(src.name, 'gi'), displayName)
+            .replace(new RegExp(srcNameLower, 'gi'), displayName.toLowerCase());
         }
         
         // Apply user's custom edits for specific fields
@@ -1078,13 +1071,14 @@ export default function FactionsEditor() {
               
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[9px] text-slate-400 block mb-1">Faction Display Name</label>
+                  <label className="text-[9px] text-slate-400 block mb-1">Source Faction Adjective</label>
                   <Input
-                    value={duplicateStrings.displayName}
-                    onChange={(e) => setDuplicateStrings(s => ({ ...s, displayName: e.target.value }))}
-                    placeholder="e.g. Marquisate of Mantua"
+                    value={duplicateStrings.sourceAdjective || ''}
+                    onChange={(e) => setDuplicateStrings(s => ({ ...s, sourceAdjective: e.target.value }))}
+                    placeholder="e.g. Milanese"
                     className="h-7 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100"
                   />
+                  <p className="text-[9px] text-slate-500 mt-1">Adjective to replace from source</p>
                 </div>
                 <div>
                   <label className="text-[9px] text-slate-400 block mb-1">New Faction Adjective</label>
@@ -1094,18 +1088,19 @@ export default function FactionsEditor() {
                     placeholder="e.g. Mantuan"
                     className="h-7 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100"
                   />
+                  <p className="text-[9px] text-slate-500 mt-1">New adjective to use</p>
                 </div>
               </div>
               
               <div className="mt-3">
-                <label className="text-[9px] text-slate-400 block mb-1">Source Faction Adjective (to replace)</label>
+                <label className="text-[9px] text-slate-400 block mb-1">Faction Display Name</label>
                 <Input
-                  value={duplicateStrings.sourceAdjective || ''}
-                  onChange={(e) => setDuplicateStrings(s => ({ ...s, sourceAdjective: e.target.value }))}
-                  placeholder="e.g. Milanese (the adjective from the faction you're copying from)"
+                  value={duplicateStrings.displayName}
+                  onChange={(e) => setDuplicateStrings(s => ({ ...s, displayName: e.target.value }))}
+                  placeholder="e.g. Marquisate of Mantua"
                   className="h-7 text-[10px] px-2 bg-slate-700 border-slate-600 text-slate-100"
                 />
-                <p className="text-[9px] text-slate-500 mt-1">Enter the adjective used in the source faction's text entries</p>
+                <p className="text-[9px] text-slate-500 mt-1">Used for keys like &#123;MANTUA&#125; and display text</p>
               </div>
               
               <div className="grid grid-cols-2 gap-3 mt-3">
