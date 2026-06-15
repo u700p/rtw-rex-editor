@@ -17,21 +17,8 @@
 export function parseSdXml(text) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(text, 'application/xml');
-  
-  // Check for XML parsing errors
-  const parserError = doc.querySelector('parsererror');
-  if (parserError) {
-    throw new Error('XML parsing error: ' + parserError.textContent?.trim());
-  }
-
-  // Try to find root element (might be namespaced or have different casing)
-  let root = doc.querySelector('root');
-  if (!root) {
-    root = doc.documentElement;
-  }
-  if (!root) {
-    throw new Error('No root element found. File content: ' + text.substring(0, 200));
-  }
+  const root = doc.querySelector('root');
+  if (!root) throw new Error('No <root> element found');
 
   const version = root.querySelector('version')?.textContent?.trim() ?? '6';
   const enumName = root.querySelector('enumeration_name')?.textContent?.trim() ?? '';
