@@ -34,10 +34,10 @@ function parseFactionsList(text) {
     if (!line) continue;
     // Lines like: faction  venice  or  faction_entry  venice
     const m = line.match(/^(?:faction(?:_entry)?)\s+(\S+)/i);
-    if (m) factions.push(m[1]);
+    if (m) factions.push(m[1].replace(/,+$/, ''));
     // Also catch bare identifier lines that look like faction names (no spaces, no keywords)
     else if (/^[a-z_]+$/.test(line) && !['type','skeleton','scale','indiv_range','texture','model_flexi','model_flexi_m','shadow_model_flexi','ignore_registry'].includes(line)) {
-      factions.push(line);
+      factions.push(line.replace(/,+$/, ''));
     }
   }
   return [...new Set(factions)];
@@ -83,7 +83,7 @@ function FactionSelect({ value, onChange, factions }) {
       value={value}
       onChange={e => onChange(e.target.value)}
     >
-      <option value="">— pick faction —</option>
+      {!value && <option value="">— pick faction —</option>}
       {factions.map(f => <option key={f} value={f}>{f}</option>)}
     </select>
   );

@@ -114,7 +114,7 @@ export default function StratModelPreview({ modelEntry, factionHint, onClose }) 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
       <div
         className="bg-slate-900 border border-slate-600 rounded-xl shadow-2xl flex flex-col overflow-hidden"
-        style={{ width: 740, height: 580, maxWidth: '96vw', maxHeight: '92vh' }}
+        style={{ width: '92vw', height: '88vh', maxWidth: 1400 }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
