@@ -62,11 +62,11 @@ function parseDescrSmFactions(text) {
     const line = rawLine.replace(/;.*$/, '').trim();
     if (!line) continue;
 
-    const factionMatch = line.match(/^faction\s+(\S+)(?:\s*,\s*(spawned_on_event|shadowing|shadowed_by)\s+(\S+))?/i);
+    const factionMatch = line.match(/^faction\s+([^,\s]+)(?:\s*,\s*(spawned_on_event|shadowing|shadowed_by)(?:\s+(\S+))?)?/i);
     if (factionMatch) {
       if (current) factions.push(current);
       current = {
-        name: factionMatch[1],
+        name: factionMatch[1].trim(),
         spawn_type: factionMatch[2] || 'default',
         shadow_faction: factionMatch[3] || '',
         culture: '',
@@ -336,8 +336,11 @@ function HordeUnitsEditor({ units, onChange, eduUnits }) {
 }
 
 // ── Faction detail panel ──────────────────────────────────────────────────────
-function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
-  const set = (key, val) => onChange({ ...faction, [key]: val });
+function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSave, onCancel }) {
+  const [draft, setDraft] = useState({ ...faction });
+  const set = (key, val) => setDraft({ ...draft, [key]: val });
+  const handleSave = () => { onChange(draft); onSave?.(); };
+  const handleCancel = () => { setDraft({ ...faction }); onCancel?.(); };
   const nameUpper = (faction.name || '').toUpperCase();
   const defaultLogo = `FACTION_LOGO_${nameUpper}`;
   const defaultSmallLogo = `SMALL_FACTION_LOGO_${nameUpper}`;
@@ -355,15 +358,22 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
   return (
     <ScrollArea className="h-full">
       <div className="p-4 space-y-5 max-w-xl">
+        <div className="flex items-center justify-between border-b border-slate-600 pb-2 mb-4">
+          <h2 className="text-sm font-semibold text-slate-200">Edit Faction</h2>
+          <div className="flex gap-2">
+            <button onClick={handleCancel} className="px-3 py-1 text-[10px] rounded border border-slate-600 text-slate-300 hover:bg-slate-700">Cancel</button>
+            <button onClick={handleSave} className="px-3 py-1 text-[10px] rounded bg-green-700 hover:bg-green-600 text-white font-semibold">Save Changes</button>
+          </div>
+        </div>
         <section className="space-y-2">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-slate-600 pb-1">Identity</h3>
           <div className="flex items-center gap-3">
             <label className="text-[10px] text-slate-300 w-40 shrink-0">Internal Name</label>
-            <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-700 border-slate-600 text-slate-100" value={faction.name ?? ''} onChange={(e) => set('name', e.target.value)} />
+            <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-700 border-slate-600 text-slate-100" value={draft.name ?? ''} onChange={(e) => set('name', e.target.value)} />
           </div>
           <div className="flex items-center gap-3">
             <label className="text-[10px] text-slate-300 w-40 shrink-0">Type</label>
-            <select value={faction.spawn_type || 'default'} onChange={(e) => set('spawn_type', e.target.value)}
+            <select value={draft.spawn_type || 'default'} onChange={(e) => set('spawn_type', e.target.value)}
             className="flex-1 h-6 text-[11px] px-2 rounded border border-slate-600 bg-slate-700 text-slate-100 font-mono">
               <option value="default">default</option>
               <option value="spawned_on_event">spawned_on_event</option>
@@ -371,28 +381,28 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
               <option value="shadowed_by">shadowed_by</option>
             </select>
           </div>
-          {(faction.spawn_type === 'shadowing' || faction.spawn_type === 'shadowed_by') &&
+          {(draft.spawn_type === 'shadowing' || draft.spawn_type === 'shadowed_by') &&
           <div className="flex items-center gap-3">
               <label className="text-[10px] text-slate-300 w-40 shrink-0">Shadow Faction</label>
-              <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-700 border-slate-600 text-slate-100" value={faction.shadow_faction ?? ''} onChange={(e) => set('shadow_faction', e.target.value)} placeholder="e.g. england" />
+              <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-700 border-slate-600 text-slate-100" value={draft.shadow_faction ?? ''} onChange={(e) => set('shadow_faction', e.target.value)} placeholder="e.g. england" />
             </div>
           }
-          <SelectOrInput label="Culture" value={faction.culture} onChange={(v) => set('culture', v)} options={cultures} placeholder="e.g. northern_european" />
-          <SelectOrInput label="Religion" value={faction.religion} onChange={(v) => set('religion', v)} options={religions} placeholder="e.g. catholic" />
+          <SelectOrInput label="Culture" value={draft.culture} onChange={(v) => set('culture', v)} options={cultures} placeholder="e.g. northern_european" />
+          <SelectOrInput label="Religion" value={draft.religion} onChange={(v) => set('religion', v)} options={religions} placeholder="e.g. catholic" />
         </section>
 
         <section className="space-y-2">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-slate-600 pb-1">Colours</h3>
-          <ColourPickerField label="Primary Colour" colour={faction.primary_colour} onChange={(v) => set('primary_colour', v)} />
-          <ColourPickerField label="Secondary Colour" colour={faction.secondary_colour} onChange={(v) => set('secondary_colour', v)} />
+          <ColourPickerField label="Primary Colour" colour={draft.primary_colour} onChange={(v) => set('primary_colour', v)} />
+          <ColourPickerField label="Secondary Colour" colour={draft.secondary_colour} onChange={(v) => set('secondary_colour', v)} />
         </section>
 
         <section className="space-y-2">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-slate-600 pb-1">Files & Indices</h3>
           {[
-          ['symbol', 'Symbol (.CAS)', `models_strat/symbol_${faction.name}.CAS`],
+          ['symbol', 'Symbol (.CAS)', `models_strat/symbol_${draft.name}.CAS`],
           ['rebel_symbol', 'Rebel Symbol (.CAS)', ''],
-          ['loading_logo', 'Loading Logo (.tga)', `loading_screen/symbols/symbol128_${faction.name}.tga`],
+          ['loading_logo', 'Loading Logo (.tga)', `loading_screen/symbols/symbol128_${draft.name}.tga`],
           ['standard_index', 'Standard Index', ''],
           ['triumph_value', 'Triumph Value', ''],
           ['logo_index', 'Logo Index', defaultLogo],
@@ -400,18 +410,18 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
           map(([k, l, def]) =>
           <div key={k} className="flex items-center gap-3">
               <label className="text-[10px] text-slate-300 w-40 shrink-0">{l}</label>
-              <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-700 border-slate-600 text-slate-100" value={faction[k] ?? ''} onChange={(e) => set(k, e.target.value)} placeholder={def || undefined} />
+              <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-700 border-slate-600 text-slate-100" value={draft[k] ?? ''} onChange={(e) => set(k, e.target.value)} placeholder={def || undefined} />
             </div>
           )}
         </section>
 
         <section className="space-y-1">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-slate-600 pb-1">Flags</h3>
-          <YesNo label="Custom battle availability" value={faction.custom_battle_availability} onChange={(v) => set('custom_battle_availability', v)} />
-          <YesNo label="Can sap" value={faction.can_sap} onChange={(v) => set('can_sap', v)} />
-          <YesNo label="Prefers naval invasions" value={faction.prefers_naval_invasions} onChange={(v) => set('prefers_naval_invasions', v)} />
-          <YesNo label="Can have princess" value={faction.can_have_princess} onChange={(v) => set('can_have_princess', v)} />
-          <YesNo label="Has family tree" value={faction.has_family_tree} onChange={(v) => set('has_family_tree', v)} />
+          <YesNo label="Custom battle availability" value={draft.custom_battle_availability} onChange={(v) => set('custom_battle_availability', v)} />
+          <YesNo label="Can sap" value={draft.can_sap} onChange={(v) => set('can_sap', v)} />
+          <YesNo label="Prefers naval invasions" value={draft.prefers_naval_invasions} onChange={(v) => set('prefers_naval_invasions', v)} />
+          <YesNo label="Can have princess" value={draft.can_have_princess} onChange={(v) => set('can_have_princess', v)} />
+          <YesNo label="Has family tree" value={draft.has_family_tree} onChange={(v) => set('has_family_tree', v)} />
         </section>
 
         <section className="space-y-2">
@@ -421,13 +431,13 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
             <div className="flex rounded overflow-hidden border border-slate-600">
               {[true, false].map((opt) =>
               <button key={String(opt)} onClick={() => set('can_horde', opt)}
-              className={`px-2 py-0.5 text-[10px] transition-colors ${faction.can_horde === opt ? 'bg-primary text-primary-foreground' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'}`}>
+              className={`px-2 py-0.5 text-[10px] transition-colors ${draft.can_horde === opt ? 'bg-primary text-primary-foreground' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'}`}>
                   {opt ? 'yes' : 'no'}
                 </button>
               )}
             </div>
           </div>
-          {faction.can_horde &&
+          {draft.can_horde &&
           <div className="space-y-2 pl-2 border-l-2 border-amber-700">
               {hordeIntField('horde_min_units', 'horde_min_units')}
               {hordeIntField('horde_max_units', 'horde_max_units')}
@@ -438,13 +448,13 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
               <div className="flex items-center gap-3">
                 <label className="text-[10px] text-slate-300 w-60 shrink-0">horde_disband_percent <span className="text-slate-400">(0-100)</span></label>
                 <input type="number" min={0} max={100}
-              value={faction.horde_disband_percent_on_settlement_capture ?? 0}
+              value={draft.horde_disband_percent_on_settlement_capture ?? 0}
               onChange={(e) => set('horde_disband_percent_on_settlement_capture', Math.max(0, Math.min(100, +e.target.value || 0)))}
               className="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-0.5 text-[11px] text-slate-100" />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] text-slate-300">horde_unit entries <span className="text-red-300">*</span></label>
-                <HordeUnitsEditor units={faction.horde_units || []} onChange={(v) => set('horde_units', v)} eduUnits={eduUnits} />
+                <HordeUnitsEditor units={draft.horde_units || []} onChange={(v) => set('horde_units', v)} eduUnits={eduUnits} />
                 <p className="text-[9px] text-amber-300 mt-1">⚠ First unit must have general_unit attribute in export_descr_unit.txt</p>
               </div>
             </div>
@@ -671,24 +681,25 @@ export default function FactionsEditor() {
             </div>
             <ScrollArea className="flex-1">
               {filtered.map(({ f, i }) =>
-            <button key={i} onClick={() => setSelectedIdx(i)}
-            className={`w-full flex items-center gap-2 px-3 py-2 text-left border-b border-border/60 hover:bg-accent transition-colors group ${selectedIdx === i ? 'bg-accent' : ''}`}>
+            <div key={i} className={`w-full flex items-center gap-2 px-3 py-2 border-b border-border/60 ${selectedIdx === i ? 'bg-accent' : 'hover:bg-accent'}`}>
+                  <button onClick={() => setSelectedIdx(i)} className="flex items-center gap-2 flex-1 text-left">
+                    <div className="flex gap-1 shrink-0">
+                      <div className="w-3 h-3 rounded-sm border border-slate-600" style={{ background: rgbToHex(f.primary_colour) }} />
+                      <div className="w-3 h-3 rounded-sm border border-slate-600" style={{ background: rgbToHex(f.secondary_colour) }} />
+                    </div>
+                    <span className="flex-1 text-[11px] font-mono truncate text-slate-100">{f.name}</span>
+                  </button>
                   <div className="flex gap-1 shrink-0">
-                    <div className="w-3 h-3 rounded-sm border border-slate-600" style={{ background: rgbToHex(f.primary_colour) }} />
-                    <div className="w-3 h-3 rounded-sm border border-slate-600" style={{ background: rgbToHex(f.secondary_colour) }} />
-                  </div>
-                  <span className="flex-1 text-[11px] font-mono truncate text-slate-100">{f.name}</span>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                     <button onClick={(e) => {e.stopPropagation();duplicateFaction(i);}}
-                className="text-blue-300 hover:text-blue-200">
+                className="text-blue-300 hover:text-blue-200 p-1" title="Duplicate">
                       <Copy className="w-3 h-3" />
                     </button>
                     <button onClick={(e) => {e.stopPropagation();deleteFaction(i);}}
-                className="text-red-400 hover:text-red-300">
+                className="text-red-400 hover:text-red-300 p-1" title="Delete">
                       <Trash2 className="w-3 h-3" />
                     </button>
                   </div>
-                </button>
+                </div>
             )}
             </ScrollArea>
           </div>
@@ -699,6 +710,8 @@ export default function FactionsEditor() {
             key={selectedIdx}
             faction={factions[selectedIdx]}
             onChange={(f) => updateFaction(selectedIdx, f)}
+            onSave={() => setSelectedIdx(null)}
+            onCancel={() => setSelectedIdx(null)}
             cultures={cultures}
             religions={religions}
             eduUnits={eduUnits} /> :
