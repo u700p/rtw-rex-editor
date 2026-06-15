@@ -37,6 +37,7 @@ export default function SpriteSheetEditor({ label, storageKey }) {
   const [newPageW, setNewPageW] = useState(512);
   const [newPageH, setNewPageH] = useState(512);
   const [imageError, setImageError] = useState({});
+  const [originalFilename, setOriginalFilename] = useState('');
   const xmlInputRef = useRef();
 
   // --- Load XML ---
@@ -46,6 +47,7 @@ export default function SpriteSheetEditor({ label, storageKey }) {
     const text = await file.text();
     const parsed = parseSdXml(text);
     setData(parsed);
+    setOriginalFilename(file.name);
     setActivePageIdx(0);
     setPendingRect(null);
     setSelectionMode(false);
@@ -163,7 +165,7 @@ export default function SpriteSheetEditor({ label, storageKey }) {
     const blob = new Blob([xml], { type: 'application/xml' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${data.enumName?.toLowerCase() ?? 'sprites'}.sd.xml`;
+    a.download = originalFilename || `${data.enumName?.toLowerCase() ?? 'sprites'}.sd.xml`;
     a.click();
   };
 
