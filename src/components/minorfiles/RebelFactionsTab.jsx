@@ -186,25 +186,25 @@ export default function RebelFactionsTab() {
       {/* Load / Export */}
       <div className="flex flex-wrap gap-2">
         <button onClick={() => txtInputRef.current?.click()}
-          className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
+          className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-700 border border-slate-500 text-slate-200 hover:bg-slate-600 transition-colors">
           <Upload className="w-3 h-3" /> Load .txt
         </button>
         <button onClick={() => binInputRef.current?.click()}
-          className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
+          className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-700 border border-slate-500 text-slate-200 hover:bg-slate-600 transition-colors">
           <Upload className="w-3 h-3" /> Load .strings.bin
         </button>
         <button onClick={handleExportTxt} disabled={!factions.length}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/30 border border-amber-500/50 text-amber-300 hover:bg-amber-600/50 disabled:opacity-40 transition-colors">
           <Download className="w-3 h-3" /> Export .txt
         </button>
         <button onClick={handleExportBin} disabled={!Object.keys(names).length}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/30 border border-amber-500/50 text-amber-300 hover:bg-amber-600/50 disabled:opacity-40 transition-colors">
           <Download className="w-3 h-3" /> Export .strings.bin
         </button>
       </div>
 
       {eduUnitNames.length === 0 && loaded && (
-        <div className="flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/10 border border-amber-500/20 rounded p-2">
+        <div className="flex items-center gap-1 text-[10px] text-amber-300 bg-amber-900/20 border border-amber-500/40 rounded p-2">
           <AlertCircle className="w-3 h-3 shrink-0" />
           Load export_descr_unit.txt from the Home page to enable unit selection.
         </div>
@@ -212,9 +212,9 @@ export default function RebelFactionsTab() {
 
       {/* Validation */}
       {issues.length > 0 && (
-        <div className="rounded border border-red-500/30 bg-red-900/10 p-2 space-y-0.5">
+        <div className="rounded border border-red-500/50 bg-red-900/20 p-2 space-y-0.5">
           {issues.map((iss, i) => (
-            <div key={i} className="flex items-center gap-1 text-[10px] text-red-400">
+            <div key={i} className="flex items-center gap-1 text-[10px] text-red-300">
               <AlertCircle className="w-3 h-3 shrink-0" /> {iss}
             </div>
           ))}
@@ -224,10 +224,10 @@ export default function RebelFactionsTab() {
       {/* Search */}
       {factions.length > 5 && (
         <div className="flex items-center gap-1.5">
-          <Search className="w-3 h-3 text-slate-500" />
+          <Search className="w-3 h-3 text-slate-300" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search factions…"
-            className="flex-1 h-6 px-2 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-slate-200 placeholder-slate-600" />
-          <span className="text-[9px] text-slate-600">{filteredFactions.length}/{factions.length}</span>
+            className="flex-1 h-6 px-2 text-[11px] bg-slate-700 border border-slate-500 rounded text-slate-200 placeholder-slate-400" />
+          <span className="text-[9px] text-slate-300">{filteredFactions.length}/{factions.length}</span>
         </div>
       )}
 
@@ -248,12 +248,12 @@ export default function RebelFactionsTab() {
       </div>
 
       <button onClick={addFaction}
-        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-dashed border-slate-600/40 text-slate-400 hover:text-slate-200 hover:border-slate-400 transition-colors">
+        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-dashed border-slate-500 text-slate-300 hover:text-slate-100 hover:border-slate-300 transition-colors">
         <Plus className="w-3 h-3" /> Add Rebel Faction
       </button>
 
       {!loaded && factions.length === 0 && (
-        <p className="text-[10px] text-slate-600 text-center py-4">Load descr_rebel_factions.txt to start editing (upload here or load from Home page)</p>
+        <p className="text-[10px] text-slate-400 text-center py-4">Load descr_rebel_factions.txt to start editing (upload here or load from Home page)</p>
       )}
     </div>
   );
