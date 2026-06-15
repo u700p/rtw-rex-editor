@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Download, Plus, Trash2, AlertTriangle, Shield, X } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, AlertTriangle, Shield, X, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -29,7 +29,7 @@ function parseCultures(text) {
     const m = line.match(/^culture\s+(\S+)/i);
     if (m) cultures.push(m[1]);
   }
-  return cultures;
+  return [...new Set(cultures)].sort();
 }
 
 function parseReligions(text) {
@@ -39,7 +39,7 @@ function parseReligions(text) {
     const m = line.match(/^religion\s+(\S+)/i);
     if (m) religions.push(m[1]);
   }
-  return religions;
+  return [...new Set(religions)].sort();
 }
 
 function parseEduUnits(text) {
@@ -49,7 +49,7 @@ function parseEduUnits(text) {
     const m = line.match(/^type\s+(.+)/i);
     if (m) units.push(m[1].trim());
   }
-  return units;
+  return [...new Set(units)].sort();
 }
 
 // ── Main faction parser ───────────────────────────────────────────────────────
@@ -59,11 +59,9 @@ function parseDescrSmFactions(text) {
   let current = null;
 
   for (const rawLine of lines) {
-    // Strip inline comments but preserve line for keyword extraction
     const line = rawLine.replace(/;.*$/, '').trim();
     if (!line) continue;
 
-    // Match "faction <name>" — may have tabs between keyword and name
     const factionMatch = line.match(/^faction\s+(\S+)/i);
     if (factionMatch) {
       if (current) factions.push(current);
@@ -76,7 +74,7 @@ function parseDescrSmFactions(text) {
         primary_colour: { r: 0, g: 0, b: 0 },
         secondary_colour: { r: 0, g: 0, b: 0 },
         loading_logo: '',
-        standard_index: '',
+        standard_index: 0,
         logo_index: '',
         small_logo_index: '',
         triumph_value: '5',
@@ -101,7 +99,6 @@ function parseDescrSmFactions(text) {
 
     if (!current) continue;
 
-    // Split on first whitespace cluster
     const m = line.match(/^(\S+)\s*(.*)/);
     if (!m) continue;
     const key = m[1];
@@ -117,7 +114,7 @@ function parseDescrSmFactions(text) {
       case 'secondary_colour':
       case 'secondary_color':                                current.secondary_colour = parseColour(val); break;
       case 'loading_logo':                                   current.loading_logo = val; break;
-      case 'standard_index':                                 current.standard_index = val; break;
+      case 'standard_index':                                 current.standard_index = parseInt(val) || 0; break;
       case 'logo_index':                                     current.logo_index = val; break;
       case 'small_logo_index':                               current.small_logo_index = val; break;
       case 'triumph_value':                                  current.triumph_value = val; break;
@@ -169,7 +166,7 @@ function serialiseDescrSmFactions(factions) {
       `primary_colour${T4}${fmtC(f.primary_colour)}`,
       `secondary_colour${T3}${fmtC(f.secondary_colour)}`,
       f.loading_logo    ? `loading_logo${T4}${f.loading_logo}` : null,
-      f.standard_index !== '' ? `standard_index${T4}${f.standard_index}` : null,
+      f.standard_index !== 0 ? `standard_index${T4}${f.standard_index}` : null,
       f.logo_index      ? `logo_index${T5}${f.logo_index}` : null,
       f.small_logo_index? `small_logo_index${T3}${f.small_logo_index}` : null,
       f.triumph_value   ? `triumph_value${T4}${f.triumph_value}` : null,
@@ -203,7 +200,7 @@ function ColourPickerField({ label, colour, onChange }) {
   const [draft, setDraft] = useState(c);
   const hex = rgbToHex(c);
 
-  const openPicker = () => { setDraft(c); setOpen(true); };
+  const openPicker = () => { setDraft({ ...c }); setOpen(true); };
   const confirm = () => { onChange(draft); setOpen(false); };
 
   return (
@@ -223,16 +220,13 @@ function ColourPickerField({ label, colour, onChange }) {
               <span className="text-xs font-semibold text-slate-200">{label}</span>
               <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
             </div>
-            {/* Big preview */}
             <div className="w-full h-16 rounded-lg border border-slate-700 mb-4" style={{ background: rgbToHex(draft) }} />
-            {/* Native colour input */}
             <div className="flex items-center gap-3 mb-3">
               <input type="color" value={rgbToHex(draft)}
                 onChange={e => setDraft(hexToRgb(e.target.value))}
                 className="w-12 h-8 rounded cursor-pointer bg-transparent border-0" />
               <span className="text-[10px] font-mono text-slate-400">{rgbToHex(draft).toUpperCase()}</span>
             </div>
-            {/* RGB sliders */}
             {[['r', 'R', '#ef4444'], ['g', 'G', '#22c55e'], ['b', 'B', '#3b82f6']].map(([ch, lbl, col]) => (
               <div key={ch} className="flex items-center gap-2 mb-1.5">
                 <span className="text-[10px] font-bold w-4 shrink-0" style={{ color: col }}>{lbl}</span>
@@ -279,12 +273,12 @@ function SelectOrInput({ label, value, onChange, options, placeholder }) {
       <label className="text-[10px] text-slate-400 w-40 shrink-0">{label}</label>
       {options && options.length > 0 ? (
         <select value={value} onChange={e => onChange(e.target.value)}
-          className="flex-1 h-6 text-[11px] px-2 rounded border border-input bg-background text-foreground font-mono">
+          className="flex-1 h-6 text-[11px] px-2 rounded border border-slate-700 bg-slate-800 text-slate-100 font-mono">
           {!options.includes(value) && value && <option value={value}>{value} (custom)</option>}
           {options.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       ) : (
-        <Input className="h-6 text-[11px] px-2 flex-1 font-mono" value={value ?? ''} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
+        <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-800 border-slate-700 text-slate-100" value={value ?? ''} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
       )}
     </div>
   );
@@ -309,14 +303,14 @@ function HordeUnitsEditor({ units, onChange, eduUnits }) {
       </div>
       <div className="flex gap-1">
         {eduUnits && eduUnits.length > 0 ? (
-          <select className="flex-1 h-6 text-[10px] px-1 rounded border border-input bg-background text-foreground font-mono"
+          <select className="flex-1 h-6 text-[10px] px-1 rounded border border-slate-700 bg-slate-800 text-slate-100 font-mono"
             value="" onChange={e => add(e.target.value)}>
             <option value="">— add unit from EDU —</option>
             {eduUnits.filter(u => !units.includes(u)).map(u => <option key={u} value={u}>{u}</option>)}
           </select>
         ) : (
           <>
-            <Input className="flex-1 h-6 text-[10px] px-1 font-mono" value={custom} onChange={e => setCustom(e.target.value)}
+            <Input className="flex-1 h-6 text-[10px] px-1 font-mono bg-slate-800 border-slate-700 text-slate-100" value={custom} onChange={e => setCustom(e.target.value)}
               placeholder="unit type name…" onKeyDown={e => e.key === 'Enter' && add(custom.trim())} />
             <button onClick={() => add(custom.trim())}
               className="text-[10px] px-2 rounded border border-green-800 text-green-400 hover:bg-green-900/30">Add</button>
@@ -330,8 +324,6 @@ function HordeUnitsEditor({ units, onChange, eduUnits }) {
 // ── Faction detail panel ──────────────────────────────────────────────────────
 function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
   const set = (key, val) => onChange({ ...faction, [key]: val });
-
-  // Auto-derive default logo indices from faction name
   const nameUpper = (faction.name || '').toUpperCase();
   const defaultLogo = `FACTION_LOGO_${nameUpper}`;
   const defaultSmallLogo = `SMALL_FACTION_LOGO_${nameUpper}`;
@@ -342,33 +334,29 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
       <input type="number" min={0}
         value={faction[key] ?? 0}
         onChange={e => set(key, +e.target.value || 0)}
-        className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200" />
+        className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-100" />
     </div>
   );
 
   return (
     <ScrollArea className="h-full">
       <div className="p-4 space-y-5 max-w-xl">
-
-        {/* Identity */}
         <section className="space-y-2">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-700 pb-1">Identity</h3>
           <div className="flex items-center gap-3">
             <label className="text-[10px] text-slate-400 w-40 shrink-0">Internal Name</label>
-            <Input className="h-6 text-[11px] px-2 flex-1 font-mono" value={faction.name ?? ''} onChange={e => set('name', e.target.value)} />
+            <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-800 border-slate-700 text-slate-100" value={faction.name ?? ''} onChange={e => set('name', e.target.value)} />
           </div>
           <SelectOrInput label="Culture" value={faction.culture} onChange={v => set('culture', v)} options={cultures} placeholder="e.g. northern_european" />
           <SelectOrInput label="Religion" value={faction.religion} onChange={v => set('religion', v)} options={religions} placeholder="e.g. catholic" />
         </section>
 
-        {/* Colours */}
         <section className="space-y-2">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-700 pb-1">Colours</h3>
           <ColourPickerField label="Primary Colour" colour={faction.primary_colour} onChange={v => set('primary_colour', v)} />
           <ColourPickerField label="Secondary Colour" colour={faction.secondary_colour} onChange={v => set('secondary_colour', v)} />
         </section>
 
-        {/* Files & Indices */}
         <section className="space-y-2">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-700 pb-1">Files & Indices</h3>
           {[
@@ -380,10 +368,9 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
           ].map(([k, l]) => (
             <div key={k} className="flex items-center gap-3">
               <label className="text-[10px] text-slate-400 w-40 shrink-0">{l}</label>
-              <Input className="h-6 text-[11px] px-2 flex-1 font-mono" value={faction[k] ?? ''} onChange={e => set(k, e.target.value)} />
+              <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-800 border-slate-700 text-slate-100" value={faction[k] ?? ''} onChange={e => set(k, e.target.value)} />
             </div>
           ))}
-          {/* Logo indices with auto-default hint */}
           {[
             ['logo_index', 'Logo Index', defaultLogo],
             ['small_logo_index', 'Small Logo Index', defaultSmallLogo],
@@ -391,7 +378,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
             <div key={k} className="flex items-center gap-3">
               <label className="text-[10px] text-slate-400 w-40 shrink-0">{l}</label>
               <div className="flex-1 relative">
-                <Input className="h-6 text-[11px] px-2 w-full font-mono pr-14" value={faction[k] ?? ''} onChange={e => set(k, e.target.value)} placeholder={def} />
+                <Input className="h-6 text-[11px] px-2 w-full font-mono pr-14 bg-slate-800 border-slate-700 text-slate-100" value={faction[k] ?? ''} onChange={e => set(k, e.target.value)} placeholder={def} />
                 {!faction[k] && (
                   <button onClick={() => set(k, def)}
                     className="absolute right-1 top-0.5 text-[8px] px-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300">auto</button>
@@ -401,7 +388,6 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
           ))}
         </section>
 
-        {/* Flags */}
         <section className="space-y-1">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-700 pb-1">Flags</h3>
           <YesNo label="Custom battle availability" value={faction.custom_battle_availability} onChange={v => set('custom_battle_availability', v)} />
@@ -411,7 +397,6 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
           <YesNo label="Has family tree" value={faction.has_family_tree} onChange={v => set('has_family_tree', v)} />
         </section>
 
-        {/* Horde */}
         <section className="space-y-2">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-700 pb-1">Horde</h3>
           <div className="flex items-center justify-between py-0.5">
@@ -434,36 +419,32 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits }) {
               {hordeIntField('horde_min_named_characters', 'horde_min_named_characters')}
               {hordeIntField('horde_max_percent_army_stack', 'horde_max_percent_army_stack')}
               <div className="flex items-center gap-3">
-                <label className="text-[10px] text-slate-400 w-60 shrink-0">horde_disband_percent_on_settlement_capture <span className="text-slate-600">(0-100)</span></label>
+                <label className="text-[10px] text-slate-400 w-60 shrink-0">horde_disband_percent <span className="text-slate-600">(0-100)</span></label>
                 <input type="number" min={0} max={100}
                   value={faction.horde_disband_percent_on_settlement_capture ?? 0}
                   onChange={e => set('horde_disband_percent_on_settlement_capture', Math.max(0, Math.min(100, +e.target.value || 0)))}
-                  className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200" />
+                  className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-100" />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] text-slate-400">horde_unit entries <span className="text-red-400">*</span></label>
-                <HordeUnitsEditor
-                  units={faction.horde_units || []}
-                  onChange={v => set('horde_units', v)}
-                  eduUnits={eduUnits}
-                />
+                <HordeUnitsEditor units={faction.horde_units || []} onChange={v => set('horde_units', v)} eduUnits={eduUnits} />
               </div>
             </div>
           )}
         </section>
 
-        {/* Extra lines */}
-        {faction.extras?.length > 0 && (
-          <section className="space-y-1">
-            <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-700 pb-1">Additional Lines (unknown / raw)</h3>
-            <textarea
-              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-[10px] font-mono text-slate-300 resize-y"
-              rows={Math.min(faction.extras.length + 1, 6)}
-              value={faction.extras.join('\n')}
-              onChange={e => set('extras', e.target.value.split('\n'))}
-            />
-          </section>
-        )}
+        <section className="space-y-1">
+          <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-700 pb-1">Comment Lines</h3>
+          <textarea
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-[10px] font-mono text-slate-100 resize-y"
+            rows={Math.min((faction.extras || []).length + 1, 6)}
+            value={(faction.extras || []).map(l => l.startsWith(';;;') ? l : `;;; ${l}`).join('\n')}
+            onChange={e => {
+              const lines = e.target.value.split('\n').map(l => l.replace(/^;;;\s*/, ''));
+              set('extras', lines);
+            }}
+          />
+        </section>
       </div>
     </ScrollArea>
   );
@@ -478,10 +459,10 @@ export default function FactionsEditor() {
   const [religions, setReligions] = useState([]);
   const [eduUnits, setEduUnits]   = useState([]);
 
-  const fileRef     = useRef();
-  const cultRef     = useRef();
-  const relRef      = useRef();
-  const eduRef      = useRef();
+  const fileRef = useRef();
+  const cultRef = useRef();
+  const relRef  = useRef();
+  const eduRef  = useRef();
 
   useEffect(() => {
     try { const r = localStorage.getItem(LS_KEY);   if (r) setFactions(parseDescrSmFactions(r)); } catch {}
@@ -540,6 +521,7 @@ export default function FactionsEditor() {
   const updateFaction = (i, f) => {
     const updated = factions.map((x, idx) => idx === i ? f : x);
     setFactions(updated);
+    try { localStorage.setItem(LS_KEY, serialiseDescrSmFactions(updated)); } catch {}
   };
 
   const addFaction = () => {
@@ -547,12 +529,12 @@ export default function FactionsEditor() {
       name: 'new_faction',
       culture: cultures[0] || '',
       religion: religions[0] || '',
-      symbol: 'models_strat/symbol_new_faction.CAS',
+      symbol: '',
       rebel_symbol: 'models_strat/symbol_rebels.CAS',
       primary_colour: { r: 128, g: 128, b: 128 },
       secondary_colour: { r: 200, g: 200, b: 200 },
       loading_logo: '',
-      standard_index: '',
+      standard_index: 0,
       logo_index: '',
       small_logo_index: '',
       triumph_value: '5',
@@ -577,6 +559,29 @@ export default function FactionsEditor() {
     setSelectedIdx(updated.length - 1);
   };
 
+  const duplicateFaction = (i) => {
+    const src = factions[i];
+    const baseName = src.name.replace(/_\d+$/, '');
+    let newName = `${baseName}_copy`;
+    let counter = 1;
+    while (factions.some(f => f.name === newName)) {
+      newName = `${baseName}_copy${++counter}`;
+    }
+    const dup = {
+      ...src,
+      name: newName,
+      logo_index: '',
+      small_logo_index: '',
+      symbol: '',
+      loading_logo: '',
+      standard_index: 0,
+      extras: [...(src.extras || [])],
+    };
+    const updated = [...factions, dup];
+    setFactions(updated);
+    setSelectedIdx(updated.length - 1);
+  };
+
   const deleteFaction = (i) => {
     const updated = factions.filter((_, idx) => idx !== i);
     setFactions(updated);
@@ -591,7 +596,6 @@ export default function FactionsEditor() {
 
   return (
     <div className="h-screen flex flex-col">
-      {/* Header */}
       <div className="border-b border-border flex flex-wrap items-center px-4 gap-2 py-1.5 shrink-0 bg-card/50">
         <Shield className="w-4 h-4 text-muted-foreground shrink-0" />
         <span className="text-xs font-semibold">Factions Editor</span>
@@ -603,7 +607,6 @@ export default function FactionsEditor() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5 flex-wrap">
-          {/* Reference file loaders */}
           <input ref={cultRef} type="file" accept=".txt" className="hidden" onChange={loadCultures} />
           <Button variant="outline" size="sm" className={`text-[10px] h-7 ${cultures.length ? 'text-green-400 border-green-800' : ''}`} onClick={() => cultRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" />
@@ -619,12 +622,11 @@ export default function FactionsEditor() {
           <input ref={eduRef} type="file" accept=".txt" className="hidden" onChange={loadEdu} />
           <Button variant="outline" size="sm" className={`text-[10px] h-7 ${eduUnits.length ? 'text-green-400 border-green-800' : ''}`} onClick={() => eduRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" />
-            {eduUnits.length ? `${eduUnits.length} units (EDU)` : 'export_descr_unit.txt'}
+            {eduUnits.length ? `${eduUnits.length} units` : 'export_descr_unit.txt'}
           </Button>
 
           <div className="w-px h-5 bg-border mx-1" />
 
-          {/* Main file */}
           <input ref={fileRef} type="file" accept=".txt" className="hidden" onChange={loadFactions} />
           <Button variant="outline" size="sm" className={`text-[10px] h-7 ${factions ? 'text-amber-400 border-amber-700' : ''}`} onClick={() => fileRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" />
@@ -642,17 +644,16 @@ export default function FactionsEditor() {
         <div className="flex flex-col items-center justify-center flex-1 gap-3 text-slate-500">
           <Shield className="w-10 h-10 opacity-30" />
           <p className="text-sm">Load <span className="font-mono text-amber-400">descr_sm_factions.txt</span> to begin</p>
-          <p className="text-[11px] text-slate-600">Optionally also load <span className="font-mono text-slate-400">descr_cultures.txt</span>, <span className="font-mono text-slate-400">descr_religions.txt</span>, and <span className="font-mono text-slate-400">export_descr_unit.txt</span> for dropdowns</p>
+          <p className="text-[11px] text-slate-600">Optionally load <span className="font-mono text-slate-400">descr_cultures.txt</span>, <span className="font-mono text-slate-400">descr_religions.txt</span>, <span className="font-mono text-slate-400">export_descr_unit.txt</span> for dropdowns</p>
           <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" /> Choose file…
           </Button>
         </div>
       ) : (
         <div className="flex flex-1 min-h-0">
-          {/* Sidebar */}
           <div className="w-56 border-r border-border flex flex-col shrink-0">
             <div className="p-2 border-b border-border space-y-1">
-              <Input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} className="h-6 text-[10px] px-2" />
+              <Input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} className="h-6 text-[10px] px-2 bg-slate-800 border-slate-700 text-slate-100" />
               <Button variant="outline" size="sm" className="w-full text-[10px] h-6" onClick={addFaction}>
                 <Plus className="w-3 h-3 mr-1" /> Add Faction
               </Button>
@@ -665,17 +666,22 @@ export default function FactionsEditor() {
                     <div className="w-3 h-3 rounded-sm border border-slate-600" style={{ background: rgbToHex(f.primary_colour) }} />
                     <div className="w-3 h-3 rounded-sm border border-slate-600" style={{ background: rgbToHex(f.secondary_colour) }} />
                   </div>
-                  <span className="flex-1 text-[11px] font-mono truncate">{f.name}</span>
-                  <button onClick={e => { e.stopPropagation(); deleteFaction(i); }}
-                    className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-opacity shrink-0">
-                    <Trash2 className="w-3 h-3" />
-                  </button>
+                  <span className="flex-1 text-[11px] font-mono truncate text-slate-100">{f.name}</span>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button onClick={e => { e.stopPropagation(); duplicateFaction(i); }}
+                      className="text-blue-400 hover:text-blue-300">
+                      <Copy className="w-3 h-3" />
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); deleteFaction(i); }}
+                      className="text-red-500 hover:text-red-400">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 </button>
               ))}
             </ScrollArea>
           </div>
 
-          {/* Detail */}
           <div className="flex-1 min-h-0 overflow-hidden">
             {selectedIdx !== null && factions[selectedIdx] ? (
               <FactionDetail
