@@ -481,28 +481,37 @@ export function computeSettlementPositions(settlements, regionsData, regionsLaye
     }
   }
 
-  // For each black pixel, find the best adjacent region color.
-  // Prefer neighbors whose color matches a known region (avoids sea/border colors).
+  const nearestRegionColor = (px, py) => {
+    let fallback = null;
+    for (let radius = 1; radius <= 4; radius++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+          const nx = px + dx, ny = py + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const ni = (ny * width + nx) * 4;
+          const nr = data[ni], ng = data[ni+1], nb = data[ni+2];
+          if (nr < 5 && ng < 5 && nb < 5) continue;
+          if (nr > 245 && ng > 245 && nb > 245) continue;
+          const key = `${nr},${ng},${nb}`;
+          if (knownColors.has(key)) return key;
+          if (!fallback) fallback = key;
+        }
+      }
+    }
+    return fallback;
+  };
+
+  // For each black pixel, find the nearest region color. Some large RTW maps
+  // separate city markers from fill colors with border/road pixels, so a small
+  // search radius is more reliable than only checking the four direct neighbors.
   const cityPx = {};
   for (let py = 0; py < height; py++) {
     for (let px = 0; px < width; px++) {
       const idx = (py * width + px) * 4;
       if (data[idx] > 5 || data[idx+1] > 5 || data[idx+2] > 5) continue;
 
-      let bestKey = null;
-      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-        const nx = px + dx, ny = py + dy;
-        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-        const ni = (ny * width + nx) * 4;
-        const nr = data[ni], ng = data[ni+1], nb = data[ni+2];
-        if (nr < 5 && ng < 5 && nb < 5) continue;
-        if (nr > 245 && ng > 245 && nb > 245) continue;
-        const key = `${nr},${ng},${nb}`;
-        // If this neighbor matches a known region, use it immediately
-        if (knownColors.has(key)) { bestKey = key; break; }
-        // Otherwise remember as fallback
-        if (!bestKey) bestKey = key;
-      }
+      const bestKey = nearestRegionColor(px, py);
       if (bestKey && !cityPx[bestKey]) {
         cityPx[bestKey] = { x: px, y: height - 1 - py };
       }
@@ -943,15 +952,21 @@ export function serializeDescrStrat(stratData, overlayItems, editedSettlements =
 export function parseDescrRegions(text) {
   const isRgbLine = (line) => !!line && /^\d+\s+\d+\s+\d+$/.test(line);
   const isIntLine = (line) => /^-?\d+$/.test(line || '');
-  const isRegionStart = (lines, i) => (
+  const hasResourcesLine = (lines, i) => (
     i + 7 < lines.length &&
     isRgbLine(lines[i + 4]) &&
     isIntLine(lines[i + 6]) &&
     isIntLine(lines[i + 7])
   );
+  const hasOmittedResourcesLine = (lines, i) => (
+    i + 6 < lines.length &&
+    isRgbLine(lines[i + 4]) &&
+    isIntLine(lines[i + 5]) &&
+    isIntLine(lines[i + 6])
+  );
+  const isRegionStart = (lines, i) => hasResourcesLine(lines, i) || hasOmittedResourcesLine(lines, i);
 
-  const parseRegionBlock = (block) => {
-    if (!isRegionStart(block, 0)) return null;
+  const parseRegionBlock = (block, omittedResources = false) => {
     const regionName     = block[0];
     const settlementName = block[1];
     const factionCreator = block[2];
@@ -960,15 +975,15 @@ export function parseDescrRegions(text) {
     const r = parseInt(rgbParts[0]) || 0;
     const g = parseInt(rgbParts[1]) || 0;
     const b = parseInt(rgbParts[2]) || 0;
-    const resourcesLine  = block[5] || '';
+    const resourcesLine  = omittedResources ? '' : (block[5] || '');
     const resources      = resourcesLine.split(',').map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'none');
-    const val1           = parseInt(block[6]) || 0;
-    const val2           = parseInt(block[7]) || 0;
+    const val1           = parseInt(block[omittedResources ? 5 : 6]) || 0;
+    const val2           = parseInt(block[omittedResources ? 6 : 7]) || 0;
     const religions      = {};
     const tail = [];
     let hasReligions = false;
 
-    for (const line of block.slice(8)) {
+    for (const line of block.slice(omittedResources ? 7 : 8)) {
       if (/^religions\b/i.test(line)) {
         hasReligions = true;
         tail.push({ kind: 'religions' });
@@ -994,46 +1009,22 @@ export function parseDescrRegions(text) {
     };
   };
 
-  const scanLines = (lines) => {
-    const found = [];
-    let i = 0;
-    while (i < lines.length) {
-      if (!isRegionStart(lines, i)) { i++; continue; }
-      let next = i + 8;
-      while (next < lines.length && !isRegionStart(lines, next)) next++;
-      const parsed = parseRegionBlock(lines.slice(i, next));
-      if (parsed) found.push(parsed);
-      i = next;
-    }
-    return found;
-  };
-
-  const cleanLines = text.split('\n').map(l => l.replace(/;.*$/, '').trim());
-  const blocks = [];
-  let current = [];
-  for (const line of cleanLines) {
-    if (!line) {
-      if (current.length) blocks.push(current);
-      current = [];
-      continue;
-    }
-    current.push(line);
-  }
-  if (current.length) blocks.push(current);
-
+  const lines = text
+    .split(/\r?\n/)
+    .map(l => l.replace(/;.*$/, '').trim())
+    .filter(Boolean);
   const regions = [];
-  for (const block of blocks) {
-    const nestedStart = block.findIndex((_, idx) => idx > 0 && isRegionStart(block, idx));
-    if (nestedStart >= 0) regions.push(...scanLines(block));
-    else {
-      const parsed = parseRegionBlock(block);
-      if (parsed) regions.push(parsed);
-    }
-  }
 
-  if (regions.length === 0) {
-    const stripped = cleanLines.filter(Boolean);
-    regions.push(...scanLines(stripped));
+  let i = 0;
+  while (i < lines.length) {
+    if (!isRegionStart(lines, i)) { i++; continue; }
+    const omittedResources = !hasResourcesLine(lines, i) && hasOmittedResourcesLine(lines, i);
+    const baseLen = omittedResources ? 7 : 8;
+    let next = i + baseLen;
+    while (next < lines.length && !isRegionStart(lines, next)) next++;
+    const parsed = parseRegionBlock(lines.slice(i, next), omittedResources);
+    if (parsed) regions.push(parsed);
+    i = next;
   }
 
   return regions;

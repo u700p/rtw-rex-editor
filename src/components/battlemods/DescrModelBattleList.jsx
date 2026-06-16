@@ -12,7 +12,7 @@ export default function DescrModelBattleList() {
 
   const entries = dmbData?.entries ?? [];
   const filtered = search
-    ? entries.filter(e => e.type.toLowerCase().includes(search.toLowerCase()))
+    ? entries.filter(e => (e.type || e.name || '').toLowerCase().includes(search.toLowerCase()))
     : entries;
 
   const handleAdd = () => {
@@ -48,17 +48,17 @@ export default function DescrModelBattleList() {
           )}
           {filtered.map(e => (
             <div
-              key={e.type}
+              key={e.type || e.name}
               className={`group flex items-center gap-1 px-2 py-1.5 rounded cursor-pointer text-[11px] font-mono transition-colors ${
-                selectedType === e.type
+                selectedType === (e.type || e.name)
                   ? 'bg-primary/15 text-primary'
                   : 'hover:bg-muted/60 text-foreground'
               }`}
-              onClick={() => setSelectedType(e.type)}
+              onClick={() => setSelectedType(e.type || e.name)}
             >
-              <span className="flex-1 truncate">{e.type}</span>
+              <span className="flex-1 truncate">{e.type || e.name}</span>
               <button
-                onClick={ev => { ev.stopPropagation(); removeDmbEntry(e.type); }}
+                onClick={ev => { ev.stopPropagation(); removeDmbEntry(e.type || e.name); }}
                 className="opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive/80 transition-opacity"
               >
                 <Trash2 className="w-3 h-3" />

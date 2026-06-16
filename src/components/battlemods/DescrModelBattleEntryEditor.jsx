@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDescrModelBattle } from './DescrModelBattleContext';
+import { syncDescrModelBattleEntryAliases } from '@/lib/descrModelBattleCodec';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Plus, Trash2, Save, ChevronDown, ChevronRight } from 'lucide-react';
@@ -85,7 +86,9 @@ function Section({ title, children, defaultOpen = true }) {
 export default function DescrModelBattleEntryEditor() {
   const { dmbData, selectedType, updateDmbEntry } = useDescrModelBattle();
 
-  const source = dmbData?.byType?.[selectedType?.toLowerCase()] ?? null;
+  const source = dmbData?.byType?.[selectedType?.toLowerCase()]
+    ?? dmbData?.byName?.[selectedType?.toLowerCase()]
+    ?? null;
 
   const [form, setForm] = useState(null);
   const [dirty, setDirty] = useState(false);
@@ -117,7 +120,7 @@ export default function DescrModelBattleEntryEditor() {
   const remPathDist = (key, idx) => setList(key, lst => lst.filter((_, i) => i !== idx));
 
   const handleSave = () => {
-    updateDmbEntry(form);
+    updateDmbEntry(syncDescrModelBattleEntryAliases(form, 'descriptor'));
     setDirty(false);
   };
 
@@ -143,10 +146,10 @@ export default function DescrModelBattleEntryEditor() {
         {/* Basic */}
         <Section title="Basic">
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <div className={LBL}>Type name</div>
-              <input value={form.type} readOnly className={`${INP} opacity-60 cursor-not-allowed`} />
-            </div>
+          <div>
+            <div className={LBL}>Type name</div>
+            <input value={form.type || form.name || ''} readOnly className={`${INP} opacity-60 cursor-not-allowed`} />
+          </div>
             <div>
               <div className={LBL}>Scale</div>
               <input type="number" step="0.01" value={form.scale} onChange={e => set('scale', parseFloat(e.target.value) || 1.0)} className={INP} />
@@ -169,8 +172,8 @@ export default function DescrModelBattleEntryEditor() {
         </Section>
 
         {/* Textures */}
-        <Section title={`Textures (${form.textures.length})`}>
-          {form.textures.map((t, i) => (
+        <Section title={`Textures (${(form.textures || []).length})`}>
+          {(form.textures || []).map((t, i) => (
             <TextureRow key={i} item={t}
               onChange={val => { setForm(f => { const textures = f.textures.map((x, j) => j === i ? val : x); return { ...f, textures }; }); setDirty(true); }}
               onRemove={() => setList('textures', lst => lst.filter((_, j) => j !== i))}
@@ -183,8 +186,8 @@ export default function DescrModelBattleEntryEditor() {
         </Section>
 
         {/* PBR */}
-        <Section title={`PBR textures (${form.pbr.length})`} defaultOpen={false}>
-          {form.pbr.map((p, i) => (
+        <Section title={`PBR textures (${(form.pbr || []).length})`} defaultOpen={false}>
+          {(form.pbr || []).map((p, i) => (
             <PbrRow key={i} item={p}
               onChange={val => { setForm(f => { const pbr = f.pbr.map((x, j) => j === i ? val : x); return { ...f, pbr }; }); setDirty(true); }}
               onRemove={() => setList('pbr', lst => lst.filter((_, j) => j !== i))}
@@ -227,7 +230,7 @@ export default function DescrModelBattleEntryEditor() {
         </Section>
 
         {/* Extra */}
-        {form._extra?.length > 0 && (
+        {(form._extra || []).length > 0 && (
           <Section title={`Extra lines (${form._extra.length})`} defaultOpen={false}>
             <textarea
               rows={Math.min(form._extra.length + 1, 8)}

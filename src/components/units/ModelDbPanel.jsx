@@ -51,7 +51,7 @@ export default function ModelDbPanel({ soldierModel, modeldb, onUpdateEntry, onD
   const entry = useMemo(() => {
     if (!modeldb || !soldierModel) return null;
     const key = soldierModel.trim().toLowerCase();
-    return modeldb.byName?.[key] || null;
+    return modeldb.byName?.[key] || modeldb.byType?.[key] || null;
   }, [modeldb, soldierModel]);
 
   const [factions, setFactions] = useState([]);

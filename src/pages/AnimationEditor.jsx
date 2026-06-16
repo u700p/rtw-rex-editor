@@ -152,7 +152,7 @@ export default function AnimationEditor() {
         </div>
         <div>
           <h1 className="text-lg font-bold text-foreground">Animation Utilities</h1>
-          <p className="text-[11px] text-muted-foreground">M2TW .cas animation viewer, scaler, and text converter</p>
+          <p className="text-[11px] text-muted-foreground">Rome .cas animation viewer, scaler, and text converter</p>
         </div>
       </div>
 

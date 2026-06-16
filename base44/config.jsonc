@@ -1,5 +1,5 @@
 {
-  "name": "M2TW Editor",
+  "name": "Rome: Total War Editor",
   "site": {
     "installCommand": "npm install",
     "buildCommand": "npm run build",

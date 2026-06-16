@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Download, Upload, Trash2, Check, Edit2 } from 'lucide-react';
 import { parseStringsBin, encodeStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '../../lib/stringsBinStore';
+import { parseTextLocFile, serializeTextLocFile } from '../../lib/textLocParser';
 import { downloadBlob } from './tgaExporter';
 
 /**
@@ -33,7 +34,15 @@ function tryAutoLoadFromStore() {
         for (const { key, value } of (binData.entries || [])) {
           if (key) map[key] = value;
         }
-        return { map, meta: { magic1: binData.magic1 ?? 2, magic2: binData.magic2 ?? 2048 } };
+        return {
+          map,
+          meta: {
+            magic1: binData.magic1 ?? 2,
+            magic2: binData.magic2 ?? 2048,
+            sourceFormat: binData.sourceFormat || 'strings.bin',
+            filename: fname,
+          }
+        };
       }
     }
   } catch {}
@@ -57,7 +66,7 @@ export default function CampaignDescriptionsStrings({ stratData, onCampaignNameC
 
   const [binMeta, setBinMeta] = useState(() => {
     const auto = tryAutoLoadFromStore();
-    return auto?.meta ?? { magic1: 2, magic2: 2048 };
+    return auto?.meta ?? { magic1: 2, magic2: 2048, sourceFormat: 'txt', filename: 'campaign_descriptions.txt' };
   });
 
   // Campaign name editing
@@ -133,10 +142,20 @@ export default function CampaignDescriptionsStrings({ stratData, onCampaignNameC
     setCampaignDescStrings(next);
   };
 
-  const handleLoadBin = async (e) => {
+  const handleLoadLocalization = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    if (file.name.toLowerCase().endsWith('.txt')) {
+      const text = await file.text();
+      const map = parseTextLocFile(text);
+      setStringsMap(map);
+      setCampaignDescStrings(map);
+      setBinMeta({ magic1: 2, magic2: 2048, sourceFormat: 'txt', filename: file.name });
+      try { localStorage.setItem('m2tw_campaign_descriptions_raw', text); } catch {}
+      return;
+    }
+
     const buf = await file.arrayBuffer();
     const parsed = parseStringsBin(buf);
     if (!parsed) return;
@@ -144,10 +163,16 @@ export default function CampaignDescriptionsStrings({ stratData, onCampaignNameC
     for (const { key, value } of parsed.entries) if (key) map[key] = value;
     setStringsMap(map);
     setCampaignDescStrings(map);
-    setBinMeta({ magic1: parsed.magic1, magic2: parsed.magic2 });
+    setBinMeta({ magic1: parsed.magic1, magic2: parsed.magic2, sourceFormat: 'strings.bin', filename: file.name });
+    try { localStorage.removeItem('m2tw_campaign_descriptions_raw'); } catch {}
   };
 
-  const handleExportBin = () => {
+  const handleExportLocalization = () => {
+    if (binMeta?.sourceFormat === 'txt') {
+      const text = serializeTextLocFile(stringsMap);
+      downloadBlob(new Blob([text], { type: 'text/plain' }), 'campaign_descriptions.txt');
+      return;
+    }
     const entries = Object.entries(stringsMap).map(([key, value]) => ({ key, value }));
     const buf = encodeStringsBin(entries, binMeta.magic1, binMeta.magic2);
     downloadBlob(new Blob([buf]), 'campaign_descriptions.txt.strings.bin');
@@ -190,7 +215,7 @@ export default function CampaignDescriptionsStrings({ stratData, onCampaignNameC
       <div className="rounded border border-amber-500/30 bg-amber-900/10 p-2 space-y-1">
         <p className="text-[9px] text-amber-400 uppercase font-semibold">Campaign Internal Name</p>
         <p className="text-[8px] text-slate-500 leading-tight">
-          Used as the key prefix for all descriptions strings. Changing it will break existing .bin keys — only change before creating new content.
+          Used as the key prefix for all campaign description strings. Change it before creating new content.
         </p>
         {editingName ? (
           <div className="flex gap-1 items-center">
@@ -223,14 +248,16 @@ export default function CampaignDescriptionsStrings({ stratData, onCampaignNameC
 
       {/* Header */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        <p className="text-[9px] text-slate-500 uppercase font-semibold flex-1">Campaign Descriptions (.strings.bin)</p>
+        <p className="text-[9px] text-slate-500 uppercase font-semibold flex-1">
+          Campaign Descriptions ({binMeta?.sourceFormat === 'strings.bin' ? '.strings.bin' : 'plain .txt'})
+        </p>
         <label className="cursor-pointer flex items-center gap-0.5 h-5 px-1.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-300 hover:text-slate-100 text-[9px]">
-          <Upload className="w-2.5 h-2.5" /> Load .bin
-          <input ref={fileRef} type="file" accept=".bin,.strings.bin" className="hidden" onChange={handleLoadBin} />
+          <Upload className="w-2.5 h-2.5" /> Load text
+          <input ref={fileRef} type="file" accept=".txt,.bin,.strings.bin" className="hidden" onChange={handleLoadLocalization} />
         </label>
-        <button onClick={handleExportBin} disabled={Object.keys(stringsMap).length === 0}
+        <button onClick={handleExportLocalization} disabled={Object.keys(stringsMap).length === 0}
           className={`flex items-center gap-0.5 h-5 px-1.5 rounded border text-[9px] transition-colors ${Object.keys(stringsMap).length > 0 ? 'bg-amber-600/20 hover:bg-amber-600/40 border-amber-500/30 text-amber-400' : 'border-slate-700/30 text-slate-600 opacity-40 cursor-not-allowed'}`}>
-          <Download className="w-2.5 h-2.5" /> Export .bin
+          <Download className="w-2.5 h-2.5" /> Export {binMeta?.sourceFormat === 'strings.bin' ? '.bin' : '.txt'}
         </button>
       </div>
 

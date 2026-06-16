@@ -20,11 +20,11 @@ export default function AssetsConverter() {
             <Box className="w-4 h-4 text-blue-400" />
           </div>
           <div>
-            <h1 className="text-sm font-bold text-white">M2TW Asset Converter</h1>
+            <h1 className="text-sm font-bold text-white">Total War Asset Converter</h1>
             <p className="text-[11px] text-slate-400">Preview and convert game textures &amp; models</p>
           </div>
           <div className="ml-auto text-[10px] text-slate-600 hidden lg:block">
-            Based on M2TW Modeler's Toolbox v0.6β
+            Supports classic Rome-era texture and model formats
           </div>
         </div>
 

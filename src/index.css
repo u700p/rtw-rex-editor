@@ -40,38 +40,38 @@
   }
 
   .dark {
-    --background: 35 22% 9%;
-    --foreground: 42 28% 93%;
-    --card: 34 20% 12%;
-    --card-foreground: 42 28% 93%;
-    --popover: 35 22% 9%;
-    --popover-foreground: 42 28% 93%;
-    --primary: 42 78% 61%;
-    --primary-foreground: 35 26% 10%;
-    --secondary: 37 16% 18%;
-    --secondary-foreground: 42 22% 88%;
-    --muted: 36 15% 17%;
-    --muted-foreground: 39 12% 58%;
-    --accent: 138 16% 20%;
-    --accent-foreground: 42 28% 93%;
+    --background: 24 28% 8%;
+    --foreground: 42 30% 94%;
+    --card: 25 24% 12%;
+    --card-foreground: 42 30% 94%;
+    --popover: 24 28% 8%;
+    --popover-foreground: 42 30% 94%;
+    --primary: 43 78% 58%;
+    --primary-foreground: 24 28% 8%;
+    --secondary: 25 18% 18%;
+    --secondary-foreground: 42 24% 90%;
+    --muted: 28 16% 17%;
+    --muted-foreground: 38 12% 62%;
+    --accent: 358 42% 24%;
+    --accent-foreground: 42 30% 94%;
     --destructive: 0 62.8% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 38 18% 24%;
-    --input: 38 18% 22%;
-    --ring: 42 78% 61%;
-    --chart-1: 42 78% 61%;
-    --chart-2: 138 35% 48%;
-    --chart-3: 10 70% 57%;
-    --chart-4: 205 43% 58%;
-    --chart-5: 286 36% 62%;
-    --sidebar-background: 33 23% 8%;
-    --sidebar-foreground: 42 22% 88%;
-    --sidebar-primary: 42 78% 61%;
+    --border: 35 18% 24%;
+    --input: 35 18% 22%;
+    --ring: 43 78% 58%;
+    --chart-1: 43 78% 58%;
+    --chart-2: 147 31% 45%;
+    --chart-3: 358 55% 50%;
+    --chart-4: 207 37% 58%;
+    --chart-5: 31 46% 62%;
+    --sidebar-background: 24 30% 7%;
+    --sidebar-foreground: 42 24% 90%;
+    --sidebar-primary: 43 78% 58%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 36 15% 17%;
-    --sidebar-accent-foreground: 42 22% 88%;
-    --sidebar-border: 38 18% 20%;
-    --sidebar-ring: 42 78% 61%;
+    --sidebar-accent: 358 42% 20%;
+    --sidebar-accent-foreground: 42 24% 90%;
+    --sidebar-border: 35 18% 20%;
+    --sidebar-ring: 43 78% 58%;
   }
 }
 
@@ -87,7 +87,7 @@
   }
 }
 
-/* Nearest-neighbor (pixelated) rendering for M2TW map layer overlays */
+/* Nearest-neighbor (pixelated) rendering for Total War map layer overlays */
 .leaflet-image-layer.pixelated-overlay {
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;

@@ -5,7 +5,7 @@ import UnitList from '../components/units/UnitList';
 import UnitEditorPanel from '../components/units/UnitEditor';
 import { parseEDU, serializeEDU, serializeUnit, createDefaultUnit } from '../components/units/EDUParser';
 import { parseModeldb, serializeModeldb } from '../lib/modeldbCodec';
-import { parseDescrModelBattle, serializeDescrModelBattle } from '../lib/descrModelBattleCodec';
+import { parseDescrModelBattle, serializeDescrModelBattle, syncDescrModelBattleEntryAliases } from '../lib/descrModelBattleCodec';
 import { modeldbStore } from '../lib/modeldbStore';
 import { parseStringsBin } from '@/components/strings/stringsBinCodec';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
@@ -85,7 +85,7 @@ function loadUnitImages() {
 function parseBattleModels(text, filename = '') {
   if (!text || typeof text !== 'string') return null;
   const lowerName = filename.toLowerCase();
-  if (lowerName === 'descr_model_battle.txt' || /^type\s+\S+/im.test(text) && /(?:^model_(?:flexi|mesh)|^texture\s+)/im.test(text)) {
+  if (lowerName === 'descr_model_battle.txt' || (/^type\s+\S+/im.test(text) && /(?:^model_(?:flexi|mesh|stat)|^texture\s+)/im.test(text))) {
     return parseDescrModelBattle(text);
   }
   return parseModeldb(text);
@@ -212,10 +212,19 @@ export default function UnitEditorPage() {
 
   const handleUpdateModeldbEntry = (name, updatedEntry) => {
     if (!modeldb) return;
-    const entries = modeldb.entries.map(e => e.name === name ? updatedEntry : e);
+    const preparedEntry = modeldb.sourceFormat === 'descr_model_battle'
+      ? syncDescrModelBattleEntryAliases(updatedEntry, 'legacy')
+      : updatedEntry;
+    const entries = modeldb.entries.map(e => (e.name || e.type) === name ? preparedEntry : e);
     const byName = {};
-    for (const entry of entries) byName[entry.name.toLowerCase()] = entry;
-    const updated = { ...modeldb, entries, byName };
+    const byType = {};
+    for (const entry of entries) {
+      const entryName = entry.name || entry.type;
+      if (!entryName) continue;
+      byName[entryName.toLowerCase()] = entry;
+      byType[(entry.type || entryName).toLowerCase()] = entry;
+    }
+    const updated = { ...modeldb, entries, byName, byType };
     modeldbStore.update(updated);
     setModeldb(updated);
   };

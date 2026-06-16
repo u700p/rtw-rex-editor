@@ -6,7 +6,7 @@ import { RefDataProvider } from './components/edb/RefDataContext';
 import { TraitsProvider } from './components/traits/TraitsContext';
 import { AncillariesProvider } from './components/ancillaries/AncillariesContext';
 import { ModDataProvider } from './components/shared/ModDataContext';
-import { Castle, Download, Home, Shield, Package, Code2, Swords, Map, Globe, Volume2, FileText, ScrollText, Gem, Image } from 'lucide-react';
+import { Castle, Download, Home, Shield, Package, Swords, Map, Globe, Volume2, FileText, ScrollText, Gem, Image } from 'lucide-react';
 import AppErrorBoundary from './components/AppErrorBoundary';
 import romeLogo from './assets/rome/rome-logo.png';
 
@@ -16,14 +16,14 @@ const NAV_DATA_KEYS = {
   TraitsEditor:      ['m2tw_traits_file'],
   AncillariesEditor: ['m2tw_anc_file'],
   UnitEditor:        ['m2tw_units_file'],
+  BattleModelsEditor:['m2tw_modeldb_file', 'm2tw_descr_model_battle_file'],
   CampaignMap:       ['m2tw_campaign_strat'],
-  ScriptEditor:      ['m2tw_lua_scripts'],
+  ScriptEditor:      ['m2tw_campaign_script'],
   MinorFiles:        ['m2tw_rebel_factions_file', 'm2tw_religions_file'],
   CulturesEditor:    ['m2tw_cultures_file'],
   UnitCardGenerator: ['m2tw_unitcard_entries'],
   FactionsEditor:    ['m2tw_factions_file'],
   StringsBinEditor:  ['m2tw_edb_txt_file'],
-  LuaScripts:        ['m2tw_lua_scripts'],
 };
 
 function useLoadedPages() {
@@ -41,7 +41,7 @@ function useLoadedPages() {
     check();
     window.addEventListener('storage', check);
     // Also re-check when custom load events fire
-    const events = ['load-traits','load-ancillaries','load-export-units','strings-bin-updated','lua-scripts-loaded','modeldb-file-loaded'];
+    const events = ['load-traits','load-ancillaries','load-export-units','strings-bin-updated','modeldb-file-loaded'];
     events.forEach(e => window.addEventListener(e, check));
     return () => {
       window.removeEventListener('storage', check);
@@ -57,6 +57,7 @@ const navItems = [
 { name: 'Traits Editor', icon: Shield, page: 'TraitsEditor' },
 { name: 'Ancillaries', icon: Gem, page: 'AncillariesEditor' },
 { name: 'Unit Editor', icon: Swords, page: 'UnitEditor' },
+{ name: 'Battle Models', icon: Package, page: 'BattleModelsEditor' },
 { name: 'Campaign Map', icon: Map, page: 'CampaignMap' },
 { name: 'Script Editor', icon: ScrollText, page: 'ScriptEditor' },
 { name: 'Minor Files', icon: Package, page: 'MinorFiles' },
@@ -67,8 +68,6 @@ const navItems = [
 { name: '3D Model Viewer', icon: Package, page: 'AssetsConverter' },
 { name: 'Unit Card Gen', icon: Image, page: 'UnitCardGenerator' },
 { name: 'Animations', icon: Swords, page: 'AnimationEditor' },
-{ name: 'GOAT Tools', icon: Swords, page: 'GoatTools' },
-{ name: 'Lua Scripts', icon: Code2, page: 'LuaScripts' },
 { name: 'New Map Editor', icon: Globe, page: 'NewMapEditor' },
 { name: 'Export', icon: Download, page: 'Export' }];
 
@@ -120,7 +119,7 @@ export default function Layout({ children, currentPageName }) {
                     })}
             </div>
             <div className="p-3 border-t border-border">
-              <p className="text-[10px] text-muted-foreground text-center hidden lg:block">Rome / Medieval II data tooling</p>
+              <p className="text-[10px] text-muted-foreground text-center hidden lg:block">Rome: Total War data tooling</p>
             </div>
           </nav>
 

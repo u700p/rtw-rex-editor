@@ -8,7 +8,7 @@ import { parseDescrStrat, serializeDescrStrat } from '../components/map/stratPar
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Download, Package, FileText, AlertCircle, CheckCircle2, Code2, Globe2, Layers, FolderOpen } from 'lucide-react';
+import { Download, Package, FileText, AlertCircle, CheckCircle2, Globe2, FolderOpen } from 'lucide-react';
 import JSZip from 'jszip';
 import ValidationDashboard from '../components/export/ValidationDashboard';
 import TriggerValidationPanel from '../components/export/TriggerValidationPanel';
@@ -16,23 +16,6 @@ import CampaignPackagePicker from '../components/export/CampaignPackagePicker';
 
 function getCampaigns() {
   try { const s = localStorage.getItem('m2tw_campaigns'); return s ? JSON.parse(s) : []; } catch { return []; }
-}
-
-function getLuaScripts() {
-  try {
-    const saved = localStorage.getItem('m2tw_lua_scripts');
-    return saved ? JSON.parse(saved) : [];
-  } catch { return []; }
-}
-
-function buildMergedLua(scripts) {
-  const plugin = scripts.find(s => s.id === 'plugin');
-  const imgui = scripts.filter(s => s.type === 'imgui');
-  const custom = scripts.filter(s => s.type === 'custom');
-  let out = plugin ? plugin.code : '';
-  if (imgui.length) { out += '\n\n-- ═══ ImGUI Scripts ═══\n'; imgui.forEach(s => { out += `\n-- ${s.name}\n${s.code}`; }); }
-  if (custom.length) { out += '\n\n-- ═══ Custom Scripts ═══\n'; custom.forEach(s => { out += `\n-- ${s.name}\n${s.code}`; }); }
-  return out;
 }
 
 function encodeTGA(canvas, tw, th) {
@@ -77,11 +60,8 @@ export default function Export() {
   const { guildData, exportGuildsFile } = useRefData();
   const [building, setBuilding] = useState(false);
   const [done, setDone] = useState(false);
-  const [exportingTwemp, setExportingTwemp] = useState(false);
   // Map<relativePath, File> for extra files to bundle
   const [extraFiles, setExtraFiles] = useState(new Map());
-  const luaScripts = getLuaScripts();
-  const hasLua = luaScripts.length > 0;
   const campaigns = getCampaigns();
   const hasCampaigns = campaigns.length > 0;
 
@@ -162,13 +142,6 @@ export default function Export() {
       dataFolder.folder('text').file(ancTextName, ancTextContent);
     }
 
-    // Include Lua scripts
-    const luaScripts = getLuaScripts();
-    if (luaScripts.length > 0) {
-      const mergedLua = buildMergedLua(luaScripts);
-      zip.folder(`${modName}/eopData/eopScripts`).file('luaPluginScript.lua', mergedLua);
-    }
-
     // Include campaigns — use modified strat data from sessionStorage if available
     const campaigns = getCampaigns();
     for (const c of campaigns) {
@@ -209,31 +182,6 @@ export default function Export() {
 
     setBuilding(false);
     setDone(true);
-  };
-
-  // OpenTWEMP preset export
-  const handleExportTwemp = async () => {
-    setExportingTwemp(true);
-    const preset = {
-      ModName: modName,
-      ModFolder: modName,
-      GameVersion: 'M2TW',
-      SupportedVersion: '1.52',
-      Description: `${modName} - Created with Rome / Medieval II Mod Editor`,
-      Author: 'Mod Author',
-      Version: '1.0',
-      LaunchParams: `@M2TW.exe -mod:mods/${modName} -show_err`,
-      EopEnabled: hasLua,
-      Campaigns: getCampaigns().map(c => ({ name: c.name, displayName: c.displayName || c.name })),
-    };
-    const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${modName}_twemp_preset.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setExportingTwemp(false);
   };
 
   const hasEDB = !!edbData;
@@ -333,13 +281,6 @@ export default function Export() {
                 detail={hasAncText ? `${Object.keys(ancTextData).length} entries${ancBinMeta ? ' (.strings.bin)' : ' (.txt)'}` : 'No ancillaries text loaded'}
               />
               <ExportRow
-                icon={<Code2 className="w-4 h-4 text-green-500/70" />}
-                label="luaPluginScript.lua"
-                path={`${modName}/eopData/eopScripts/`}
-                status={hasLua ? 'ready' : 'skip'}
-                detail={hasLua ? `${luaScripts.length} script(s) merged` : 'No Lua scripts — edit on Lua Scripts page'}
-              />
-              <ExportRow
                 icon={<Globe2 className="w-4 h-4 text-blue-400/70" />}
                 label="Custom Campaigns"
                 path={`${modName}/data/world/maps/campaign/custom/`}
@@ -373,34 +314,10 @@ export default function Export() {
           <ValidationDashboard edbData={edbData} />
           <TriggerValidationPanel />
 
-          {/* OpenTWEMP Integration */}
-          <Card>
-            <CardHeader className="p-4 pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Layers className="w-4 h-4 text-primary" /> Medieval II OpenTWEMP Integration
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0 space-y-2">
-              <p className="text-[11px] text-muted-foreground">
-                Export a preset JSON file compatible with the{' '}
-                <a href="https://github.com/OpenTWEMP/OpenTWEMP-Community-Browser" target="_blank" rel="noreferrer" className="text-primary underline">OpenTWEMP Community Browser</a>{' '}
-                launcher so your mod appears in the mod list with correct launch parameters.
-              </p>
-              <Button
-                variant="outline" className="w-full h-9 text-xs gap-2"
-                onClick={handleExportTwemp}
-                disabled={exportingTwemp}
-              >
-                <Download className="w-4 h-4" />
-                Export OpenTWEMP Preset ({modName}_twemp_preset.json)
-              </Button>
-            </CardContent>
-          </Card>
-
           <Button
             className="w-full h-12 text-base gap-2"
             onClick={handleExportZip}
-            disabled={building || (!hasEDB && !hasTraits && !hasAnc && !hasLua && !hasCampaigns && extraFiles.size === 0)}
+            disabled={building || (!hasEDB && !hasTraits && !hasAnc && !hasCampaigns && extraFiles.size === 0)}
           >
             {building ? (
               <>
@@ -418,11 +335,11 @@ export default function Export() {
           {done && (
             <div className="flex items-center gap-2 text-green-400 text-xs justify-center">
               <CheckCircle2 className="w-4 h-4" />
-              Zip downloaded. Drop the <code className="font-mono bg-accent px-1 rounded">{modName}/</code> folder into the matching Rome or Medieval II mod/data location.
+              Zip downloaded. Drop the <code className="font-mono bg-accent px-1 rounded">{modName}/</code> folder into your Rome: Total War mod/data location.
             </div>
           )}
 
-          {!hasEDB && !hasTraits && !hasAnc && !hasLua && !hasCampaigns && extraFiles.size === 0 && (
+          {!hasEDB && !hasTraits && !hasAnc && !hasCampaigns && extraFiles.size === 0 && (
             <div className="flex items-center gap-2 text-muted-foreground text-xs justify-center">
               <AlertCircle className="w-3.5 h-3.5" />
               Load at least one moddable file to enable export.

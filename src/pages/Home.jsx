@@ -12,6 +12,7 @@ import { parseTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import DataFolderPicker from '../components/home/DataFolderPicker';
 import romeHero from '../assets/rome/rome-hero.jpg';
 import romeLogo from '../assets/rome/rome-logo.png';
+import romeUi from '../assets/rome/rome-ui.jpg';
 import {
   Swords, FolderOpen, CheckCircle2, AlertCircle, Clock,
   FileText, Package, ArrowRight, Info, Castle, Image, Map } from
@@ -194,7 +195,6 @@ export default function Home() {
   const [unitImgCount, setUnitImgCount] = useState(0);
   const [bldImgCount, setBldImgCount] = useState(0);
   const [groundTexCount, setGroundTexCount] = useState(0);
-  const [luaCount, setLuaCount] = useState(0);
   const [campaignName, setCampaignName] = useState('');
   const [campaignError, setCampaignError] = useState('');
   const [loadingData, setLoadingData] = useState(false);
@@ -203,7 +203,6 @@ export default function Home() {
   const campaignFolderRef = useRef();
   const unitUiFolderRef = useRef();
   const bldImagesFolderRef = useRef();
-  const luaFolderRef = useRef();
 
   const readText = (file) => new Promise((resolve) => {
     const r = new FileReader();
@@ -502,6 +501,10 @@ export default function Home() {
           }
           if (key === 'modeldb') {
             localStorage.setItem('m2tw_modeldb_file_name', file.name);
+            if (name === 'descr_model_battle.txt') {
+              localStorage.setItem('m2tw_descr_model_battle_file', text);
+              localStorage.setItem('m2tw_descr_model_battle_name', file.name);
+            }
             window.dispatchEvent(new CustomEvent('modeldb-file-loaded', { detail: { text, filename: file.name } }));
           }
         } catch {}
@@ -529,7 +532,7 @@ export default function Home() {
       setFileStatus((prev) => ({ ...prev, [key]: 'ok' }));
     }
 
-    // Flush text localization files into shared store (.strings.bin for M2TW, plain .txt for Rome)
+    // Flush text localization files into the shared store (plain .txt for Rome, .strings.bin when present).
     const localizationFiles = { ...stringsBinFiles, ...textLocFiles };
     if (Object.keys(localizationFiles).length > 0) {
       setFileStatus((prev) => ({ ...prev, strings_bin: 'loading' }));
@@ -812,6 +815,7 @@ export default function Home() {
     };
 
     const stringsBinFiles = {};
+    const textLocFiles = {};
 
     for (const file of files) {
       const name = file.name.toLowerCase();
@@ -839,6 +843,7 @@ export default function Home() {
           }
           if (name === 'campaign_descriptions.txt') {
             try { sessionStorage.setItem('m2tw_campaign_desc_strings', JSON.stringify(locMap)); } catch {}
+            try { localStorage.setItem('m2tw_campaign_descriptions_raw', text); } catch {}
           }
           if (name === 'names.txt') {
             try { sessionStorage.setItem('m2tw_char_names_display', JSON.stringify(locMap)); } catch {}
@@ -918,21 +923,6 @@ export default function Home() {
     setFileStatus((prev) => ({ ...prev, campaign_folder: 'ok' }));
   };
 
-  const handleLuaFolder = async (e) => {
-    const files = Array.from(e.target.files || []).filter((f) => f.name.toLowerCase().endsWith('.lua'));
-    e.target.value = '';
-    if (files.length === 0) return;
-    const scripts = [];
-    for (const file of files) {
-      const text = await readText(file);
-      scripts.push({ id: `loaded_${file.name}`, name: file.name, type: 'custom', code: text });
-    }
-    try {localStorage.setItem('m2tw_lua_scripts', JSON.stringify(scripts));} catch {}
-    window.dispatchEvent(new CustomEvent('lua-scripts-loaded', { detail: scripts }));
-    setLuaCount(scripts.length);
-    setFileStatus((prev) => ({ ...prev, lua: 'ok' }));
-  };
-
   const edbLoaded = fileStatus.edb === 'ok' || !!edbData?.buildings?.length;
 
   const handleClearMemory = () => {
@@ -962,7 +952,7 @@ export default function Home() {
           <div className="max-w-2xl">
             <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Rome: Total War Mod Editor</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Read, edit, and export Rome: Total War and Medieval II data files from a loaded data folder. Use the Export page when done to download a complete [mod name]\data\ folder.
+              Read, edit, and export Rome: Total War data files from a loaded data folder. Use the Export page when done to download a complete [mod name]\data\ folder.
             </p>
           </div>
         </div>
@@ -988,10 +978,12 @@ export default function Home() {
 
       {/* Step 1 — data folder + UI images */}
       <div className="w-full max-w-4xl bg-card border border-border rounded-lg overflow-hidden">
-        <div className="p-4 border-b border-border bg-accent/10">
+        <div
+          className="p-4 border-b border-border bg-cover bg-center"
+          style={{ backgroundImage: `linear-gradient(90deg, rgba(35, 24, 13, 0.96), rgba(60, 16, 13, 0.82), rgba(60, 16, 13, 0.60)), url(${romeUi})` }}>
           <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Castle className="w-4 h-4 text-primary" />
-            Step 1 — Load Rome / M2TW Files &amp; Images
+            Step 1 — Load Rome: Total War Files &amp; Images
           </h2>
           <p className="text-[11px] text-muted-foreground mt-1">Browse a full data\ folder to load game files, campaign map files, text localization, and UI images.</p>
         </div>
@@ -1018,7 +1010,7 @@ export default function Home() {
               <FileStatus label="Religions" hint="descr_religions.txt" status={fileStatus.religions} />
               <FileStatus label="Guilds" hint="export_descr_guilds.txt" status={fileStatus.guilds} />
               <FileStatus label="Battle Models" hint="battle_models.modeldb / descr_model_battle.txt" status={fileStatus.modeldb} />
-              <FileStatus label="Text Loc / Strings" hint={fileStatus.strings_bin === 'ok' ? `${stringsBinCount} files loaded (VnVs, ancillaries, regions…)` : 'text\\*.txt or text\\*.strings.bin'} status={fileStatus.strings_bin} />
+              <FileStatus label="Text Localization" hint={fileStatus.strings_bin === 'ok' ? `${stringsBinCount} files loaded (plain text or binary)` : 'text\\*.txt'} status={fileStatus.strings_bin} />
             </div>
           </div>
 
@@ -1136,38 +1128,6 @@ export default function Home() {
 
 
         
-      </div>
-
-      {/* Step 3 — Lua Scripts */}
-      <div className="w-full max-w-2xl bg-card border border-border rounded-xl overflow-hidden">
-        <div className="p-4 border-b border-border bg-accent/10">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">Step 2 — Load Lua Scripts
-(optional)
-
-          </h2>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Browse to your <code className="text-[10px] font-mono bg-accent px-1 rounded">eopData\eopScripts\</code> folder to load Lua scripts into the script editor.
-          </p>
-        </div>
-        <div className="p-4 space-y-3">
-          <label className="cursor-pointer">
-            <input ref={luaFolderRef} type="file" className="hidden"
-            webkitdirectory="" directory="" multiple onChange={handleLuaFolder} />
-            <Button asChild variant="outline"
-            className="w-full h-11 border-primary/30 text-primary hover:bg-primary/10 pointer-events-none gap-2">
-              <span>
-                <FolderOpen className="w-4 h-4" />
-                Browse to <code className="text-xs font-mono">…\eopData\eopScripts\</code> folder
-              </span>
-            </Button>
-          </label>
-          <div className="grid grid-cols-1 gap-2">
-            <FileStatus
-              label="Lua Scripts"
-              hint={fileStatus.lua === 'ok' ? `${luaCount} scripts loaded` : '*.lua files'}
-              status={fileStatus.lua || 'idle'} />
-          </div>
-        </div>
       </div>
 
       {/* Info */}

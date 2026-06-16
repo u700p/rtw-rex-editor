@@ -29,8 +29,12 @@ export function DescrModelBattleProvider({ children }) {
   // ── Auto-restore from localStorage ──────────────────────────────────────
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(LS_DMB);
-      const name = localStorage.getItem(LS_DMB_NAME);
+      const sharedName = localStorage.getItem('m2tw_modeldb_file_name') || '';
+      const sharedRaw = sharedName.toLowerCase() === 'descr_model_battle.txt'
+        ? localStorage.getItem('m2tw_modeldb_file')
+        : null;
+      const raw = localStorage.getItem(LS_DMB) || sharedRaw;
+      const name = localStorage.getItem(LS_DMB_NAME) || sharedName;
       if (raw) {
         const parsed = parseDescrModelBattle(raw);
         origDmb.current = JSON.stringify(parsed);
@@ -68,28 +72,48 @@ export function DescrModelBattleProvider({ children }) {
   const updateDmbEntry = useCallback((updatedEntry) => {
     setDmbData(prev => {
       if (!prev) return prev;
+      const updatedName = updatedEntry.name || updatedEntry.type;
       const entries = prev.entries.map(e =>
-        e.type === updatedEntry.type ? updatedEntry : e
+        (e.name || e.type) === updatedName ? { ...updatedEntry, name: updatedName, type: updatedEntry.type || updatedName } : e
       );
+      const byName = {};
       const byType = {};
-      for (const e of entries) byType[e.type.toLowerCase()] = e;
-      return { entries, byType };
+      for (const e of entries) {
+        const name = e.name || e.type;
+        if (!name) continue;
+        byName[name.toLowerCase()] = e;
+        byType[(e.type || name).toLowerCase()] = e;
+      }
+      return { ...prev, entries, byName, byType };
     });
     setDmbDirty(true);
   }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const text = typeof e.detail === 'string' ? e.detail : e.detail?.text;
+      const filename = typeof e.detail === 'object' ? e.detail?.filename : '';
+      if (!text || filename.toLowerCase() !== 'descr_model_battle.txt') return;
+      loadDmbFile(text, filename);
+    };
+    window.addEventListener('modeldb-file-loaded', handler);
+    return () => window.removeEventListener('modeldb-file-loaded', handler);
+  }, [loadDmbFile]);
 
   const addDmbEntry = useCallback((typeName) => {
     const entry = createDefaultBattleModelEntry(typeName);
     setDmbData(prev => {
       if (!prev) {
+        const byName = { [entry.name.toLowerCase()]: entry };
         const byType = { [entry.type.toLowerCase()]: entry };
-        return { entries: [entry], byType };
+        return { sourceFormat: 'descr_model_battle', totalEntries: 1, entries: [entry], byName, byType };
       }
       const exists = prev.byType[entry.type.toLowerCase()];
       if (exists) return prev;
       const entries = [...prev.entries, entry];
-      const byType = { ...prev.byType, [entry.type.toLowerCase()]: entry };
-      return { entries, byType };
+      const byName = { ...(prev.byName || {}), [entry.name.toLowerCase()]: entry };
+      const byType = { ...(prev.byType || {}), [entry.type.toLowerCase()]: entry };
+      return { ...prev, entries, byName, byType, totalEntries: entries.length };
     });
     setSelectedType(entry.type);
     setDmbDirty(true);
@@ -98,10 +122,16 @@ export function DescrModelBattleProvider({ children }) {
   const removeDmbEntry = useCallback((typeName) => {
     setDmbData(prev => {
       if (!prev) return prev;
-      const entries = prev.entries.filter(e => e.type !== typeName);
+      const entries = prev.entries.filter(e => (e.type || e.name) !== typeName);
+      const byName = {};
       const byType = {};
-      for (const e of entries) byType[e.type.toLowerCase()] = e;
-      return { entries, byType };
+      for (const e of entries) {
+        const name = e.name || e.type;
+        if (!name) continue;
+        byName[name.toLowerCase()] = e;
+        byType[(e.type || name).toLowerCase()] = e;
+      }
+      return { ...prev, entries, byName, byType, totalEntries: entries.length };
     });
     setSelectedType(sel => sel === typeName ? null : sel);
     setDmbDirty(true);
