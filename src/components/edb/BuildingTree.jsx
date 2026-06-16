@@ -90,13 +90,13 @@ function BuildingNode({ building, dragHandleProps }) {
                 {levelNum === 9 &&
               <div className="flex items-center gap-1 px-2 py-0.5 text-[9px] text-yellow-500 bg-yellow-500/10 rounded mb-0.5">
                     <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
-                    Level 9 = vanilla limit. M2TWEOP allows 50+.
+                    Level 9 is the vanilla Rome limit.
                   </div>
               }
                 {levelNum > 50 &&
               <div className="flex items-center gap-1 px-2 py-0.5 text-[9px] text-orange-400 bg-orange-500/10 rounded mb-0.5">
                     <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
-                    {"Level " + levelNum + ": close to M2TWEOP max!"}
+                    {"Level " + levelNum + ": beyond vanilla Rome limits."}
                   </div>
               }
                 <div className="text-muted-foreground pt-1 pr-2 pb-1 pl-2 text-xs rounded-md flex items-center gap-1.5 cursor-pointer group transition-colors hover:bg-accent hover:text-foreground"

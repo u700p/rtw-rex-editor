@@ -26,11 +26,11 @@ export function validateEDB(edbData) {
     }
 
     if (building.levels.length >= 9) {
-      issues.push({ severity: 'warning', building: bn, message: `${building.levels.length} levels — vanilla limit is 9. Use M2TWEOP for more.` });
+      issues.push({ severity: 'warning', building: bn, message: `${building.levels.length} levels — vanilla Rome limit is 9.` });
     }
 
     if (building.levels.length > 50) {
-      issues.push({ severity: 'warning', building: bn, message: `${building.levels.length} levels — exceeds 50, approaching M2TWEOP limit!` });
+      issues.push({ severity: 'warning', building: bn, message: `${building.levels.length} levels — far beyond vanilla Rome limits.` });
     }
 
     if (building.convertTo && !buildingNames.has(building.convertTo)) {
