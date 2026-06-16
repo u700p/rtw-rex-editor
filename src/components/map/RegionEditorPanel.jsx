@@ -210,6 +210,27 @@ export default function RegionEditorPanel({
     setDirty(true);
   }, []);
 
+  const updateRegionExtraLines = useCallback((text) => {
+    const extraDataLines = text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+    setReg(r => {
+      const hasReligionTail = r._hasReligions || Object.keys(r.religions || {}).length > 0;
+      return {
+        ...r,
+        extraDataLines,
+        _regionTail: [
+          ...(hasReligionTail ? [{ kind: 'religions' }] : []),
+          ...extraDataLines.map(value => ({ kind: 'extra', value })),
+        ],
+      };
+    });
+    setDirty(true);
+  }, []);
+
   const updateStrat = useCallback((key, val) => {
     setStrat(s => ({ ...s, [key]: val }));
     setDirty(true);
@@ -267,7 +288,7 @@ export default function RegionEditorPanel({
               <TextInput value={reg.regionName} onChange={v => updateReg('regionName', v)} />
             </Field>
             {regionDisplayName !== reg.regionName && (
-              <Field label="Region Display Name (strings.bin)">
+              <Field label="Region Display Name (text loc)">
                 <input value={regionDisplayName} readOnly
                   className="h-6 px-1.5 text-[11px] bg-slate-900 border border-slate-700/40 rounded text-slate-400 w-full font-mono cursor-not-allowed" />
               </Field>
@@ -277,7 +298,7 @@ export default function RegionEditorPanel({
               <TextInput value={reg.settlementName} onChange={v => updateReg('settlementName', v)} />
             </Field>
             {settlDisplayName !== reg.settlementName && (
-              <Field label="Settlement Display Name (strings.bin)">
+              <Field label="Settlement Display Name (text loc)">
                 <input value={settlDisplayName} readOnly
                   className="h-6 px-1.5 text-[11px] bg-slate-900 border border-slate-700/40 rounded text-slate-400 w-full font-mono cursor-not-allowed" />
               </Field>
@@ -333,11 +354,11 @@ export default function RegionEditorPanel({
               />
             </Field>
 
-            <Field label="Agriculture Value">
+            <Field label="Victory / Triumph Points">
               <TextInput type="number" value={reg.val1} onChange={v => updateReg('val1', parseInt(v) || 0)} />
             </Field>
 
-            <Field label="Victory Point Value">
+            <Field label="Farm / Agriculture Level">
               <TextInput type="number" value={reg.val2} onChange={v => updateReg('val2', parseInt(v) || 0)} />
             </Field>
 
@@ -346,6 +367,15 @@ export default function RegionEditorPanel({
                 religions={reg.religions}
                 availableReligions={religionList}
                 onChange={v => updateReg('religions', v)}
+              />
+            </Field>
+
+            <Field label="Extra descr_regions Lines">
+              <textarea
+                value={(reg.extraDataLines || []).join('\n')}
+                onChange={e => updateRegionExtraLines(e.target.value)}
+                placeholder="Custom per-region data lines are preserved here"
+                className="min-h-14 px-1.5 py-1 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-slate-200 w-full font-mono resize-y"
               />
             </Field>
 

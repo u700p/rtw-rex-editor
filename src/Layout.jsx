@@ -8,6 +8,7 @@ import { AncillariesProvider } from './components/ancillaries/AncillariesContext
 import { ModDataProvider } from './components/shared/ModDataContext';
 import { Castle, Download, Home, Shield, Package, Code2, Swords, Map, Globe, Volume2, FileText, ScrollText, Gem, Image } from 'lucide-react';
 import AppErrorBoundary from './components/AppErrorBoundary';
+import romeLogo from './assets/rome/rome-logo.png';
 
 // localStorage keys that indicate a given editor has data loaded
 const NAV_DATA_KEYS = {
@@ -84,12 +85,12 @@ export default function Layout({ children, currentPageName }) {
           <nav className="w-16 lg:w-56 border-r border-border bg-card flex flex-col shrink-0">
             <div className="p-3 lg:p-4 border-b border-border">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-                  <Castle className="w-4 h-4 text-primary" />
+                <div className="w-10 h-10 rounded-lg bg-black/35 border border-primary/20 flex items-center justify-center overflow-hidden">
+                  <img src={romeLogo} alt="Rome: Total War" className="w-9 h-auto" />
                 </div>
                 <div className="hidden lg:block">
-                  <h1 className="text-sm font-bold text-foreground leading-none">Mylae’s</h1>
-                  <p className="text-muted-foreground text-lg">M2TW Mod Editor</p>
+                  <h1 className="text-sm font-bold text-foreground leading-none">Rome: Total War</h1>
+                  <p className="text-muted-foreground text-sm">Mod Editor</p>
                 </div>
               </div>
             </div>
@@ -119,9 +120,7 @@ export default function Layout({ children, currentPageName }) {
                     })}
             </div>
             <div className="p-3 border-t border-border">
-              <p className="text-[10px] text-muted-foreground text-center hidden lg:block">Based on Ultimate Docudemons 5.5
-
-                    </p>
+              <p className="text-[10px] text-muted-foreground text-center hidden lg:block">Rome / Medieval II data tooling</p>
             </div>
           </nav>
 

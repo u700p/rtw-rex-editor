@@ -3,6 +3,7 @@ import { Upload, Download, Plus, X, AlertCircle, ImageIcon } from 'lucide-react'
 import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
+import { parseTextLocFile } from '@/lib/textLocParser';
 
 function parseResourcesFull(text) {
   const resources = [];
@@ -87,13 +88,13 @@ export default function ResourcesTab() {
       const store = getStringsBinStore();
       const stratBinEntry = Object.entries(store).find(([k]) => {
         const lk = k.toLowerCase();
-        return lk === 'strat.txt.strings.bin' || (lk.includes('strat') && lk.endsWith('.bin'));
+        return lk === 'strat.txt.strings.bin' || lk === 'strat.txt' || (lk.includes('strat') && (lk.endsWith('.bin') || lk.endsWith('.txt')));
       });
       if (stratBinEntry?.[1]) {
         const map = {};
         for (const e of stratBinEntry[1].entries) if (e.key) map[e.key] = e.value;
         setNames(map);
-        setBinMeta({ magic1: stratBinEntry[1].magic1 ?? 2, magic2: stratBinEntry[1].magic2 ?? 2048 });
+        setBinMeta(stratBinEntry[1].sourceFormat === 'txt' ? null : { magic1: stratBinEntry[1].magic1 ?? 2, magic2: stratBinEntry[1].magic2 ?? 2048 });
       }
     } catch {}
   }, []);
@@ -110,12 +111,8 @@ export default function ResourcesTab() {
   const handleLoadStratTxt = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     const text = await file.text();
-    const map = {};
-    for (const line of text.split('\n')) {
-      const m = line.match(/^\{([^}]+)\}(.*)/);
-      if (m) map[m[1]] = m[2].replace(/^[¬\t ]/, '').trim();
-    }
-    setNames(map);
+    setNames(parseTextLocFile(text));
+    setBinMeta(null);
     e.target.value = '';
   };
 

@@ -88,6 +88,10 @@ export default function Export() {
   const modName = (() => {
     try { return localStorage.getItem('m2tw_mod_name') || 'my_mod'; } catch { return 'my_mod'; }
   })();
+  const buildingTextIsBinary = (() => {
+    try { return !!localStorage.getItem('m2tw_edb_txt_bin_magic1') || !!localStorage.getItem('m2tw_edb_txt_bin_magic2'); } catch { return false; }
+  })();
+  const buildingTextLabel = buildingTextIsBinary ? 'export_buildings.txt.strings.bin' : 'export_buildings.txt';
 
   const handleExportZip = async () => {
     setBuilding(true);
@@ -102,12 +106,15 @@ export default function Export() {
     }
 
     if (textData && Object.keys(textData).length > 0) {
-      // Export as .strings.bin (the format M2TW uses)
-      const magic1 = parseInt(localStorage.getItem('m2tw_edb_txt_bin_magic1') || '2');
-      const magic2 = parseInt(localStorage.getItem('m2tw_edb_txt_bin_magic2') || '2048');
-      const entries = Object.entries(textData).map(([key, value]) => ({ key, value: String(value) }));
-      const binBuf = encodeStringsBin(entries, magic1, magic2);
-      dataFolder.folder('text').file('export_buildings.txt.strings.bin', new Uint8Array(binBuf));
+      if (buildingTextIsBinary) {
+        const magic1 = parseInt(localStorage.getItem('m2tw_edb_txt_bin_magic1') || '2');
+        const magic2 = parseInt(localStorage.getItem('m2tw_edb_txt_bin_magic2') || '2048');
+        const entries = Object.entries(textData).map(([key, value]) => ({ key, value: String(value) }));
+        const binBuf = encodeStringsBin(entries, magic1, magic2);
+        dataFolder.folder('text').file('export_buildings.txt.strings.bin', new Uint8Array(binBuf));
+      } else {
+        dataFolder.folder('text').file('export_buildings.txt', exportTextFile().replace(/\n/g, '\r\n'));
+      }
     }
 
     // Export building images as TGA files
@@ -212,7 +219,7 @@ export default function Export() {
       ModFolder: modName,
       GameVersion: 'M2TW',
       SupportedVersion: '1.52',
-      Description: `${modName} - Created with M2TW Mod Editor`,
+      Description: `${modName} - Created with Rome / Medieval II Mod Editor`,
       Author: 'Mod Author',
       Version: '1.0',
       LaunchParams: `@M2TW.exe -mod:mods/${modName} -show_err`,
@@ -276,10 +283,10 @@ export default function Export() {
               />
               <ExportRow
                 icon={<FileText className="w-4 h-4 text-chart-4/70" />}
-                label="export_buildings.txt.strings.bin"
+                label={buildingTextLabel}
                 path={`${modName}/data/text/`}
                 status={hasText ? 'ready' : 'skip'}
-                detail={hasText ? `${Object.keys(textData).length} text entries` : 'No text data — will be skipped'}
+                detail={hasText ? `${Object.keys(textData).length} text entries${buildingTextIsBinary ? ' (.strings.bin)' : ' (.txt)'}` : 'No text data — will be skipped'}
               />
               {imageData && Object.keys(imageData).length > 0 && (
                 <ExportRow
@@ -306,7 +313,7 @@ export default function Export() {
               />
               <ExportRow
                 icon={<FileText className="w-4 h-4 text-purple-300/70" />}
-                label={traitsTextFilename || 'export_VnVs.txt(.strings.bin)'}
+                label={traitsTextFilename || 'export_VnVs.txt'}
                 path={`${modName}/data/text/`}
                 status={hasTraitsText ? 'ready' : 'skip'}
                 detail={hasTraitsText ? `${Object.keys(traitsTextData).length} entries${traitsBinMeta ? ' (.strings.bin)' : ' (.txt)'}` : 'No VnVs text loaded'}
@@ -320,7 +327,7 @@ export default function Export() {
               />
               <ExportRow
                 icon={<FileText className="w-4 h-4 text-yellow-300/70" />}
-                label={ancTextFilename || 'export_ancillaries.txt(.strings.bin)'}
+                label={ancTextFilename || 'export_ancillaries.txt'}
                 path={`${modName}/data/text/`}
                 status={hasAncText ? 'ready' : 'skip'}
                 detail={hasAncText ? `${Object.keys(ancTextData).length} entries${ancBinMeta ? ' (.strings.bin)' : ' (.txt)'}` : 'No ancillaries text loaded'}
@@ -370,7 +377,7 @@ export default function Export() {
           <Card>
             <CardHeader className="p-4 pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Layers className="w-4 h-4 text-primary" /> OpenTWEMP Integration
+                <Layers className="w-4 h-4 text-primary" /> Medieval II OpenTWEMP Integration
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 pt-0 space-y-2">
@@ -411,7 +418,7 @@ export default function Export() {
           {done && (
             <div className="flex items-center gap-2 text-green-400 text-xs justify-center">
               <CheckCircle2 className="w-4 h-4" />
-              Zip downloaded! Drop the <code className="font-mono bg-accent px-1 rounded">{modName}/</code> folder into your M2TW <code className="font-mono bg-accent px-1 rounded">mods/</code> directory.
+              Zip downloaded. Drop the <code className="font-mono bg-accent px-1 rounded">{modName}/</code> folder into the matching Rome or Medieval II mod/data location.
             </div>
           )}
 

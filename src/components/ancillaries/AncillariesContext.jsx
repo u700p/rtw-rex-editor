@@ -45,7 +45,9 @@ export function AncillariesProvider({ children }) {
       // Try .strings.bin store first (case-insensitive), then fall back to plain txt cache
       const store = getStringsBinStore();
       const anctxtEntry = Object.entries(store).find(([k]) =>
-        k.toLowerCase() === 'export_ancillaries.txt.strings.bin'
+        k.toLowerCase() === 'export_ancillaries.txt.strings.bin' ||
+        k.toLowerCase() === 'export_ancillaries.txt' ||
+        k.toLowerCase().includes('export_ancillaries')
       );
       if (anctxtEntry) {
         const [filename, binData] = anctxtEntry;
@@ -54,7 +56,7 @@ export function AncillariesProvider({ children }) {
         originalTextData.current = JSON.stringify(map);
         setTextData(map);
         setTextFilename(filename);
-        setTextBinMeta({ magic1: binData.magic1 ?? 2, magic2: binData.magic2 ?? 2048 });
+        setTextBinMeta(binData.sourceFormat === 'txt' ? null : { magic1: binData.magic1 ?? 2, magic2: binData.magic2 ?? 2048 });
       } else {
         const txtContent = localStorage.getItem('m2tw_anctxt_file');
         const txtName = localStorage.getItem('m2tw_anctxt_file_name');

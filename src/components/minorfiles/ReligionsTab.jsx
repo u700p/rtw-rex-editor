@@ -65,7 +65,7 @@ export default function ReligionsTab() {
         const map = {};
         for (const e of relBinEntry[1].entries) if (e.key) map[e.key] = e.value;
         setNames(map);
-        setBinMeta({ magic1: relBinEntry[1].magic1 ?? 2, magic2: relBinEntry[1].magic2 ?? 2048 });
+        setBinMeta(relBinEntry[1].sourceFormat === 'txt' ? null : { magic1: relBinEntry[1].magic1 ?? 2, magic2: relBinEntry[1].magic2 ?? 2048 });
       }
     } catch {}
   }, []);

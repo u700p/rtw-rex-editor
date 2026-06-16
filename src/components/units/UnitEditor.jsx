@@ -40,7 +40,7 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
     { id: 'stats', label: 'Stats' },
     { id: 'ownership', label: 'Ownership' },
     { id: 'description', label: 'Description & Images' },
-    { id: 'modeldb', label: 'ModelDB' },
+    { id: 'modeldb', label: 'Battle Models' },
     { id: 'preview', label: 'Preview' },
   ];
 

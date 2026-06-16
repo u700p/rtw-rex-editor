@@ -8,7 +8,7 @@ const CATEGORY_LABELS = {
   images_ui:      { label: 'UI Images (data/ui/)',     defaultOn: false, icon: Image },
   images_terrain: { label: 'Terrain Textures',         defaultOn: false, icon: Image },
   campaign:       { label: 'Campaign Map Files',       defaultOn: true,  icon: FileText },
-  strings_bin:    { label: 'Strings (.bin)',           defaultOn: true,  icon: FileText },
+  strings_bin:    { label: 'Text Loc / Strings',       defaultOn: true,  icon: FileText },
 };
 
 const TEXT_FILENAMES = new Set([
@@ -16,10 +16,13 @@ const TEXT_FILENAMES = new Set([
   'export_descr_unit.txt','descr_events.txt','export_buildings.txt',
   'export_descr_character_traits.txt','export_descr_ancillaries.txt','export_units.txt',
   'descr_cultures.txt','descr_names.txt','descr_rebel_factions.txt','descr_religions.txt',
-  'export_descr_guilds.txt','battle_models.modeldb','descr_skeleton.txt','descr_mount.txt',
+  'export_descr_guilds.txt','battle_models.modeldb','descr_model_battle.txt','descr_skeleton.txt','descr_mount.txt',
   'descr_aerial_map_ground_types.txt','descr_strat.txt','descr_regions.txt',
   'descr_mercenaries.txt','descr_win_conditions.txt','campaign_script.txt',
   'descr_event.txt','descr_sounds_music_types.txt','descr_terrain.txt',
+  'export_vnvs.txt','export_ancillaries.txt','campaign_descriptions.txt','names.txt',
+  'rebel_faction_descr.txt','strat.txt','tooltips.txt','expanded.txt','expanded_bi.txt',
+  'expanded_bi_wip.txt','export_units_wip.txt',
 ]);
 
 function categorizeFile(file) {
@@ -27,6 +30,7 @@ function categorizeFile(file) {
   const path = (file.webkitRelativePath || file.name).toLowerCase().replace(/\\/g, '/');
 
   if (name.endsWith('.strings.bin') || (name.endsWith('.bin') && path.includes('/text/'))) return 'strings_bin';
+  if (path.includes('/text/') && name.endsWith('.txt')) return 'strings_bin';
   if (path.includes('/maps/campaign/') || path.includes('/maps/base/')) {
     if (name.endsWith('.tga') || name.endsWith('.txt')) return 'campaign';
     return null;

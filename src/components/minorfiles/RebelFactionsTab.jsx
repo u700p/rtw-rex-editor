@@ -103,7 +103,7 @@ export default function RebelFactionsTab() {
         const map = {};
         for (const e of rebelBinEntry[1].entries) if (e.key) map[e.key] = e.value;
         setNames(map);
-        setBinMeta({ magic1: rebelBinEntry[1].magic1 ?? 2, magic2: rebelBinEntry[1].magic2 ?? 2048 });
+        setBinMeta(rebelBinEntry[1].sourceFormat === 'txt' ? null : { magic1: rebelBinEntry[1].magic1 ?? 2, magic2: rebelBinEntry[1].magic2 ?? 2048 });
       }
     } catch {}
   }, []);

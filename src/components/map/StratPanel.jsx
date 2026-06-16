@@ -1067,21 +1067,33 @@ export default function StratPanel({
         zip.file(`${basePath}/${filename}`, blob);
       }
     }
-    // Settlement names as .strings.bin
+    // Settlement names: Rome uses plain text; M2TW may use .strings.bin.
     if (settlementNames && Object.keys(settlementNames).length > 0) {
-      const entries = Object.entries(settlementNames).map(([key, value]) => ({ key, value }));
-      const binBuf = encodeStringsBin(entries);
-      zip.file(`data/text/${campaignName}_regions_and_settlement_names.txt.strings.bin`, binBuf);
+      const namesRaw = sessionStorage.getItem('m2tw_names_raw');
+      if (namesRaw) {
+        const lines = Object.entries(settlementNames).map(([key, value]) => `{${key}}${value}`);
+        zip.file(`data/text/${campaignName}_regions_and_settlement_names.txt`, toCRLF(lines.join('\n')));
+      } else {
+        const entries = Object.entries(settlementNames).map(([key, value]) => ({ key, value }));
+        const binBuf = encodeStringsBin(entries);
+        zip.file(`data/text/${campaignName}_regions_and_settlement_names.txt.strings.bin`, binBuf);
+      }
     }
-    // Campaign descriptions as .strings.bin
+    // Campaign descriptions: preserve Rome plain text when that was loaded.
     try {
       const descStringsRaw = sessionStorage.getItem('m2tw_campaign_desc_strings');
       if (descStringsRaw) {
         const descMap = JSON.parse(descStringsRaw);
         if (descMap && Object.keys(descMap).length > 0) {
-          const descEntries = Object.entries(descMap).map(([k, v]) => ({ key: k, value: v }));
-          const descBinBuf = encodeStringsBin(descEntries);
-          zip.file(`data/text/campaign_descriptions.txt.strings.bin`, descBinBuf);
+          const descPlainRaw = localStorage.getItem('m2tw_campaign_descriptions_raw');
+          if (descPlainRaw) {
+            const lines = Object.entries(descMap).map(([key, value]) => `{${key}}${value}`);
+            zip.file(`data/text/campaign_descriptions.txt`, toCRLF(lines.join('\n')));
+          } else {
+            const descEntries = Object.entries(descMap).map(([k, v]) => ({ key: k, value: v }));
+            const descBinBuf = encodeStringsBin(descEntries);
+            zip.file(`data/text/campaign_descriptions.txt.strings.bin`, descBinBuf);
+          }
         }
       }
     } catch (e) { console.warn('campaign_descriptions export failed', e); }

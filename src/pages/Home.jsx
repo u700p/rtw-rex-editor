@@ -8,7 +8,10 @@ import { createPageUrl } from '@/utils';
 import { Link } from 'react-router-dom';
 import { parseStringsBin } from '@/components/strings/stringsBinCodec';
 import { setStringsBinStore, getStringsBinStore, clearStringsBinStore } from '@/lib/stringsBinStore';
+import { parseTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import DataFolderPicker from '../components/home/DataFolderPicker';
+import romeHero from '../assets/rome/rome-hero.jpg';
+import romeLogo from '../assets/rome/rome-logo.png';
 import {
   Swords, FolderOpen, CheckCircle2, AlertCircle, Clock,
   FileText, Package, ArrowRight, Info, Castle, Image, Map } from
@@ -108,6 +111,7 @@ const DATA_FILE_MAP = {
   'descr_rebel_factions.txt': 'rebel_fac',
   'descr_religions.txt': 'religions',
   'battle_models.modeldb': 'modeldb',
+  'descr_model_battle.txt': 'modeldb',
   'descr_skeleton.txt': 'skeleton',
   'descr_mount.txt': 'mount',
   'export_descr_guilds.txt': 'guilds'
@@ -177,7 +181,7 @@ export default function Home() {
       names: ls('m2tw_names_file') ? 'ok' : 'idle',
       rebel_fac: ls('m2tw_rebel_factions_file') ? 'ok' : 'idle',
       religions: ls('m2tw_religions_file') ? 'ok' : 'idle',
-      modeldb: 'idle'
+      modeldb: ls('m2tw_modeldb_file') ? 'ok' : 'idle'
     };
   });
 
@@ -203,8 +207,17 @@ export default function Home() {
 
   const readText = (file) => new Promise((resolve) => {
     const r = new FileReader();
-    r.onload = (e) => resolve(e.target.result);
-    r.readAsText(file);
+    r.onload = (e) => {
+      const bytes = new Uint8Array(e.target.result || new ArrayBuffer(0));
+      const decode = (encoding) => {
+        try { return new TextDecoder(encoding).decode(bytes); }
+        catch { return new TextDecoder().decode(bytes); }
+      };
+      if (bytes[0] === 0xff && bytes[1] === 0xfe) resolve(decode('utf-16le'));
+      else if (bytes[0] === 0xfe && bytes[1] === 0xff) resolve(decode('utf-16be'));
+      else resolve(decode('utf-8'));
+    };
+    r.readAsArrayBuffer(file);
   });
 
   const handleDataFolderFromPicker = async (files, campaignFolders, selectedCampaigns) => {
@@ -229,6 +242,8 @@ export default function Home() {
     conditionalRemove('m2tw_traits_file',        fileNames.has('export_descr_character_traits.txt'));
     conditionalRemove('m2tw_anc_file',           fileNames.has('export_descr_ancillaries.txt'));
     conditionalRemove('m2tw_export_units_file',  fileNames.has('export_units.txt'));
+    conditionalRemove('m2tw_modeldb_file',       fileNames.has('battle_models.modeldb') || fileNames.has('descr_model_battle.txt'));
+    conditionalRemove('m2tw_modeldb_file_name',  fileNames.has('battle_models.modeldb') || fileNames.has('descr_model_battle.txt'));
 
 
     const loaderMap = {
@@ -282,6 +297,7 @@ export default function Home() {
     const religionPipFiles = [];
     const eventPicFiles = [];
     const stringsBinFiles = {};
+    const textLocFiles = {};
 
     for (const file of files) {
       const name = file.name.toLowerCase();
@@ -293,10 +309,55 @@ export default function Home() {
           const buf = await file.arrayBuffer();
           const parsed = parseStringsBin(buf);
           if (parsed) {
-            stringsBinFiles[file.name] = { entries: parsed.entries, magic1: parsed.magic1, magic2: parsed.magic2 };
+            stringsBinFiles[file.name] = { entries: parsed.entries, magic1: parsed.magic1, magic2: parsed.magic2, sourceFormat: 'strings.bin' };
           }
           continue;
         }
+      }
+
+      let textOverride = null;
+      if (pathLower.includes('/text/') && name.endsWith('.txt')) {
+        textOverride = await readText(file);
+        const locMap = parseTextLocFile(textOverride);
+        const entries = textLocMapToEntries(locMap);
+        if (entries.length > 0) {
+          textLocFiles[file.name] = { entries, sourceFormat: 'txt' };
+          if (name === 'export_vnvs.txt') {
+            try {
+              localStorage.setItem('m2tw_vnvs_file', textOverride);
+              localStorage.setItem('m2tw_vnvs_file_name', file.name);
+            } catch {}
+            window.dispatchEvent(new CustomEvent('load-vnvs', { detail: { content: locMap, filename: file.name } }));
+            setFileStatus((prev) => ({ ...prev, vnvs: 'ok' }));
+          } else if (name === 'export_ancillaries.txt') {
+            try {
+              localStorage.setItem('m2tw_anctxt_file', textOverride);
+              localStorage.setItem('m2tw_anctxt_file_name', file.name);
+            } catch {}
+            window.dispatchEvent(new CustomEvent('load-anctxt', { detail: { content: locMap, filename: file.name } }));
+            setFileStatus((prev) => ({ ...prev, anctxt: 'ok' }));
+          } else if (name === 'export_units.txt') {
+            try {
+              localStorage.setItem('m2tw_export_units_file', textOverride);
+              localStorage.setItem('m2tw_export_units_file_name', file.name);
+            } catch {}
+            window.dispatchEvent(new CustomEvent('load-export-units'));
+            setFileStatus((prev) => ({ ...prev, expunits: 'ok' }));
+          } else if (name.endsWith('_regions_and_settlement_names.txt')) {
+            try {
+              sessionStorage.setItem('m2tw_names_raw', textOverride);
+              localStorage.setItem('m2tw_campaign_names_raw', textOverride);
+            } catch {}
+          } else if (name === 'campaign_descriptions.txt') {
+            try {
+              sessionStorage.setItem('m2tw_campaign_desc_strings', JSON.stringify(locMap));
+              localStorage.setItem('m2tw_campaign_descriptions_raw', textOverride);
+            } catch {}
+          } else if (name === 'names.txt') {
+            try { sessionStorage.setItem('m2tw_char_names_display', JSON.stringify(locMap)); } catch {}
+          }
+        }
+        if (!DATA_FILE_MAP[name]) continue;
       }
 
       // Route TGA files by folder path
@@ -401,7 +462,7 @@ export default function Home() {
         continue;
       }
 
-      const text = await readText(file);
+      const text = textOverride ?? await readText(file);
       if (key === 'aerial_ground_types') {
         const parsed = parseDescrAerialGroundTypes(text);
         try {localStorage.setItem('m2tw_aerial_ground_types', JSON.stringify(parsed));} catch {}
@@ -440,7 +501,8 @@ export default function Home() {
             window.dispatchEvent(new CustomEvent('load-anctxt', { detail: { content: text, filename: file.name } }));
           }
           if (key === 'modeldb') {
-            window.dispatchEvent(new CustomEvent('modeldb-file-loaded', { detail: text }));
+            localStorage.setItem('m2tw_modeldb_file_name', file.name);
+            window.dispatchEvent(new CustomEvent('modeldb-file-loaded', { detail: { text, filename: file.name } }));
           }
         } catch {}
       } else {
@@ -467,18 +529,21 @@ export default function Home() {
       setFileStatus((prev) => ({ ...prev, [key]: 'ok' }));
     }
 
-    // Flush .strings.bin files into shared store
-    if (Object.keys(stringsBinFiles).length > 0) {
+    // Flush text localization files into shared store (.strings.bin for M2TW, plain .txt for Rome)
+    const localizationFiles = { ...stringsBinFiles, ...textLocFiles };
+    if (Object.keys(localizationFiles).length > 0) {
       setFileStatus((prev) => ({ ...prev, strings_bin: 'loading' }));
       const existing = getStringsBinStore();
-      const merged = { ...existing, ...stringsBinFiles };
+      const merged = { ...existing, ...localizationFiles };
       setStringsBinStore(merged);
       // Dispatch specific events for vnvs/ancillaries text bins so contexts pick them up directly
-      for (const [filename, binData] of Object.entries(stringsBinFiles)) {
+      for (const [filename, binData] of Object.entries(localizationFiles)) {
         const lname = filename.toLowerCase();
         const map = {};
         for (const e of binData.entries) map[e.key] = e.value;
-        const binMeta = { magic1: binData.magic1 ?? 2, magic2: binData.magic2 ?? 2048 };
+        const binMeta = binData.sourceFormat === 'txt'
+          ? null
+          : { magic1: binData.magic1 ?? 2, magic2: binData.magic2 ?? 2048 };
         if (lname.includes('vnv')) {
           window.dispatchEvent(new CustomEvent('load-vnvs', { detail: { content: map, filename, binMeta } }));
         } else if (lname.includes('ancillar')) {
@@ -488,8 +553,15 @@ export default function Home() {
         if (lname.includes('export_buildings')) {
           const textContent = binData.entries.map((e) => `{${e.key}}${e.value}`).join('\n');
           loadTextFile(textContent);
-          try {localStorage.setItem('m2tw_edb_txt_bin_magic1', String(binData.magic1 ?? 2));} catch {}
-          try {localStorage.setItem('m2tw_edb_txt_bin_magic2', String(binData.magic2 ?? 2048));} catch {}
+          if (binData.sourceFormat === 'txt') {
+            try {
+              localStorage.removeItem('m2tw_edb_txt_bin_magic1');
+              localStorage.removeItem('m2tw_edb_txt_bin_magic2');
+            } catch {}
+          } else {
+            try {localStorage.setItem('m2tw_edb_txt_bin_magic1', String(binData.magic1 ?? 2));} catch {}
+            try {localStorage.setItem('m2tw_edb_txt_bin_magic2', String(binData.magic2 ?? 2048));} catch {}
+          }
           setFileStatus((prev) => ({ ...prev, txt: 'ok' }));
         }
       }
@@ -751,7 +823,26 @@ export default function Home() {
         const { parseStringsBin } = await import('@/components/strings/stringsBinCodec');
         const parsed = parseStringsBin(buf);
         if (parsed) {
-          stringsBinFiles[file.name] = { entries: parsed.entries, magic1: parsed.magic1, magic2: parsed.magic2 };
+          stringsBinFiles[file.name] = { entries: parsed.entries, magic1: parsed.magic1, magic2: parsed.magic2, sourceFormat: 'strings.bin' };
+        }
+        continue;
+      }
+
+      if (pathLower.includes('/text/') && name.endsWith('.txt')) {
+        const text = await readText(file);
+        const locMap = parseTextLocFile(text);
+        const entries = textLocMapToEntries(locMap);
+        if (entries.length > 0) {
+          textLocFiles[file.name] = { entries, sourceFormat: 'txt' };
+          if (name.endsWith('_regions_and_settlement_names.txt')) {
+            try { sessionStorage.setItem('m2tw_names_raw', text); } catch {}
+          }
+          if (name === 'campaign_descriptions.txt') {
+            try { sessionStorage.setItem('m2tw_campaign_desc_strings', JSON.stringify(locMap)); } catch {}
+          }
+          if (name === 'names.txt') {
+            try { sessionStorage.setItem('m2tw_char_names_display', JSON.stringify(locMap)); } catch {}
+          }
         }
         continue;
       }
@@ -796,11 +887,12 @@ export default function Home() {
       }
     }
 
-    // Flush .strings.bin files into shared store
-    if (Object.keys(stringsBinFiles).length > 0) {
+    // Flush text localization files into shared store
+    const localizationFiles = { ...stringsBinFiles, ...textLocFiles };
+    if (Object.keys(localizationFiles).length > 0) {
       const { getStringsBinStore, setStringsBinStore } = await import('@/lib/stringsBinStore');
       const existing = getStringsBinStore();
-      const merged = { ...existing, ...stringsBinFiles };
+      const merged = { ...existing, ...localizationFiles };
       setStringsBinStore(merged);
       window.dispatchEvent(new CustomEvent('strings-bin-updated', { detail: { bulk: true } }));
       setStringsBinCount(Object.keys(merged).length);
@@ -859,22 +951,25 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-6 flex flex-col items-center justify-start gap-6 pt-12">
+    <div className="min-h-screen bg-background p-6 flex flex-col items-center justify-start gap-6 pt-8">
 
       {/* Header */}
-      <div className="text-center space-y-2 max-w-xl">
-        <div className="w-14 h-14 rounded-2xl bg-primary/15 flex items-center justify-center mx-auto mb-4">
-          <Swords className="w-7 h-7 text-primary" />
+      <div
+        className="w-full max-w-4xl min-h-[170px] rounded-lg border border-border overflow-hidden bg-cover bg-center shadow-xl shadow-black/20"
+        style={{ backgroundImage: `linear-gradient(90deg, rgba(18, 17, 13, 0.94), rgba(18, 17, 13, 0.70), rgba(18, 17, 13, 0.20)), url(${romeHero})` }}>
+        <div className="min-h-[170px] p-5 sm:p-6 flex flex-col justify-end gap-3">
+          <img src={romeLogo} alt="Rome: Total War" className="w-56 max-w-[78vw] h-auto drop-shadow-[0_3px_10px_rgba(0,0,0,0.75)]" />
+          <div className="max-w-2xl">
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Rome: Total War Mod Editor</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Read, edit, and export Rome: Total War and Medieval II data files from a loaded data folder. Use the Export page when done to download a complete [mod name]\data\ folder.
+            </p>
+          </div>
         </div>
-        <h1 className="text-2xl font-bold text-foreground">Mylae’s M2TW Mod Editor</h1>
-        <p className="text-sm text-muted-foreground">This editor allows you to read, edit and export the Medieval 2 Total War files.
-To do this, it is necessary to unpack the files in the main Medieval 2 Total War\data directory. 
-You may load all the editable files from the home or in the separate editors. 
-Use the Export page when done to download a complete [mod name]\data\ folder ready to drop into your M2TW mods directory.</p>
       </div>
 
       {/* Mod Name */}
-      <div className="w-full max-w-2xl bg-card border border-border rounded-xl p-4 flex items-center gap-3">
+      <div className="w-full max-w-4xl bg-card border border-border rounded-lg p-4 flex items-center gap-3">
         <Package className="w-4 h-4 text-primary shrink-0" />
         <label className="text-xs font-semibold text-foreground whitespace-nowrap">Mod Name</label>
         <input
@@ -892,16 +987,13 @@ Use the Export page when done to download a complete [mod name]\data\ folder rea
       </div>
 
       {/* Step 1 — data folder + UI images */}
-      <div className="w-full max-w-2xl bg-card border border-border rounded-xl overflow-hidden">
+      <div className="w-full max-w-4xl bg-card border border-border rounded-lg overflow-hidden">
         <div className="p-4 border-b border-border bg-accent/10">
           <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Castle className="w-4 h-4 text-primary" />
-            Step 1 — Load Mod Files &amp; Images
+            Step 1 — Load Rome / M2TW Files &amp; Images
           </h2>
-          <p className="text-[11px] text-muted-foreground mt-1">This step browse your whole data\ folder to load all game files, then browse data\ui\ to load UI images.
-
-
-          </p>
+          <p className="text-[11px] text-muted-foreground mt-1">Browse a full data\ folder to load game files, campaign map files, text localization, and UI images.</p>
         </div>
         <div className="p-4 space-y-4">
           {/* Text files */}
@@ -925,7 +1017,8 @@ Use the Export page when done to download a complete [mod name]\data\ folder rea
               <FileStatus label="Rebel Factions" hint="descr_rebel_factions.txt" status={fileStatus.rebel_fac} />
               <FileStatus label="Religions" hint="descr_religions.txt" status={fileStatus.religions} />
               <FileStatus label="Guilds" hint="export_descr_guilds.txt" status={fileStatus.guilds} />
-              <FileStatus label="Strings (.bin)" hint={fileStatus.strings_bin === 'ok' ? `${stringsBinCount} files loaded (incl. VnVs, ancillaries, regions…)` : 'text\\*.strings.bin (VnVs, ancillaries, regions…)'} status={fileStatus.strings_bin} />
+              <FileStatus label="Battle Models" hint="battle_models.modeldb / descr_model_battle.txt" status={fileStatus.modeldb} />
+              <FileStatus label="Text Loc / Strings" hint={fileStatus.strings_bin === 'ok' ? `${stringsBinCount} files loaded (VnVs, ancillaries, regions…)` : 'text\\*.txt or text\\*.strings.bin'} status={fileStatus.strings_bin} />
             </div>
           </div>
 

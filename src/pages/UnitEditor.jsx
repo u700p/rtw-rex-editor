@@ -5,9 +5,11 @@ import UnitList from '../components/units/UnitList';
 import UnitEditorPanel from '../components/units/UnitEditor';
 import { parseEDU, serializeEDU, serializeUnit, createDefaultUnit } from '../components/units/EDUParser';
 import { parseModeldb, serializeModeldb } from '../lib/modeldbCodec';
+import { parseDescrModelBattle, serializeDescrModelBattle } from '../lib/descrModelBattleCodec';
 import { modeldbStore } from '../lib/modeldbStore';
 import { parseStringsBin } from '@/components/strings/stringsBinCodec';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
+import { parseTextLocFile } from '@/lib/textLocParser';
 
 const STORAGE_KEY = 'm2tw_edu_units';
 const EDU_FILE_KEY = 'm2tw_units_file';
@@ -29,72 +31,25 @@ function saveUnits(units) {
 // Parse export_units.txt into a map: dictionary -> { name, long, short }
 // M2TW format: {key}value on one line, or {key}\nvalue on next line, with ¬ or tab or no separator
 function parseExportUnits(text) {
+  const loc = parseTextLocFile(text);
   const map = {};
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  let i = 0;
-  while (i < lines.length) {
-    const trimmed = lines[i].trim();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith(';')) { i++; continue; }
-
-    // Must start with {
-    if (!trimmed.startsWith('{')) { i++; continue; }
-
-    // Extract the key between { }
-    const keyMatch = trimmed.match(/^\{([^}]+)\}/);
-    if (!keyMatch) { i++; continue; }
-    const fullKey = keyMatch[1].trim();
-    // Everything after the closing }
-    const afterBrace = trimmed.slice(keyMatch[0].length);
-    // Strip leading separator (¬, tab, space)
-    const inlineValue = afterBrace.replace(/^[¬\t ]/, '').trim();
-
+  for (const [fullKey, value] of Object.entries(loc)) {
     const isShort = fullKey.endsWith('_descr_short');
     const isLong  = !isShort && fullKey.endsWith('_descr');
 
     if (isShort) {
       const baseKey = fullKey.slice(0, -'_descr_short'.length);
       map[baseKey] = map[baseKey] || {};
-      if (inlineValue) {
-        map[baseKey].short = inlineValue;
-      } else {
-        // value on next line(s) until next {
-        const parts = []; i++;
-        while (i < lines.length && !lines[i].trim().startsWith('{')) {
-          parts.push(lines[i]); i++;
-        }
-        map[baseKey].short = parts.join('\n').trim();
-        continue;
-      }
+      map[baseKey].short = value;
     } else if (isLong) {
       const baseKey = fullKey.slice(0, -'_descr'.length);
       map[baseKey] = map[baseKey] || {};
-      if (inlineValue) {
-        map[baseKey].long = inlineValue;
-      } else {
-        const parts = []; i++;
-        while (i < lines.length && !lines[i].trim().startsWith('{')) {
-          parts.push(lines[i]); i++;
-        }
-        map[baseKey].long = parts.join('\n').trim();
-        continue;
-      }
+      map[baseKey].long = value;
     } else {
       // Name entry
       map[fullKey] = map[fullKey] || {};
-      if (inlineValue) {
-        map[fullKey].name = inlineValue;
-      } else {
-        // Next non-empty line is the name
-        i++;
-        while (i < lines.length && !lines[i].trim()) i++;
-        if (i < lines.length && !lines[i].trim().startsWith('{')) {
-          map[fullKey].name = lines[i].trim();
-          i++;
-        }
-        continue;
-      }
+      map[fullKey].name = value;
     }
-    i++;
   }
   return map;
 }
@@ -125,6 +80,25 @@ function loadUnitImages() {
     if (s) return JSON.parse(s);
   } catch {}
   return null;
+}
+
+function parseBattleModels(text, filename = '') {
+  if (!text || typeof text !== 'string') return null;
+  const lowerName = filename.toLowerCase();
+  if (lowerName === 'descr_model_battle.txt' || /^type\s+\S+/im.test(text) && /(?:^model_(?:flexi|mesh)|^texture\s+)/im.test(text)) {
+    return parseDescrModelBattle(text);
+  }
+  return parseModeldb(text);
+}
+
+function serializeBattleModels(parsed) {
+  return parsed?.sourceFormat === 'descr_model_battle'
+    ? serializeDescrModelBattle(parsed)
+    : serializeModeldb(parsed);
+}
+
+function battleModelsDownloadName(parsed) {
+  return parsed?.sourceFormat === 'descr_model_battle' ? 'descr_model_battle.txt' : 'battle_models.modeldb';
 }
 
 export default function UnitEditorPage() {
@@ -175,8 +149,9 @@ export default function UnitEditorPage() {
     if (!modeldb) {
       try {
         const raw = localStorage.getItem('m2tw_modeldb_file');
+        const name = localStorage.getItem('m2tw_modeldb_file_name') || '';
         if (raw) {
-          const parsed = parseModeldb(raw);
+          const parsed = parseBattleModels(raw, name);
           modeldbStore.set(parsed);
           setModeldb(parsed);
         }
@@ -188,9 +163,22 @@ export default function UnitEditorPage() {
   useEffect(() => {
     const handler = (e) => {
       try {
-        const parsed = parseModeldb(typeof e.detail === 'string' ? e.detail : e.detail);
+        if (e.type === 'modeldb-loaded') {
+          setModeldb(e.detail || null);
+          return;
+        }
+        const text = typeof e.detail === 'string' ? e.detail : e.detail?.text;
+        const filename = typeof e.detail === 'object' ? e.detail?.filename : '';
+        const parsed = parseBattleModels(text, filename);
+        if (!parsed) return;
         modeldbStore.set(parsed);
         setModeldb(parsed);
+        if (text) {
+          try {
+            localStorage.setItem('m2tw_modeldb_file', text);
+            if (filename) localStorage.setItem('m2tw_modeldb_file_name', filename);
+          } catch {}
+        }
       } catch {}
     };
     window.addEventListener('modeldb-loaded', handler);
@@ -207,11 +195,15 @@ export default function UnitEditorPage() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const parsed = parseModeldb(ev.target.result);
+        const parsed = parseBattleModels(ev.target.result, file.name);
         modeldbStore.set(parsed);
         setModeldb(parsed);
+        try {
+          localStorage.setItem('m2tw_modeldb_file', ev.target.result);
+          localStorage.setItem('m2tw_modeldb_file_name', file.name);
+        } catch {}
       } catch (err) {
-        alert('Failed to parse ModelDB: ' + err.message);
+        alert('Failed to parse battle model file: ' + err.message);
       }
     };
     reader.readAsText(file);
@@ -221,18 +213,20 @@ export default function UnitEditorPage() {
   const handleUpdateModeldbEntry = (name, updatedEntry) => {
     if (!modeldb) return;
     const entries = modeldb.entries.map(e => e.name === name ? updatedEntry : e);
-    const updated = { ...modeldb, entries, byName: { ...modeldb.byName, [name]: updatedEntry } };
+    const byName = {};
+    for (const entry of entries) byName[entry.name.toLowerCase()] = entry;
+    const updated = { ...modeldb, entries, byName };
     modeldbStore.update(updated);
     setModeldb(updated);
   };
 
   const handleDownloadModeldb = () => {
     if (!modeldb) return;
-    const text = serializeModeldb(modeldb);
+    const text = serializeBattleModels(modeldb);
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'battle_models.modeldb'; a.click();
+    a.href = url; a.download = battleModelsDownloadName(modeldb); a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -347,22 +341,30 @@ export default function UnitEditorPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
-    const buf = await file.arrayBuffer();
-    const parsed = parseStringsBin(buf);
-    if (!parsed) return;
-    const map = {};
-    for (const entry of parsed.entries) map[entry.key] = entry.value;
-    // Rebuild descrMap from the binary strings
-    const newDescr = {};
-    for (const [key, val] of Object.entries(map)) {
-      if (key.endsWith('_descr_short')) {
-        const base = key.slice(0, -'_descr_short'.length);
-        newDescr[base] = { ...(newDescr[base] || {}), short: val };
-      } else if (key.endsWith('_descr')) {
-        const base = key.slice(0, -'_descr'.length);
-        newDescr[base] = { ...(newDescr[base] || {}), long: val };
-      } else {
-        newDescr[key] = { ...(newDescr[key] || {}), name: val };
+    let newDescr = {};
+    if (file.name.toLowerCase().endsWith('.txt')) {
+      const text = await file.text();
+      newDescr = parseExportUnits(text);
+      try {
+        localStorage.setItem(EXPORT_UNITS_KEY, text);
+        localStorage.setItem('m2tw_export_units_file_name', file.name);
+      } catch {}
+    } else {
+      const buf = await file.arrayBuffer();
+      const parsed = parseStringsBin(buf);
+      if (!parsed) return;
+      const map = {};
+      for (const entry of parsed.entries) map[entry.key] = entry.value;
+      for (const [key, val] of Object.entries(map)) {
+        if (key.endsWith('_descr_short')) {
+          const base = key.slice(0, -'_descr_short'.length);
+          newDescr[base] = { ...(newDescr[base] || {}), short: val };
+        } else if (key.endsWith('_descr')) {
+          const base = key.slice(0, -'_descr'.length);
+          newDescr[base] = { ...(newDescr[base] || {}), long: val };
+        } else {
+          newDescr[key] = { ...(newDescr[key] || {}), name: val };
+        }
       }
     }
     // Merge over existing
@@ -469,18 +471,18 @@ export default function UnitEditorPage() {
             className={`flex items-center gap-1 px-2 py-1 text-[11px] rounded border transition-colors ${modeldb ? 'border-green-700 text-green-400 hover:bg-green-950' : 'border-border hover:bg-accent text-muted-foreground hover:text-foreground'}`}
           >
             <Database className="w-3 h-3" />
-            {modeldb ? `ModelDB (${modeldb.entries.length})` : 'Load ModelDB'}
+            {modeldb ? `Battle Models (${modeldb.entries.length})` : 'Load Battle Models'}
           </button>
           <input ref={modeldbRef} type="file" accept=".modeldb,.txt" className="hidden" onChange={handleModeldbLoad} />
           <button
             onClick={() => stringsBinRef.current?.click()}
             className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-border hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-            title="Load export_units.txt.strings.bin"
+            title="Load export_units.txt or export_units.txt.strings.bin"
           >
             <FileCode className="w-3 h-3" />
-            Load .strings.bin
+            Load Unit Text
           </button>
-          <input ref={stringsBinRef} type="file" accept=".bin,.strings.bin" className="hidden" onChange={handleStringsBinLoad} />
+          <input ref={stringsBinRef} type="file" accept=".txt,.bin,.strings.bin" className="hidden" onChange={handleStringsBinLoad} />
           <button
             onClick={() => unitUiFolderRef.current?.click()}
             className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-border hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"

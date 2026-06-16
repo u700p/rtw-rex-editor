@@ -142,7 +142,7 @@ export default function CharacterNamesTab() {
     const map = {};
     for (const { key, value } of entries) if (key) map[key] = value;
     setDisplayNames(map);
-    if (meta) setBinMeta(meta);
+    setBinMeta(meta || null);
     try {
       localStorage.setItem('m2tw_names_bin_entries', JSON.stringify(map));
       localStorage.setItem('m2tw_names_bin_meta', JSON.stringify(meta));
@@ -160,7 +160,7 @@ export default function CharacterNamesTab() {
       const store = getStringsBinStore();
       const entry = Object.entries(store).find(([k]) => k.toLowerCase().includes('names'));
       if (entry?.[1]) {
-        applyNamesBinEntries(entry[1].entries, { magic1: entry[1].magic1 ?? 2, magic2: entry[1].magic2 ?? 2048 });
+        applyNamesBinEntries(entry[1].entries, entry[1].sourceFormat === 'txt' ? null : { magic1: entry[1].magic1 ?? 2, magic2: entry[1].magic2 ?? 2048 });
       }
     } catch {}
 
@@ -178,7 +178,7 @@ export default function CharacterNamesTab() {
       try {
         const store = getStringsBinStore();
         const entry = Object.entries(store).find(([k]) => k.toLowerCase().includes('names'));
-        if (entry?.[1]) applyNamesBinEntries(entry[1].entries, { magic1: entry[1].magic1 ?? 2, magic2: entry[1].magic2 ?? 2048 });
+        if (entry?.[1]) applyNamesBinEntries(entry[1].entries, entry[1].sourceFormat === 'txt' ? null : { magic1: entry[1].magic1 ?? 2, magic2: entry[1].magic2 ?? 2048 });
       } catch {}
     };
     window.addEventListener('load-character-names', onNamesLoaded);

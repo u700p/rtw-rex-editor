@@ -1,7 +1,8 @@
 /**
- * Parser and serializer for M2TW descr_strat.txt, descr_regions.txt,
+ * Parser and serializer for Total War descr_strat.txt, descr_regions.txt,
  * *_regions_and_settlement_names.txt, and descr_sm_factions.txt
  */
+import { parseTextLocFile } from '@/lib/textLocParser';
 
 export const SETTLEMENT_LEVELS = ['village', 'town', 'large_town', 'city', 'large_city', 'huge_city'];
 export const SETTLEMENT_LEVEL_ICONS = {
@@ -257,9 +258,16 @@ export function parseDescrStrat(text) {
       flags[m[1]] = parseInt(m[2]); i++; continue;
     }
 
-    // Resources
-    if ((m = line.match(/^resource\s+(\w+)\s*,\s*(\d+)\s*,\s*(\d+)/i))) {
+    // Resources: M2TW commonly uses "resource iron, 83, 128"; RTW files often
+    // use whitespace around the comma: "resource iron 83 , 128".
+    if ((m = line.match(/^resource\s+(\S+)\s*,?\s*(\d+)\s*,\s*(\d+)/i))) {
       items.push({ id: itemId++, category: 'resource', type: m[1], x: parseInt(m[2]), y: parseInt(m[3]), _lineNum: i });
+      i++; continue;
+    }
+
+    // Rome landmarks use the same map coordinate overlay shape as resources.
+    if ((m = line.match(/^landmark\s+(\S+)\s+(\d+)\s*,\s*(\d+)/i))) {
+      items.push({ id: itemId++, category: 'landmark', type: m[1], x: parseInt(m[2]), y: parseInt(m[3]), _lineNum: i });
       i++; continue;
     }
 
@@ -921,7 +929,7 @@ export function serializeDescrStrat(stratData, overlayItems, editedSettlements =
 }
 
 // ─── descr_regions.txt ────────────────────────────────────────────────────────
-// Format per block (9 non-blank, non-comment lines):
+// Format per block:
 //   (province name)
 //   (settlement name)
 //   (faction creator)
@@ -930,70 +938,121 @@ export function serializeDescrStrat(stratData, overlayItems, editedSettlements =
 //   resource1, resource2, ...  (may be blank)
 //   triumph_points              (integer, default 5)
 //   farm_level                  (integer, default 5)
-//   religions { name val name val ... }
+//   religions { name val name val ... }  (M2TW, optional)
+//   ...any extra mod data lines
 export function parseDescrRegions(text) {
-  const regions = [];
-  // Strip inline comments but preserve blank lines to separate blocks
-  const lines = text.split('\n').map(l => l.replace(/;.*$/, '').trimEnd());
+  const isRgbLine = (line) => !!line && /^\d+\s+\d+\s+\d+$/.test(line);
+  const isIntLine = (line) => /^-?\d+$/.test(line || '');
+  const isRegionStart = (lines, i) => (
+    i + 7 < lines.length &&
+    isRgbLine(lines[i + 4]) &&
+    isIntLine(lines[i + 6]) &&
+    isIntLine(lines[i + 7])
+  );
 
-  // Collect non-blank stripped lines per region block
-  // Each region block has exactly 9 data lines; blocks are separated by blank lines
-  const stripped = [];
-  for (const raw of lines) {
-    const t = raw.trim();
-    // Skip empty lines and any residual comment-only lines (e.g. lines that were purely semicolons)
-    if (!t || /^[;\s]+$/.test(t)) continue;
-    stripped.push(t);
-  }
-
-  let i = 0;
-  while (i + 8 < stripped.length) {
-    // The 5th line in a block must be RGB values (3 numbers). If not, skip this line
-    // to re-sync (handles stray comment remnants or section headers).
-    const rgbCandidate = stripped[i + 4];
-    if (!rgbCandidate || !/^\d+\s+\d+\s+\d+$/.test(rgbCandidate)) {
-      i++;
-      continue;
-    }
-    const regionName     = stripped[i++];
-    const settlementName = stripped[i++];
-    const factionCreator = stripped[i++];
-    const rebelFaction   = stripped[i++];
-    const rgbParts       = stripped[i++].split(/\s+/);
+  const parseRegionBlock = (block) => {
+    if (!isRegionStart(block, 0)) return null;
+    const regionName     = block[0];
+    const settlementName = block[1];
+    const factionCreator = block[2];
+    const rebelFaction   = block[3];
+    const rgbParts       = block[4].split(/\s+/);
     const r = parseInt(rgbParts[0]) || 0;
     const g = parseInt(rgbParts[1]) || 0;
     const b = parseInt(rgbParts[2]) || 0;
-    const resourcesLine  = stripped[i++] || '';
-    const resources      = resourcesLine.split(',').map(s => s.trim()).filter(Boolean);
-    const val1           = parseInt(stripped[i++]) || 0;
-    const val2           = parseInt(stripped[i++]) || 0;
-    const relLine        = stripped[i++] || '';
-    const relMatch       = relLine.match(/religions\s*\{([^}]*)\}/);
+    const resourcesLine  = block[5] || '';
+    const resources      = resourcesLine.split(',').map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'none');
+    const val1           = parseInt(block[6]) || 0;
+    const val2           = parseInt(block[7]) || 0;
     const religions      = {};
-    if (relMatch) {
-      const parts = relMatch[1].trim().split(/\s+/);
-      for (let j = 0; j < parts.length; j += 2) {
-        if (parts[j] && parts[j + 1] !== undefined) religions[parts[j]] = parseInt(parts[j + 1]);
+    const tail = [];
+    let hasReligions = false;
+
+    for (const line of block.slice(8)) {
+      if (/^religions\b/i.test(line)) {
+        hasReligions = true;
+        tail.push({ kind: 'religions' });
+        const relMatch = line.match(/religions\s*\{([^}]*)\}/i);
+        if (relMatch) {
+          const parts = relMatch[1].trim().split(/\s+/).filter(Boolean);
+          for (let j = 0; j < parts.length; j += 2) {
+            if (parts[j] && parts[j + 1] !== undefined) religions[parts[j]] = parseInt(parts[j + 1]);
+          }
+        }
+      } else {
+        tail.push({ kind: 'extra', value: line });
       }
     }
-    regions.push({ regionName, settlementName, factionCreator, rebelFaction, r, g, b, resources, val1, val2, religions });
+
+    const extraDataLines = tail.filter(t => t.kind === 'extra').map(t => t.value);
+    return {
+      regionName, settlementName, factionCreator, rebelFaction,
+      r, g, b, resources, val1, val2, religions,
+      extraDataLines,
+      _regionTail: tail,
+      _hasReligions: hasReligions,
+    };
+  };
+
+  const scanLines = (lines) => {
+    const found = [];
+    let i = 0;
+    while (i < lines.length) {
+      if (!isRegionStart(lines, i)) { i++; continue; }
+      let next = i + 8;
+      while (next < lines.length && !isRegionStart(lines, next)) next++;
+      const parsed = parseRegionBlock(lines.slice(i, next));
+      if (parsed) found.push(parsed);
+      i = next;
+    }
+    return found;
+  };
+
+  const cleanLines = text.split('\n').map(l => l.replace(/;.*$/, '').trim());
+  const blocks = [];
+  let current = [];
+  for (const line of cleanLines) {
+    if (!line) {
+      if (current.length) blocks.push(current);
+      current = [];
+      continue;
+    }
+    current.push(line);
   }
+  if (current.length) blocks.push(current);
+
+  const regions = [];
+  for (const block of blocks) {
+    const nestedStart = block.findIndex((_, idx) => idx > 0 && isRegionStart(block, idx));
+    if (nestedStart >= 0) regions.push(...scanLines(block));
+    else {
+      const parsed = parseRegionBlock(block);
+      if (parsed) regions.push(parsed);
+    }
+  }
+
+  if (regions.length === 0) {
+    const stripped = cleanLines.filter(Boolean);
+    regions.push(...scanLines(stripped));
+  }
+
   return regions;
 }
 
 // ─── Regions serializer ───────────────────────────────────────────────────────
 export function serializeDescrRegions(regions, allReligions) {
-  return regions.map(reg => {
-    // Build religion entries: include all known religions, defaulting to 0
-    let relEntries;
+  const includeReligions = regions.some(reg => reg._hasReligions || Object.keys(reg.religions || {}).length > 0);
+  const religionLine = (reg) => {
     const relObj = reg.religions || {};
-    if (allReligions?.length > 0) {
-      relEntries = allReligions.map(name => `${name} ${relObj[name] ?? 0}`).join(' ');
-    } else {
-      relEntries = Object.entries(relObj).map(([k, v]) => `${k} ${v}`).join(' ');
-    }
-    const resourcesLine = (reg.resources || []).length > 0 ? (reg.resources || []).join(', ') : 'none';
-    return [
+    const relEntries = allReligions?.length > 0
+      ? allReligions.map(name => `${name} ${relObj[name] ?? 0}`).join(' ')
+      : Object.entries(relObj).map(([k, v]) => `${k} ${v}`).join(' ');
+    return relEntries ? `religions { ${relEntries} }` : 'religions {  }';
+  };
+
+  return regions.map(reg => {
+    const resourcesLine = (reg.resources || []).filter(r => r && r.toLowerCase?.() !== 'none').length > 0 ? (reg.resources || []).join(', ') : 'none';
+    const base = [
       reg.regionName,
       reg.settlementName,
       reg.factionCreator,
@@ -1002,18 +1061,33 @@ export function serializeDescrRegions(regions, allReligions) {
       resourcesLine,
       String(reg.val1 ?? 0),
       String(reg.val2 ?? 0),
-      relEntries ? `religions { ${relEntries} }` : 'religions {  }',
-    ].join('\n');
+    ];
+
+    const tail = Array.isArray(reg._regionTail) && reg._regionTail.length > 0
+      ? reg._regionTail
+      : [
+          ...(includeReligions ? [{ kind: 'religions' }] : []),
+          ...(reg.extraDataLines || []).map(value => ({ kind: 'extra', value })),
+        ];
+    let emittedReligions = false;
+    for (const part of tail) {
+      if (part?.kind === 'religions') {
+        if (includeReligions && !emittedReligions) {
+          base.push(religionLine(reg));
+          emittedReligions = true;
+        }
+      } else if (part?.kind === 'extra' && part.value) {
+        base.push(part.value);
+      }
+    }
+    if (includeReligions && !emittedReligions) base.push(religionLine(reg));
+    return base.join('\n');
   }).join('\n\n');
 }
 
 // ─── regions_and_settlement_names.txt ─────────────────────────────────────────
 export function parseSettlementNames(text) {
-  const names = {};
-  const regex = /\{([^}]+)\}([^\n{]+)/g;
-  let m;
-  while ((m = regex.exec(text)) !== null) names[m[1].trim()] = m[2].trim();
-  return names;
+  return parseTextLocFile(text);
 }
 
 // ─── descr_win_conditions.txt ─────────────────────────────────────────────────

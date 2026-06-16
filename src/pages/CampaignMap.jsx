@@ -969,7 +969,7 @@ export default function CampaignMap() {
       <div className="h-9 border-b border-slate-800 flex items-center px-3 gap-2 shrink-0 bg-slate-900/80">
         <Map className="w-3.5 h-3.5 text-primary shrink-0" />
         <span className="text-xs font-semibold">Campaign Map Editor</span>
-        <span className="text-[10px] text-slate-500 font-mono hidden lg:block">— M2TW map_*.tga + descr_strat.txt</span>
+        <span className="text-[10px] text-slate-500 font-mono hidden lg:block">— Rome / M2TW map_*.tga + descr_strat.txt</span>
 
         {/* Bulk folder import */}
         <label className="ml-auto cursor-pointer flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">

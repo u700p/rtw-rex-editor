@@ -86,8 +86,8 @@ export default function ModelDbPanel({ soldierModel, modeldb, onUpdateEntry, onD
     return (
       <div className="p-8 text-center space-y-3">
         <AlertCircle className="w-10 h-10 text-muted-foreground mx-auto opacity-30" />
-        <p className="text-sm text-muted-foreground">No battle_models.modeldb loaded.</p>
-        <p className="text-xs text-muted-foreground">Use the <strong>Load ModelDB</strong> button in the toolbar above.</p>
+        <p className="text-sm text-muted-foreground">No battle model file loaded.</p>
+        <p className="text-xs text-muted-foreground">Use the <strong>Load Battle Models</strong> button in the toolbar above.</p>
       </div>
     );
   }
@@ -118,7 +118,7 @@ export default function ModelDbPanel({ soldierModel, modeldb, onUpdateEntry, onD
           </p>
         )}
         <p className="text-xs text-muted-foreground">
-          Check the <em>soldier</em> line in the Identity tab matches an entry in battle_models.modeldb.
+          Check the <em>soldier</em> line in the Identity tab matches an entry in descr_model_battle.txt or battle_models.modeldb.
         </p>
       </div>
     );
@@ -214,7 +214,7 @@ export default function ModelDbPanel({ soldierModel, modeldb, onUpdateEntry, onD
               </Button>
             )}
             <Button size="sm" variant="outline" onClick={onDownload} className="h-7 text-[11px] gap-1.5">
-              <Download className="w-3 h-3" /> Download ModelDB
+              <Download className="w-3 h-3" /> Download Battle Models
             </Button>
           </div>
         </div>

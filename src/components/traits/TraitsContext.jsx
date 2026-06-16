@@ -42,7 +42,7 @@ export function TraitsProvider({ children }) {
         for (const e of vnvsBin.entries) map[e.key] = e.value;
         originalTextData.current = JSON.stringify(map);
         setTextData(map);
-        setTextBinMeta({ magic1: vnvsBin.magic1 ?? 2, magic2: vnvsBin.magic2 ?? 2048 });
+        setTextBinMeta(vnvsBin.sourceFormat === 'txt' ? null : { magic1: vnvsBin.magic1 ?? 2, magic2: vnvsBin.magic2 ?? 2048 });
         setTextFilename(vnvsBinEntry[0]);
       } else {
         const vnvsContent = localStorage.getItem('m2tw_vnvs_file');

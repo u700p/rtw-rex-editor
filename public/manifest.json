@@ -1,0 +1,22 @@
+{
+  "name": "Rome: Total War Mod Editor",
+  "short_name": "RTW Editor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#21170d",
+  "theme_color": "#2b2011",
+  "icons": [
+    {
+      "src": "/rome-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/rome-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
