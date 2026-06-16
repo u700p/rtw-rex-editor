@@ -21,6 +21,16 @@ export const AuthProvider = ({ children }) => {
     try {
       setIsLoadingPublicSettings(true);
       setAuthError(null);
+      const isLocalDev = import.meta.env.DEV ||
+        ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+
+      if (isLocalDev && !appParams.token) {
+        setAppPublicSettings(null);
+        setIsAuthenticated(false);
+        setIsLoadingPublicSettings(false);
+        setIsLoadingAuth(false);
+        return;
+      }
       
       // First, check app public settings (with token if available)
       // This will tell us if auth is required, user not registered, etc.
@@ -46,10 +56,6 @@ export const AuthProvider = ({ children }) => {
         }
         setIsLoadingPublicSettings(false);
       } catch (appError) {
-        console.error('App state check failed:', appError);
-
-        const isLocalDev = import.meta.env.DEV ||
-          ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
         const appNotFound = appError.status === 404 ||
           appError.data?.detail === 'App not found' ||
           /app not found/i.test(appError.message || '');
@@ -60,6 +66,8 @@ export const AuthProvider = ({ children }) => {
           setIsLoadingAuth(false);
           return;
         }
+
+        console.error('App state check failed:', appError);
         
         // Handle app-level errors
         if (appError.status === 403 && appError.data?.extra_data?.reason) {
