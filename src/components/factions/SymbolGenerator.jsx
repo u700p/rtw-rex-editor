@@ -28,10 +28,10 @@ function loadImageFromFile(file) {
     reader.onload = (e) => {
       const img = new window.Image();
       img.onload = () => resolve(img);
-      img.onerror = reject;
+      img.onerror = () => reject(new Error('Failed to decode image file'));
       img.src = e.target.result;
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
 }
@@ -41,7 +41,7 @@ function loadImageFromUrl(url) {
     const img = new window.Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = reject;
+    img.onerror = () => reject(new Error('Failed to load image from URL'));
     img.src = url;
   });
 }
@@ -158,18 +158,25 @@ export default function SymbolGenerator({ factionName }) {
   const handleFile = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const img = await loadImageFromFile(file);
-    // also grab data url for preview
-    const reader = new FileReader();
-    reader.onload = (ev) => loadSource(img, ev.target.result);
-    reader.readAsDataURL(file);
+    try {
+      const img = await loadImageFromFile(file);
+      const reader = new FileReader();
+      reader.onload = (ev) => loadSource(img, ev.target.result);
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Image load error:', err.message);
+    }
     e.target.value = '';
   }, [loadSource]);
 
   const handleUrl = useCallback(async () => {
     if (!urlInput.trim()) return;
-    const img = await loadImageFromUrl(urlInput.trim());
-    loadSource(img, urlInput.trim());
+    try {
+      const img = await loadImageFromUrl(urlInput.trim());
+      loadSource(img, urlInput.trim());
+    } catch (err) {
+      console.error('URL load error:', err.message);
+    }
   }, [urlInput, loadSource]);
 
   const generate = useCallback(async () => {
