@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Download, Plus, Trash2, AlertTriangle, Shield, X, Copy, GripVertical, Palette, FileText, Settings, ScrollText } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, AlertTriangle, Shield, X, Copy, GripVertical, Palette, FileText, Settings, ScrollText, Image } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -10,6 +10,7 @@ import BannersTab from '@/components/factions/BannersTab';
 import { parseBannersXml, serialiseBannersXml } from '@/components/minorfiles/banners/bannersParser';
 import DescriptionsTab from '@/components/factions/DescriptionsTab';
 import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/components/factions/MiscTab';
+import FactionSymbolsTab from '@/components/factions/FactionSymbolsTab';
 
 const LS_OFFMAP = 'm2tw_offmap_models';
 
@@ -389,11 +390,12 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSav
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-4">
+          <TabsList className="grid w-full grid-cols-5 mb-4">
             <TabsTrigger value="stratmap" className="text-[10px]"><Palette className="w-3 h-3 mr-1" />Stratmap</TabsTrigger>
             <TabsTrigger value="banners" className="text-[10px]"><FileText className="w-3 h-3 mr-1" />Banners</TabsTrigger>
             <TabsTrigger value="descriptions" className="text-[10px]"><ScrollText className="w-3 h-3 mr-1" />Descriptions</TabsTrigger>
             <TabsTrigger value="misc" className="text-[10px]"><Settings className="w-3 h-3 mr-1" />Misc</TabsTrigger>
+            <TabsTrigger value="symbols" className="text-[10px]"><Image className="w-3 h-3 mr-1" />Symbols</TabsTrigger>
           </TabsList>
 
           <TabsContent value="stratmap" className="space-y-5">
@@ -518,6 +520,10 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSav
 
           <TabsContent value="misc" className="space-y-4">
             <MiscTab factionName={draft.name} />
+          </TabsContent>
+
+          <TabsContent value="symbols" className="space-y-4">
+            <FactionSymbolsTab factionName={draft.name} />
           </TabsContent>
         </Tabs>
 
