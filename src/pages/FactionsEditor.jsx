@@ -9,7 +9,20 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import BannersTab from '@/components/factions/BannersTab';
 import { parseBannersXml, serialiseBannersXml } from '@/components/minorfiles/banners/bannersParser';
 import DescriptionsTab from '@/components/factions/DescriptionsTab';
-import MiscTab from '@/components/factions/MiscTab';
+import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/components/factions/MiscTab';
+
+const LS_OFFMAP = 'm2tw_offmap_models';
+
+function autoInsertNavyEntry(name) {
+  try {
+    const data = localStorage.getItem(LS_OFFMAP);
+    if (!data) return;
+    if (hasFactionNavyEntry(data, name)) return;
+    const updated = insertFactionNavyEntry(data, name);
+    localStorage.setItem(LS_OFFMAP, updated);
+    window.dispatchEvent(new CustomEvent('offmap-models-updated'));
+  } catch {}
+}
 
 const VANILLA_FACTION_LIMIT = 31;
 const LS_KEY = 'm2tw_sm_factions_raw';
@@ -621,6 +634,7 @@ export default function FactionsEditor() {
     const updated = [...(factions || []), newF];
     setFactions(updated);
     setSelectedIdx(updated.length - 1);
+    autoInsertNavyEntry(newF.name);
   };
 
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
@@ -877,6 +891,7 @@ export default function FactionsEditor() {
       console.error('Failed to duplicate strings:', err);
     }
     
+    autoInsertNavyEntry(newFactionName);
     setDuplicateModalOpen(false);
     setDuplicateSourceIdx(null);
     setDuplicateName('');

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, Download, Plus, X, Search, Users } from 'lucide-react';
+import { Upload, Download, Plus, X, Search, Copy } from 'lucide-react';
 import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
+import { useModData } from '@/components/shared/ModDataContext';
 
 // ─── descr_names.txt parser ─────────────────────────────────────────────────
 // Grammar:
@@ -37,7 +38,7 @@ function parseDescrNames(text) {
     if (/^females?$/i.test(trimmed))   { currentSection = 'females';    continue; }
     if (/^male$/i.test(trimmed))       { currentSection = 'characters'; continue; }
 
-    if (currentSection && !/\s/.test(trimmed)) {
+    if (currentSection) {
       factions[currentFaction][currentSection].push(trimmed);
     }
   }
@@ -296,6 +297,39 @@ export default function CharacterNamesTab() {
     setSelectedFaction(name);
   };
 
+  // ─── Duplicate faction names ────────────────────────────────────────────────
+  const [showDupModal, setShowDupModal] = useState(false);
+  const [dupTargetFaction, setDupTargetFaction] = useState('');
+  const { factionNames } = useModData();
+
+  const availableDupTargets = useMemo(() => {
+    // Factions from descr_sm_factions.txt that are not already in descrNames
+    return factionNames.filter(f => !descrNames[f]);
+  }, [factionNames, descrNames]);
+
+  const confirmDuplicate = () => {
+    if (!dupTargetFaction || !selectedFaction) return;
+    const src = descrNames[selectedFaction];
+    setDescrNames(prev => ({
+      ...prev,
+      [dupTargetFaction]: {
+        characters: [...src.characters],
+        surnames: [...src.surnames],
+        females: [...src.females],
+      }
+    }));
+    // Also copy display names for all internal name keys across all sections
+    const allKeys = [...src.characters, ...src.surnames, ...src.females];
+    setDisplayNames(prev => {
+      const next = { ...prev };
+      for (const k of allKeys) { if (prev[k] !== undefined) next[k] = prev[k]; }
+      return next;
+    });
+    setSelectedFaction(dupTargetFaction);
+    setShowDupModal(false);
+    setDupTargetFaction('');
+  };
+
   const noneLoaded = factionList.length === 0;
 
   return (
@@ -369,7 +403,61 @@ export default function CharacterNamesTab() {
               className="w-full flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-dashed border-slate-600/40 text-slate-500 hover:text-slate-300 hover:border-slate-400 transition-colors mt-2">
               <Plus className="w-3 h-3" /> Add Faction
             </button>
+            {selectedFaction && (
+              <button onClick={() => { setDupTargetFaction(''); setShowDupModal(true); }}
+                className="w-full flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-dashed border-blue-600/40 text-blue-400 hover:text-blue-300 hover:border-blue-400 transition-colors mt-1">
+                <Copy className="w-3 h-3" /> Duplicate Names
+              </button>
+            )}
           </div>
+
+          {/* Duplicate modal */}
+          {showDupModal && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+              <div className="bg-slate-800 border border-slate-600 rounded-lg p-4 w-72 space-y-3 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-200">Duplicate Names</h3>
+                  <button onClick={() => setShowDupModal(false)} className="text-slate-500 hover:text-slate-300">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Copy all names from <span className="font-mono text-amber-400">{selectedFaction}</span> to a new faction.
+                </p>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-slate-500 uppercase font-semibold">Target Faction</label>
+                  {availableDupTargets.length > 0 ? (
+                    <select
+                      value={dupTargetFaction}
+                      onChange={e => setDupTargetFaction(e.target.value)}
+                      className="w-full h-7 px-2 text-[11px] bg-slate-900 border border-slate-600 rounded text-slate-200 focus:outline-none focus:border-blue-500">
+                      <option value="">— select faction —</option>
+                      {availableDupTargets.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-[10px] text-slate-500 italic">No factions from descr_sm_factions.txt available (load it first or all are already present).</p>
+                  )}
+                  <p className="text-[9px] text-slate-600">Or type a custom name:</p>
+                  <input
+                    value={dupTargetFaction}
+                    onChange={e => setDupTargetFaction(e.target.value)}
+                    placeholder="custom_faction_name"
+                    className="w-full h-7 px-2 text-[11px] bg-slate-900 border border-slate-600 rounded text-slate-200 font-mono placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div className="flex gap-2 justify-end pt-1">
+                  <button onClick={() => setShowDupModal(false)}
+                    className="px-3 py-1 rounded text-[11px] border border-slate-600 text-slate-400 hover:text-slate-200 hover:border-slate-400 transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={confirmDuplicate} disabled={!dupTargetFaction.trim()}
+                    className="px-3 py-1 rounded text-[11px] bg-blue-600/30 border border-blue-500/50 text-blue-300 hover:bg-blue-600/50 disabled:opacity-40 transition-colors">
+                    Duplicate
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Right panel */}
           {selectedFaction && (

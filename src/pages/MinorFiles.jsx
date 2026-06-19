@@ -10,10 +10,10 @@ import BannersTab from '../components/minorfiles/banners/BannersTab';
 import StratMapCharTab from '../components/minorfiles/stratmap/StratMapCharTab';
 
 const TABS = [
-  { id: 'rebels', label: 'Rebel Factions', Icon: Shield, description: 'descr_rebel_factions.txt + rebel_faction_descr text loc' },
-  { id: 'religions', label: 'Religions', Icon: Sparkles, description: 'descr_religions.txt + lookup/text loc' },
-  { id: 'resources', label: 'Resources', Icon: Gem, description: 'descr_sm_resources.txt + strat.txt text loc' },
-  { id: 'names', label: 'Character Names', Icon: Users, description: 'descr_names.txt + names.txt text loc' },
+  { id: 'rebels', label: 'Rebel Factions', Icon: Shield, description: 'descr_rebel_factions.txt + rebel_faction_descr.txt.strings.bin' },
+  { id: 'religions', label: 'Religions', Icon: Sparkles, description: 'descr_religions.txt + lookup + .strings.bin' },
+  { id: 'resources', label: 'Resources', Icon: Gem, description: 'descr_sm_resources.txt + strat.txt.strings.bin' },
+  { id: 'names', label: 'Faction Names', Icon: Users, description: 'descr_names.txt + names.txt.bin' },
   { id: 'spritesheets', label: 'UI Sprites', Icon: LayoutTemplate, description: 'strategy.sd.xml / battle.sd.xml / shared.sd.xml — \\data\\ui\\' },
   { id: 'banners', label: 'Banners', Icon: Flag, description: 'descr_banners_new.xml — faction / unit / holy / royal banners' },
   { id: 'stratmap', label: 'Strat Characters', Icon: Users, description: 'descr_character.txt + descr_model_strat.txt — stratmap character types & models' },
@@ -27,7 +27,7 @@ export default function MinorFiles() {
       <div className="h-10 border-b border-border flex items-center px-4 gap-3 shrink-0 bg-card/50">
         <FileText className="w-4 h-4 text-muted-foreground" />
         <span className="text-xs font-medium text-foreground">Minor Files Editor</span>
-        <span className="text-[10px] text-muted-foreground font-mono hidden lg:block">— Rebel factions, Religions, Resources, Character Names</span>
+        <span className="text-[10px] text-muted-foreground font-mono hidden lg:block">— Rebel factions, Religions, Resources, Faction Names</span>
       </div>
 
       {/* Tab bar */}
