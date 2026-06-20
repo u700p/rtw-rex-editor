@@ -75,7 +75,7 @@ function DuplicateFactionPopup({ factions, existingFactions, onConfirm, onClose 
 
 const MOUNT_OPTIONS = ['None', 'Horse', 'elephant', 'camel'];
 
-export default function ModelDbPanel({ soldierModel, modeldb, onUpdateEntry, onDownload }) {
+export default function ModelDbPanel({ soldierModel, unit, modeldb, onUpdateEntry, onDownload }) {
   const { factions: refFactions, skeletonTypes, skeletonAnimations, mountTypes } = useRefData();
 
   const entry = useMemo(() => {
@@ -112,6 +112,22 @@ export default function ModelDbPanel({ soldierModel, modeldb, onUpdateEntry, onD
       setDirty(false);
     }
   }, [soldierModel, entry?.name]);
+
+  // Missing faction texture warning — must be before early returns (Rules of Hooks)
+  const missingFactions = useMemo(() => {
+    if (!unit || !factions.length) return [];
+    const allOwned = new Set([
+      ...(unit.ownership || []),
+      ...(unit.era0 || []),
+      ...(unit.era1 || []),
+      ...(unit.era2 || []),
+    ]);
+    const entryFactionSet = new Set(factions.map(f => f.faction?.toLowerCase()));
+    return [...allOwned].filter(f => {
+      if (!f || f === 'slave' || f === 'rebels' || f.endsWith('_rebels')) return false;
+      return !entryFactionSet.has(f.toLowerCase());
+    });
+  }, [unit, factions]);
 
   if (!modeldb) {
     return (
@@ -260,6 +276,18 @@ export default function ModelDbPanel({ soldierModel, modeldb, onUpdateEntry, onD
               </Button>
             </div>
           </div>
+
+          {/* Missing faction texture warning */}
+          {missingFactions.length > 0 && (
+            <div className="flex items-start gap-2.5 p-3 bg-amber-950/30 border border-amber-700/50 rounded-lg">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[11px] font-semibold text-amber-300">Missing faction textures</p>
+                <p className="text-[10px] text-amber-400/80 mt-0.5">These factions own this unit but have no texture entry here:</p>
+                <p className="text-[10px] font-mono text-amber-300 mt-1 break-all">{missingFactions.join(', ')}</p>
+              </div>
+            </div>
+          )}
 
           {/* Scale */}
           <div className="flex items-center gap-3">

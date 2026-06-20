@@ -8,6 +8,7 @@ import { Field, TextInput, NumberInput, SelectInput, Section, MultiCheckbox } fr
 import { serializeUnit } from './EDUParser';
 import UnitDescriptionTab from './UnitDescriptionTab';
 import ModelDbPanel from './ModelDbPanel';
+import OwnershipTab from './OwnershipTab';
 
 // Parse a comma-separated stat string into an array
 function splitStat(str, count) {
@@ -62,6 +63,7 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
       {tab === 'modeldb' ? (
         <ModelDbPanel
           soldierModel={unit.soldier_model}
+          unit={unit}
           modeldb={modeldb}
           onUpdateEntry={onUpdateModeldbEntry}
           onDownload={onDownloadModeldb}
@@ -358,29 +360,9 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
           </>}
 
           {/* ── Ownership ── */}
-          {tab === 'ownership' && <>
-            <Section title="Ownership">
-              <p className="text-[10px] text-muted-foreground">Select which factions can recruit this unit.</p>
-              <MultiCheckbox
-                label=""
-                allOptions={OWNERSHIP_FACTIONS}
-                selected={unit.ownership}
-                onChange={v => set('ownership', v)}
-              />
-            </Section>
-            <Section title="Era Availability">
-              <p className="text-[10px] text-muted-foreground">Optional: restrict availability by era (0 = early, 1 = high, 2 = late). Leave empty for always available.</p>
-              {[0, 1, 2].map(era => (
-                <Field key={era} label={`Era ${era}`}>
-                  <TextInput
-                    value={(unit[`era${era}`] || []).join(', ')}
-                    onChange={v => set(`era${era}`, v.split(',').map(s => s.trim()).filter(Boolean))}
-                    mono placeholder="england, france, …"
-                  />
-                </Field>
-              ))}
-            </Section>
-          </>}
+          {tab === 'ownership' && (
+            <OwnershipTab unit={unit} onChange={onChange} modeldb={modeldb} />
+          )}
 
           {/* ── Description & Images ── */}
           {tab === 'description' && (
