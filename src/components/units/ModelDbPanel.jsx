@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { CheckCircle2, AlertCircle, Plus, Trash2, ChevronDown, ChevronRight, Download, Copy } from 'lucide-react';
 import { useRefData } from '../edb/RefDataContext';
 import SearchableCombobox from '../shared/SearchableCombobox';
+import { OWNERSHIP_FACTIONS } from './EDUParser';
 
 const INP = 'w-full h-6 px-1.5 text-[11px] font-mono bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary';
 
@@ -43,21 +44,33 @@ function FactionSelect({ value, onChange, factions }) {
 // Popup to pick a target faction for duplication
 function DuplicateFactionPopup({ factions, existingFactions, onConfirm, onClose }) {
   const [selected, setSelected] = useState('');
-  const available = factions.filter(f => !existingFactions.includes(f));
+  const [search, setSearch] = useState('');
+  const available = factions.filter(f => !existingFactions.includes(f) && f.toLowerCase().includes(search.toLowerCase()));
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="bg-card border border-border rounded-xl shadow-2xl p-5 w-80 space-y-4">
         <p className="text-sm font-semibold text-foreground">Duplicate faction texture</p>
         <p className="text-xs text-muted-foreground">Choose the target faction. All texture paths will be copied to it.</p>
-        <select
-          value={selected}
-          onChange={e => setSelected(e.target.value)}
-          className="w-full h-8 px-2 text-[11px] font-mono bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
-        >
-          <option value="">(choose faction)</option>
-          {available.map(f => <option key={f} value={f}>{f}</option>)}
-          {available.length === 0 && <option disabled>All factions already added</option>}
-        </select>
+        <input
+          autoFocus
+          value={search}
+          onChange={e => { setSearch(e.target.value); setSelected(''); }}
+          placeholder="Search faction…"
+          className="w-full h-7 px-2 text-[11px] font-mono bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+        <div className="max-h-48 overflow-y-auto border border-border rounded-lg">
+          {available.length === 0 ? (
+            <p className="px-3 py-2 text-[10px] text-muted-foreground">No factions found</p>
+          ) : available.map(f => (
+            <button
+              key={f}
+              onClick={() => setSelected(f)}
+              className={`w-full text-left px-2.5 py-1.5 text-[11px] font-mono transition-colors ${selected === f ? 'bg-primary/15 text-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-1.5 text-xs rounded border border-border hover:bg-accent text-muted-foreground">Cancel</button>
           <button
@@ -77,6 +90,12 @@ const MOUNT_OPTIONS = ['None', 'Horse', 'elephant', 'camel'];
 
 export default function ModelDbPanel({ soldierModel, unit, modeldb, onUpdateEntry, onDownload }) {
   const { factions: refFactions, skeletonTypes, skeletonAnimations, mountTypes } = useRefData();
+
+  const allRefFactions = useMemo(() => {
+    if (!refFactions || refFactions.length <= 5) return OWNERSHIP_FACTIONS;
+    const extra = refFactions.filter(f => !OWNERSHIP_FACTIONS.includes(f));
+    return [...OWNERSHIP_FACTIONS, ...extra];
+  }, [refFactions]);
 
   const entry = useMemo(() => {
     if (!modeldb || !soldierModel) return null;
@@ -248,7 +267,7 @@ export default function ModelDbPanel({ soldierModel, unit, modeldb, onUpdateEntr
     <div className="flex flex-col flex-1 min-h-0">
       {dupIndex !== null && (
         <DuplicateFactionPopup
-          factions={refFactions}
+          factions={allRefFactions}
           existingFactions={factions.map(f => f.faction)}
           onConfirm={(target) => duplicateFaction(dupIndex, target)}
           onClose={() => setDupIndex(null)}
