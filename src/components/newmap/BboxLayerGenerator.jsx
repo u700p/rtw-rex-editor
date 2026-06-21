@@ -133,11 +133,11 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
     const detail = RIVER_DETAIL_LEVELS.find(d => d.id === riverDetail) ?? RIVER_DETAIL_LEVELS[0];
     setStatus(`Fetching rivers from OpenStreetMap (${detail.label})…`);
 
-    const osmQuery = `[out:json][bbox:${bboxStr}][timeout:90];
+    const osmQuery = `[out:json][timeout:90];
 (
-  way["waterway"~"^(${detail.filter})$"];
+  way["waterway"~"^(${detail.filter})$"](${bboxStr});
 );
-out geom qt;`;
+out geom;`;
 
     const def = LAYER_DEFS.find(d => d.id === 'features') ?? LAYER_DEFS.find(d => d.id === 'map_features');
     const { width, height } = def
