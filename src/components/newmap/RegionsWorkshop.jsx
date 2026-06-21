@@ -127,10 +127,31 @@ export default function RegionsWorkshop({ bbox, layers, onLayerUpdate, mapWidth,
   const initBlankRegions = () => {
     const w = mapWidth, h = mapHeight;
     const blank = new ImageData(w, h);
-    // Fill with sea color (41,140,233) so we can paint over
-    for (let i = 0; i < blank.data.length; i += 4) {
-      blank.data[i] = 41; blank.data[i+1] = 140; blank.data[i+2] = 233; blank.data[i+3] = 255;
+
+    // Copy sea pixels from the heightmap layer (pure blue = 0,0,255)
+    // All other pixels remain transparent so the underlying reference map shows through
+    const heightsData = layers.heights?.imageData?.data;
+    const heightsW = layers.heights?.imageData?.width ?? 0;
+    const heightsH = layers.heights?.imageData?.height ?? 0;
+
+    if (heightsData && heightsW > 0) {
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          // Sample the heightmap (it may be 2x+1 the size, so scale coordinates)
+          const srcX = Math.round((x / (w - 1)) * (heightsW - 1));
+          const srcY = Math.round((y / (h - 1)) * (heightsH - 1));
+          const si = (srcY * heightsW + srcX) * 4;
+          const r = heightsData[si], g = heightsData[si + 1], b = heightsData[si + 2];
+          // Pure blue pixel = sea
+          if (r === 0 && g === 0 && b === 255) {
+            const di = (y * w + x) * 4;
+            blank.data[di] = 0; blank.data[di + 1] = 0; blank.data[di + 2] = 255; blank.data[di + 3] = 255;
+          }
+          // else: alpha stays 0 (transparent) — the reference map shows through
+        }
+      }
     }
+
     onLayerUpdate('regions', { imageData: blank, visible: true, opacity: 1, dirty: true });
   };
 
@@ -141,7 +162,7 @@ export default function RegionsWorkshop({ bbox, layers, onLayerUpdate, mapWidth,
       {!hasRegionsLayer && (
         <button onClick={initBlankRegions}
           className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded text-[11px] bg-blue-700 border border-blue-600 text-white hover:bg-blue-600 transition-colors font-semibold">
-          <Plus className="w-3.5 h-3.5" /> Initialize Blank Regions Layer
+          <Plus className="w-3.5 h-3.5" /> Initialize Regions (sea from heightmap)
         </button>
       )}
 
