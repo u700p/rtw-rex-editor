@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronRight, FileText, RefreshCw, Save
 } from 'lucide-react';
 import JSZip from 'jszip';
+import { textBlob, toCRLF } from '@/lib/lineEndings';
 
 // Known M2TW sound script files
 const KNOWN_SOUND_FILES = [
@@ -76,7 +77,16 @@ function serializeEntries(entries) {
       return out;
     }
     return '';
-  }).join('\n');
+  return toCRLF(entries.map(e => {
+    if (e.type === 'comment' || e.type === 'raw') return e.raw;
+    if (e.type === 'entry') {
+      let out = e.comments || '';
+      out += e.label + '\n';
+      out += e.lines.map(l => l.raw).join('\n');
+      return out;
+    }
+    return '';
+  }).join('\n'));
 }
 
 function SoundEntry({ entry, onUpdate, onDelete }) {
@@ -218,7 +228,7 @@ export default function SoundEditor() {
     const zip = new JSZip();
     const folder = zip.folder('data/sounds/');
     Object.entries(files).forEach(([name, { entries }]) => {
-      folder.file(name, serializeEntries(entries));
+      folder.file(name, toCRLF(serializeEntries(entries)));
     });
     const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
@@ -232,7 +242,7 @@ export default function SoundEditor() {
   const handleExportSingle = () => {
     if (!activeFile || !currentFile) return;
     const text = serializeEntries(currentFile.entries);
-    const blob = new Blob([text], { type: 'text/plain' });
+    const blob = textBlob(text);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
