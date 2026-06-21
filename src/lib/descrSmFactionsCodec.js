@@ -30,6 +30,8 @@
  * but serializes the plain Rome layout.
  */
 
+import { toCRLF } from '@/lib/lineEndings';
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SM_CULTURES = [
@@ -226,7 +228,33 @@ export function serializeDescrSmFactions(factions) {
     for (const ex of (f._extra || []))                  lines.push(ex);
 
     return lines.join('\n');
-  }).join(`\n${SEP}\n\n`) + `\n${SEP}\n`;
+  return toCRLF(factions.map(f => {
+    const lines = [`faction\t\t\t\t\t\t${f.name}`];
+    const add = (k, v) => lines.push(`\t${k.padEnd(34)}${v}`);
+
+    if (f.culture)       add('culture',      f.culture);
+    if (f.religion)      add('religion',     f.religion);
+    if (f.symbol)        add('symbol',       f.symbol);
+    if (f.rebel_symbol)  add('rebel_symbol', f.rebel_symbol);
+    add('primary_colour',   serializeColour(f.primary_colour   || { r: 0, g: 0, b: 0 }));
+    add('secondary_colour', serializeColour(f.secondary_colour || { r: 0, g: 0, b: 0 }));
+    if (f.loading_logo)     add('loading_logo',               f.loading_logo);
+    add('standard_index',   String(f.standard_index  ?? 0));
+    add('logo_index',       String(f.logo_index       ?? 0));
+    add('small_logo_index', String(f.small_logo_index ?? 0));
+    add('triumph_value',    String(f.triumph_value    ?? 5));
+    add('custom_battle_availability', f.custom_battle_availability ? 'yes' : 'no');
+    add('can_sap',                    f.can_sap                    ? 'yes' : 'no');
+    add('prefer_naval_invasions',     f.prefer_naval_invasions     ? 'yes' : 'no');
+    if (f.ai_label)     add('ai_label',     f.ai_label);
+    if (f.economic_ai)  add('economic_ai',  f.economic_ai);
+    if (f.military_ai)  add('military_ai',  f.military_ai);
+
+    for (const [k, v] of Object.entries(f._cai || {})) add(k, String(v));
+    for (const ex of (f._extra || []))                  lines.push(ex);
+
+    return lines.join('\n');
+  }).join(`\n${SEP}\n\n`) + `\n${SEP}\n`);
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
