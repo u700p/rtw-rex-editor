@@ -6,6 +6,8 @@
  * { entries, byName, factions, meshes, mountTypes, scale }.
  */
 
+import { toCRLF } from '@/lib/lineEndings';
+
 const MODEL_KEYS = new Set(['model_flexi', 'model_flexi_m', 'model_flexi_c', 'model_mesh', 'model_stat']);
 const MAX_DIST = 10000;
 
@@ -388,7 +390,7 @@ export function serializeDescrModelBattle(parsed) {
     lines.push('');
   }
 
-  return lines.join('\n');
+  return toCRLF(lines.join('\n'));
 }
 
 const MODEL_KEYS_VALUES = [...MODEL_KEYS];
