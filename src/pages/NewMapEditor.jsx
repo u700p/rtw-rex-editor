@@ -178,6 +178,9 @@ export default function NewMapEditor() {
       else if (next === 'features') setColor('#0000ff');
       else if (next === 'ground') setColor('#008080');
       else if (next === 'regions') setColor('#000000');
+    } else {
+      // Last step — switch to export tab
+      setSideTab('export');
     }
   };
 

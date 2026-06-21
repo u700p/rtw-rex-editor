@@ -53,21 +53,47 @@ const OSM_TAG_OPTIONS = [
 
 const OSM_OVERPASS = 'https://overpass-api.de/api/interpreter';
 
-async function fetchPolygons(key, value, bboxStr) {
-  const query = `[out:json][timeout:60];
-(
-  way["${key}"="${value}"](${bboxStr});
-  relation["${key}"="${value}"](${bboxStr});
-);
-out geom;`;
-  const res = await fetch(OSM_OVERPASS, {
-    method: 'POST',
-    body: 'data=' + encodeURIComponent(query),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  return (json.elements || []).filter(e => e.geometry?.length > 1 || e.members);
+// Fetch ALL rules in a single Overpass query, tagged with a synthetic tag so we can split results back.
+// Returns Map<"key=value" → elements[]>
+async function fetchAllPolygons(rules, bboxStr) {
+  // Build a union query: one block per rule
+  const blocks = rules.map(r =>
+    `  way["${r.key}"="${r.value}"](${bboxStr});\n  relation["${r.key}"="${r.value}"](${bboxStr});`
+  ).join('\n');
+
+  const query = `[out:json][timeout:90];\n(\n${blocks}\n);\nout geom;`;
+
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
+    const res = await fetch(OSM_OVERPASS, {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(query),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    if (res.status === 429 || res.status === 504) {
+      lastErr = new Error(`HTTP ${res.status} — retrying…`);
+      continue;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+
+    // Split elements back by their tags
+    const byRule = new Map();
+    for (const r of rules) byRule.set(`${r.key}=${r.value}`, []);
+
+    for (const el of (json.elements || [])) {
+      if (!el.tags) continue;
+      for (const r of rules) {
+        if (el.tags[r.key] === r.value) {
+          byRule.get(`${r.key}=${r.value}`).push(el);
+          break; // assign to first matching rule only
+        }
+      }
+    }
+    return byRule;
+  }
+  throw lastErr ?? new Error('Failed after retries');
 }
 
 function paintPolygonsOntoImageData(imageData, elements, bbox, color) {
@@ -151,27 +177,40 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
   const applyAll = async () => {
     if (!hasLayer || !bbox || rules.length === 0) return;
     setRunning(true);
+    setStatusByRule({});
+
+    // Mark all rules as fetching
+    const initStatus = {};
+    rules.forEach((_, i) => { initStatus[i] = 'fetching…'; });
+    setStatusByRule(initStatus);
 
     // Work on a copy of the current ground layer
     const src = groundLayer.imageData;
     const copy = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
 
-    for (let i = 0; i < rules.length; i++) {
-      const rule = rules[i];
-      setStatusByRule(s => ({ ...s, [i]: 'fetching' }));
-      try {
-        const elements = await fetchPolygons(rule.key, rule.value, bboxStr);
+    try {
+      const byRule = await fetchAllPolygons(rules, bboxStr);
+
+      for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i];
+        const elements = byRule.get(`${rule.key}=${rule.value}`) ?? [];
         setStatusByRule(s => ({ ...s, [i]: `painting (${elements.length})` }));
-        await new Promise(r => setTimeout(r, 0)); // yield
+        await new Promise(r => setTimeout(r, 0)); // yield to UI
         const color = GT[rule.gtId] ?? [96, 160, 64];
         paintPolygonsOntoImageData(copy, elements, bbox, color);
         setStatusByRule(s => ({ ...s, [i]: `done (${elements.length})` }));
-      } catch (e) {
-        setStatusByRule(s => ({ ...s, [i]: `error: ${e.message}` }));
       }
+
+      onLayerUpdate('ground', { imageData: copy, visible: true, opacity: 1, dirty: true });
+    } catch (e) {
+      // Mark all still-pending rules as failed
+      setStatusByRule(s => {
+        const next = { ...s };
+        rules.forEach((_, i) => { if (!next[i]?.startsWith('done')) next[i] = `error: ${e.message}`; });
+        return next;
+      });
     }
 
-    onLayerUpdate('ground', { imageData: copy, visible: true, opacity: 1, dirty: true });
     setRunning(false);
   };
 
