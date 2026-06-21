@@ -3,6 +3,7 @@ import { Upload, Download, Plus, X, Search, Copy } from 'lucide-react';
 import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
 import { useModData } from '@/components/shared/ModDataContext';
+import { textBlob, toCRLF } from '@/lib/lineEndings';
 
 // ─── descr_names.txt parser ─────────────────────────────────────────────────
 // Grammar:
@@ -47,7 +48,7 @@ function parseDescrNames(text) {
 
 // ─── descr_names.txt serializer ───────────────────────────────────────────────
 function serializeDescrNames(factions) {
-  return Object.entries(factions).map(([name, data]) => {
+  return toCRLF(Object.entries(factions).map(([name, data]) => {
     const lines = [`faction: ${name}`];
     lines.push('\tcharacters');
     for (const n of data.characters) lines.push(`\t\t${n}`);
@@ -56,7 +57,7 @@ function serializeDescrNames(factions) {
     lines.push('\twomen');
     for (const n of data.females) lines.push(`\t\t${n}`);
     return lines.join('\n');
-  }).join('\n\n');
+  }).join('\n\n'));
 }
 
 function downloadBlob(blob, name) {
@@ -243,7 +244,7 @@ export default function CharacterNamesTab() {
 
   const handleExportDescr = () => {
     const text = serializeDescrNames(descrNames);
-    downloadBlob(new Blob([text], { type: 'text/plain' }), 'descr_names.txt');
+    downloadBlob(textBlob(text), 'descr_names.txt');
   };
 
   const handleExportBin = () => {
