@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CheckCircle, Circle, ChevronRight, Wand2, AlertCircle, Paintbrush } from 'lucide-react';
 import { CLIMATE_PALETTE } from '@/lib/mapLayerStore';
 import GroundTypeRangeEditor, { DEFAULT_GROUND_RANGES } from '@/components/newmap/GroundTypeRangeEditor';
+import RiverChecker from '@/components/newmap/RiverChecker';
 
 /**
  * WorkflowPanel — drives the step-by-step layer editing flow.
@@ -23,6 +24,7 @@ export default function WorkflowPanel({
   onAutoGenerateClimates, generatingClimates,
   onFillClimate,
   groundRanges, onGroundRangesChange,
+  onLayerUpdate,
 }) {
   const currentIdx = STEPS.findIndex(s => s.id === currentStepId);
   const [showRangeEditor, setShowRangeEditor] = useState(false);
@@ -141,11 +143,13 @@ export default function WorkflowPanel({
                   </>
                 )}
 
-                {/* Features: OSM rivers hint */}
+                {/* Features: River checker + hint */}
                 {step.id === 'features' && (
-                  <div className="text-[9px] text-slate-500 bg-slate-800/60 border border-slate-700 rounded px-2 py-1.5 space-y-1">
-                    <p>Use the <strong className="text-slate-300">Generate Layers</strong> step to auto-fetch rivers from OSM, or paint them manually in the Paint tab.</p>
-                    <p>Choose detail level carefully — streams can be very dense.</p>
+                  <div className="space-y-2">
+                    <RiverChecker
+                      featureLayer={layers.features}
+                      onLayerUpdate={onLayerUpdate}
+                    />
                   </div>
                 )}
 
