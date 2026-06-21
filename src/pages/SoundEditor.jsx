@@ -68,15 +68,6 @@ function parseSoundFile(text) {
 }
 
 function serializeEntries(entries) {
-  return entries.map(e => {
-    if (e.type === 'comment' || e.type === 'raw') return e.raw;
-    if (e.type === 'entry') {
-      let out = e.comments || '';
-      out += e.label + '\n';
-      out += e.lines.map(l => l.raw).join('\n');
-      return out;
-    }
-    return '';
   return toCRLF(entries.map(e => {
     if (e.type === 'comment' || e.type === 'raw') return e.raw;
     if (e.type === 'entry') {
