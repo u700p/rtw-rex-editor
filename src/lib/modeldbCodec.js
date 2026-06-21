@@ -39,6 +39,8 @@
  * count fields using a lookahead heuristic.
  */
 
+import { toCRLF } from '@/lib/lineEndings';
+
 // ---------------------------------------------------------------------------
 // Tokeniser
 // ---------------------------------------------------------------------------
@@ -290,12 +292,12 @@ function serializeEntry(entry) {
   const torch = entry.torch || [0, 0, 0, 0, 0, 0];
   lines.push(torch.map(wf).join(' '));
 
-  return lines.join('\n');
+  return toCRLF(lines.join('\n'));
 }
 
 export function serializeModeldb(parsed) {
   const hdr = 'serialization::archive';
   const parts = [`${hdr.length} ${hdr} 3 0 0 0 0 ${parsed.entries.length} 0 0`];
   for (const entry of parsed.entries) parts.push(serializeEntry(entry));
-  return parts.join('\n');
+  return toCRLF(parts.join('\n'));
 }
