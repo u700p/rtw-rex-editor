@@ -24,6 +24,8 @@
  * Returns: { guilds: [...], triggers: [...] }
  */
 
+import { toCRLF } from '@/lib/lineEndings';
+
 function stripComment(line) {
   const sc = line.indexOf(';');
   return sc >= 0 ? line.slice(0, sc) : line;
@@ -149,7 +151,7 @@ function serializeTrigger(trigger) {
   for (const eff of trigger.pointsEffects) {
     lines.push(`    Guild ${eff.building} ${eff.scope}  ${eff.amount}`);
   }
-  return lines.join('\n');
+  return toCRLF(lines.join('\n'));
 }
 
 export function serializeGuildsFile(data) {
@@ -182,7 +184,7 @@ export function serializeGuildsFile(data) {
     out.push('');
   }
 
-  return out.join('\n');
+  return toCRLF(out.join('\n'));
 }
 
 export function getGuildBuildingPrefix(guildBuildingTree) {
