@@ -4,6 +4,7 @@ import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
 import RebelFactionRow from './RebelFactionRow';
 import { useRefData } from '../edb/RefDataContext';
+import { textBlob, toCRLF } from '@/lib/lineEndings';
 
 // ─── Parser ──────────────────────────────────────────────────────────────────
 // Format (M2TW descr_rebel_factions.txt):
@@ -48,7 +49,7 @@ function parseRebelFactionsFull(text) {
 
 // ─── Serializer ──────────────────────────────────────────────────────────────
 function serializeRebelFactions(factions) {
-  return factions.map(f => {
+  return toCRLF(factions.map(f => {
     const lines = [`rebel_type\t\t\t\t${f.name}`];
     if (f.category) lines.push(`\tcategory\t\t\t${f.category}`);
     lines.push(`\tchance\t\t\t\t${f.chance ?? 50}`);
@@ -59,7 +60,7 @@ function serializeRebelFactions(factions) {
       lines.push(`\tunit\t\t\t\t${padded}${u.minExp}, ${u.maxCount}`);
     }
     return lines.join('\n');
-  }).join('\n\n');
+  }).join('\n\n'));
 }
 
 function downloadBlob(blob, name) {
@@ -137,7 +138,7 @@ export default function RebelFactionsTab() {
 
   const handleExportTxt = () => {
     const text = serializeRebelFactions(factions);
-    downloadBlob(new Blob([text], { type: 'text/plain' }), 'descr_rebel_factions.txt');
+    downloadBlob(textBlob(text), 'descr_rebel_factions.txt');
   };
 
   const handleExportBin = () => {
