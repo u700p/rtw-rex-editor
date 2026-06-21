@@ -4,6 +4,7 @@ import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
 import { parseTextLocFile } from '@/lib/textLocParser';
+import { textBlob, toCRLF } from '@/lib/lineEndings';
 
 function parseResourcesFull(text) {
   const resources = [];
@@ -36,7 +37,7 @@ function serializeResources(resources) {
     if (r.icon) lines.push(`icon\t\t\t${r.icon}`);
     if (r.hasMine) lines.push('has_mine');
     return lines.join('\n');
-  }).join('\n\n');
+  }).join('\n\n'));
 }
 
 function downloadBlob(blob, name) {
@@ -170,7 +171,7 @@ export default function ResourcesTab() {
   };
 
   const handleExportTxt = () => {
-    downloadBlob(new Blob([serializeResources(resources)], { type: 'text/plain' }), 'descr_sm_resources.txt');
+    downloadBlob(textBlob(serializeResources(resources)), 'descr_sm_resources.txt');
   };
 
   const handleExportBin = () => {
