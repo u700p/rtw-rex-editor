@@ -8,6 +8,7 @@ import BoneDataTable from '@/components/animation/BoneDataTable';
 import ScalePanel from '@/components/animation/ScalePanel';
 import SurveyPanel from '@/components/animation/SurveyPanel';
 import SkeletonViewer from '@/components/animation/SkeletonViewer';
+import { textBlob } from '@/lib/lineEndings';
 
 function downloadBuffer(buf, filename) {
   const blob = new Blob([buf], { type: 'application/octet-stream' });
@@ -18,7 +19,7 @@ function downloadBuffer(buf, filename) {
 }
 
 function downloadText(text, filename) {
-  const blob = new Blob([text], { type: 'text/plain' });
+  const blob = textBlob(text);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();

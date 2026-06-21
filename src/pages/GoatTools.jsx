@@ -10,6 +10,7 @@ import { Swords, Download, Info, Merge, Scissors, Zap, FileText, Layers, GitMerg
 import { parseCasAnim, casAnimToText, textToCasAnim, encodeCasAnim, surveyCasHeader } from '@/lib/casAnimCodec';
 import { parseMs3d } from '@/lib/ms3dCodec';
 import { slerpAnimation, slerpTwoSegment, concatenateAnimations, extractSkeletonToText } from '@/lib/slerpUtils';
+import { textBlob } from '@/lib/lineEndings';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function triggerDownload(buffer, filename) {
@@ -22,7 +23,7 @@ function triggerDownload(buffer, filename) {
 }
 
 function triggerTextDownload(text, filename) {
-  const blob = new Blob([text], { type: 'text/plain' });
+  const blob = textBlob(text);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
