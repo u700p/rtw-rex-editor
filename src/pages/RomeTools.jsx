@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { parseDescrSmFactions, serializeDescrSmFactions } from '@/lib/descrSmFactionsCodec';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
+import { textBlob } from '@/lib/lineEndings';
 import romeUi from '@/assets/rome/rome-ui.jpg';
 
 function downloadBlob(blob, filename) {
@@ -16,7 +17,7 @@ function downloadBlob(blob, filename) {
 }
 
 function downloadText(text, filename) {
-  downloadBlob(new Blob([text], { type: 'text/plain' }), filename);
+  downloadBlob(textBlob(text), filename);
 }
 
 function stripComment(line) {

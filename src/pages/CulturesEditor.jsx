@@ -3,6 +3,7 @@ import { getStringsBinStore, setStringsBinStore } from '../lib/stringsBinStore';
 import { Globe, FolderOpen, Download, Plus, Trash2, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { parseDescrCulturesFull, serializeDescrCulturesFull, SETTLEMENT_TYPES, AGENT_TYPES } from '../components/cultures/culturesParser';
+import { textBlob } from '@/lib/lineEndings';
 
 // Automatically add/update the expanded.txt display entry for a culture.
 function upsertCultureStrings(cultureName) {
@@ -25,7 +26,7 @@ function upsertCultureStrings(cultureName) {
 
 function downloadText(text, filename) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  a.href = URL.createObjectURL(textBlob(text));
   a.download = filename;
   a.click();
 }

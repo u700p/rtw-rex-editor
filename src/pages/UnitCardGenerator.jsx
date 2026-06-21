@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Download, Plus, Trash2, ExternalLink, Search, Info, RefreshCw, X, Image, ChevronDown, ChevronRight, CheckSquare, Square, Zap, FileText, AlertCircle } from 'lucide-react';
 import { parseEDU } from '../components/units/EDUParser';
+import { textBlob } from '@/lib/lineEndings';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ function serializeInputFile(entries) {
 }
 
 function downloadText(content, filename) {
-  const blob = new Blob([content], { type: 'text/plain' });
+  const blob = textBlob(content);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
