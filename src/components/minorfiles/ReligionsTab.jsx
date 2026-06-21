@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Download, Plus, X, AlertCircle } from 'lucide-react';
 import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
+import { textBlob, toCRLF } from '@/lib/lineEndings';
 
 function parseReligionsFull(text) {
   const religions = [];
@@ -26,12 +27,12 @@ function parseReligionsFull(text) {
 }
 
 function serializeReligions(religions) {
-  return religions.map(r => {
+  return toCRLF(religions.map(r => {
     const lines = [`religion\t${r.name}`];
     if (r.pip) lines.push(`\ticon\t${r.pip}`);
     if (r.antiPip) lines.push(`\tanti_pip\t${r.antiPip}`);
     return lines.join('\n');
-  }).join('\n\n');
+  }).join('\n\n'));
 }
 
 function downloadBlob(blob, name) {
@@ -97,12 +98,12 @@ export default function ReligionsTab() {
 
   const handleExportTxt = () => {
     const text = serializeReligions(religions);
-    downloadBlob(new Blob([text], { type: 'text/plain' }), 'descr_religions.txt');
+    downloadBlob(textBlob(text), 'descr_religions.txt');
   };
 
   const handleExportLookup = () => {
     const text = religions.map(r => r.name).join('\n');
-    downloadBlob(new Blob([text], { type: 'text/plain' }), 'descr_religions_lookup.txt');
+    downloadBlob(textBlob(text), 'descr_religions_lookup.txt');
   };
 
   const handleExportBin = () => {
