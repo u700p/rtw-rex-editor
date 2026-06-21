@@ -3,6 +3,7 @@
  * *_regions_and_settlement_names.txt, and descr_sm_factions.txt
  */
 import { parseTextLocFile } from '@/lib/textLocParser';
+import { toCRLF } from '@/lib/lineEndings';
 
 export const SETTLEMENT_LEVELS = ['village', 'town', 'large_town', 'city', 'large_city', 'huge_city'];
 export const SETTLEMENT_LEVEL_ICONS = {
@@ -933,7 +934,7 @@ export function serializeDescrStrat(stratData, overlayItems, editedSettlements =
     result.splice(start, end - start + 1, ...newLines);
   }
 
-  return result.join('\n');
+  return toCRLF(result.join('\n'));
 }
 
 // ─── descr_regions.txt ────────────────────────────────────────────────────────
@@ -1040,7 +1041,7 @@ export function serializeDescrRegions(regions, allReligions) {
     return relEntries ? `religions { ${relEntries} }` : 'religions {  }';
   };
 
-  return regions.map(reg => {
+  return toCRLF(regions.map(reg => {
     const resourcesLine = (reg.resources || []).filter(r => r && r.toLowerCase?.() !== 'none').length > 0 ? (reg.resources || []).join(', ') : 'none';
     const base = [
       reg.regionName,
@@ -1072,7 +1073,7 @@ export function serializeDescrRegions(regions, allReligions) {
     }
     if (includeReligions && !emittedReligions) base.push(religionLine(reg));
     return base.join('\n');
-  }).join('\n\n');
+  }).join('\n\n'));
 }
 
 // ─── regions_and_settlement_names.txt ─────────────────────────────────────────
@@ -1137,7 +1138,7 @@ export function serializeWinConditions(winConditions) {
     else lines.push('outlive');
     lines.push('');
   }
-  return lines.join('\n');
+  return toCRLF(lines.join('\n'));
 }
 
 // ─── descr_sm_factions.txt ───────────────────────────────────────────────────
