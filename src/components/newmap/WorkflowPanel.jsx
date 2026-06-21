@@ -3,6 +3,7 @@ import { CheckCircle, Circle, ChevronRight, Wand2, AlertCircle, Paintbrush } fro
 import { CLIMATE_PALETTE } from '@/lib/mapLayerStore';
 import GroundTypeRangeEditor, { DEFAULT_GROUND_RANGES } from '@/components/newmap/GroundTypeRangeEditor';
 import RiverChecker from '@/components/newmap/RiverChecker';
+import OsmTagOverlayEditor from '@/components/newmap/OsmTagOverlayEditor';
 
 /**
  * WorkflowPanel — drives the step-by-step layer editing flow.
@@ -25,6 +26,7 @@ export default function WorkflowPanel({
   onFillClimate,
   groundRanges, onGroundRangesChange,
   onLayerUpdate,
+  bbox,
 }) {
   const currentIdx = STEPS.findIndex(s => s.id === currentStepId);
   const [showRangeEditor, setShowRangeEditor] = useState(false);
@@ -105,6 +107,12 @@ export default function WorkflowPanel({
                         <div className="bg-blue-500 h-1 transition-all duration-200" style={{ width: `${groundProgress ?? 0}%` }} />
                       </div>
                     )}
+
+                    <OsmTagOverlayEditor
+                      bbox={bbox}
+                      groundLayer={layers.ground}
+                      onLayerUpdate={onLayerUpdate}
+                    />
                   </>
                 )}
 
