@@ -1,4 +1,4 @@
-name: Deploy rex-rtw-editor.net
+name: Deploy GitHub Pages
 
 on:
   push:
@@ -36,6 +36,7 @@ jobs:
           VITE_BASE44_APP_ID: 69b19c3e0adc62e74eaa66c4
           VITE_BASE44_APP_BASE_URL: https://base44.app
           VITE_BASE44_SERVER_URL: https://base44.app
+          VITE_BASE_PATH: /rtw-rex-editor/
 
       - name: Add SPA fallback
         run: cp dist/index.html dist/404.html
