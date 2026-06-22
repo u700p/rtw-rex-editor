@@ -113,36 +113,54 @@ function paintPolygonsBlue(imageData, elements, toXY, W, H) {
  * Draws coastline as 1px black lines on a white canvas, then flood-fills from edges.
  * Border-reachable non-black pixels = sea → painted blue on imageData.
  */
+/**
+ * Paint sea using OSM coastline barrier-line + inverse flood-fill.
+ * 
+ * Strategy (matches OSM coastline convention — sea is to the right of way direction):
+ *  - Start mask canvas as ALL BLACK (= sea)
+ *  - Draw coastline ways as WHITE 1px lines (barrier)
+ *  - Flood-fill LAND from all 4 edges (white-passable, black-blocked)
+ *  - After fill: white pixels = land, black pixels = sea
+ *  - Paint remaining black pixels as (0,0,255) on imageData
+ * 
+ * If no coastline crosses the bbox edges, all edge-reachable area becomes land
+ * and nothing (or very little) gets painted blue — correct for inland maps.
+ */
 function paintSeaFromCoastline(imageData, coastElements, toXY, W, H) {
+  if (coastElements.length === 0) return;
+
   const maskCanvas = document.createElement('canvas');
   maskCanvas.width = W; maskCanvas.height = H;
   const mctx = maskCanvas.getContext('2d');
   mctx.imageSmoothingEnabled = false;
-  mctx.fillStyle = 'rgb(255,255,255)';
+  // Start fully black = everything is sea
+  mctx.fillStyle = 'rgb(0,0,0)';
   mctx.fillRect(0, 0, W, H);
 
-  if (coastElements.length > 0) {
-    const chains = chainPolylines(coastElements.map(e => e.geometry));
-    mctx.strokeStyle = 'rgb(0,0,0)';
-    mctx.lineWidth = 1; mctx.lineCap = 'round'; mctx.lineJoin = 'round';
-    for (const chain of chains) {
-      if (chain.length < 2) continue;
-      mctx.beginPath();
-      chain.forEach(({ lat, lon }, i) => {
-        const [x, y] = toXY(lat, lon);
-        i === 0 ? mctx.moveTo(x + 0.5, y + 0.5) : mctx.lineTo(x + 0.5, y + 0.5);
-      });
-      mctx.stroke();
-    }
+  // Draw coastline as white 1px barrier lines
+  const chains = chainPolylines(coastElements.map(e => e.geometry));
+  mctx.strokeStyle = 'rgb(255,255,255)';
+  mctx.lineWidth = 1; mctx.lineCap = 'round'; mctx.lineJoin = 'round';
+  for (const chain of chains) {
+    if (chain.length < 2) continue;
+    mctx.beginPath();
+    chain.forEach(({ lat, lon }, i) => {
+      const [x, y] = toXY(lat, lon);
+      i === 0 ? mctx.moveTo(x + 0.5, y + 0.5) : mctx.lineTo(x + 0.5, y + 0.5);
+    });
+    mctx.stroke();
   }
 
   const md = mctx.getImageData(0, 0, W, H).data;
+
+  // Flood-fill land from all 4 edges.
+  // White pixels are passable (land-reachable), black pixels block (stay sea).
   const visited = new Uint8Array(W * H);
   const queue = [];
   const enq = (x, y) => {
     const idx = y * W + x; if (visited[idx]) return;
     const i = idx * 4;
-    if (md[i] === 0 && md[i + 1] === 0 && md[i + 2] === 0) return; // black barrier
+    if (md[i] === 0 && md[i + 1] === 0 && md[i + 2] === 0) return; // black = barrier / sea
     visited[idx] = 1; queue.push(x, y);
   };
   for (let x = 0; x < W; x++) { enq(x, 0); enq(x, H - 1); }
@@ -151,14 +169,18 @@ function paintSeaFromCoastline(imageData, coastElements, toXY, W, H) {
   while (qi < queue.length) {
     const x = queue[qi++], y = queue[qi++];
     const i = (y * W + x) * 4;
-    md[i] = 0; md[i + 1] = 0; md[i + 2] = 0; md[i + 3] = 255; // mark sea
+    // Mark as confirmed land (white stays white — already is, just mark visited)
     if (x > 0) enq(x - 1, y); if (x < W - 1) enq(x + 1, y);
     if (y > 0) enq(x, y - 1); if (y < H - 1) enq(x, y + 1);
   }
 
+  // Pixels NOT visited AND not on the white barrier = sea → paint blue
   const d = imageData.data;
-  for (let i = 0; i < d.length; i += 4) {
-    if (md[i] === 0 && md[i + 1] === 0 && md[i + 2] === 0 && md[i + 3] === 255) {
+  for (let idx = 0; idx < W * H; idx++) {
+    const mi = idx * 4;
+    // Sea = black in mask AND not reached by land flood-fill
+    if (!visited[idx] && md[mi] === 0) {
+      const i = mi;
       d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255;
     }
   }

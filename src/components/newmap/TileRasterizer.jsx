@@ -166,17 +166,12 @@ export async function rasterizeTiles(urlTemplate, bbox, width, height, onProgres
     }
     const range = maxElev || 1;
 
-    // Second pass: sea → blue, land → grayscale 1–255
+    // Second pass: all pixels → grayscale land (1–255), no sea detection here
     for (let i = 0; i < len; i += 4) {
       const elev = d[i] * 256 + d[i + 1] + d[i + 2] / 256 - 32768;
-      if (elev <= 0) {
-        // Sea / below sea level → M2TW blue
-        d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255;
-      } else {
-        // Land: map 0<elev≤maxElev to 1–255
-        const v = Math.max(1, Math.round((elev / range) * 255));
-        d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 255;
-      }
+      // Clamp to minimum 1 so (0,0,0) is never produced — sea is added separately in Step 2
+      const v = Math.max(1, Math.round(Math.max(0, elev) / range * 255));
+      d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 255;
     }
   }
 
