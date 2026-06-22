@@ -15,8 +15,8 @@ import LayerPreviewPanel from '../components/newmap/LayerPreviewPanel';
 import WorkflowPanel from '../components/newmap/WorkflowPanel';
 import RegionsWorkshop from '../components/newmap/RegionsWorkshop';
 import { useReferenceLayers, ReferenceLayerControls } from '../components/newmap/ReferenceLayers';
-import { OhmOverlayControls } from '../components/newmap/OhmOverlay';
-import { autoGenerateGroundTypes, autoGenerateClimates, fillSolidColor } from '@/lib/autoGroundTypes';
+
+import { autoGenerateGroundTypesAsync, autoGenerateClimates, fillSolidColor } from '@/lib/autoGroundTypes';
 import { DEFAULT_GROUND_RANGES } from '@/components/newmap/GroundTypeRangeEditor';
 
 const PHASES = [
@@ -68,9 +68,7 @@ export default function NewMapEditor() {
   const [groundRanges, setGroundRanges] = useState(DEFAULT_GROUND_RANGES);
 
   const { refLayers, toggleRef, setRefOpacity } = useReferenceLayers();
-  const [ohmVisible, setOhmVisible] = useState(false);
-  const [ohmYear, setOhmYear] = useState(1095);
-  const [ohmOpacity, setOhmOpacity] = useState(0.5);
+
 
   // bbox derived from box (preferred) or legacy selection
   const bbox = box
@@ -180,16 +178,22 @@ export default function NewMapEditor() {
       else if (next === 'features') setColor('#0000ff');
       else if (next === 'ground') setColor('#008080');
       else if (next === 'regions') setColor('#000000');
+    } else {
+      // Last step — switch to export tab
+      setSideTab('export');
     }
   };
+
+  const [groundProgress, setGroundProgress] = useState(0);
 
   const handleAutoGenerateGround = async () => {
     const heightLayer = layers.heights;
     if (!heightLayer?.imageData) return;
     setGeneratingGround(true);
-    await new Promise(r => setTimeout(r, 50));
-    const result = autoGenerateGroundTypes(heightLayer.imageData, groundRanges);
+    setGroundProgress(0);
+    const result = await autoGenerateGroundTypesAsync(heightLayer.imageData, groundRanges, setGroundProgress);
     handleLayerUpdate('ground', { imageData: result, visible: true, opacity: 1, dirty: true });
+    setGroundProgress(100);
     setGeneratingGround(false);
   };
 
@@ -412,15 +416,6 @@ export default function NewMapEditor() {
                 <ReferenceLayerControls refLayers={refLayers} onToggle={toggleRef} onOpacity={setRefOpacity} />
                 {phase === 'edit' && (
                   <div className="border-t border-slate-700 pt-3">
-                    <OhmOverlayControls
-                      ohmYear={ohmYear} setOhmYear={setOhmYear}
-                      visible={ohmVisible} setVisible={setOhmVisible}
-                      opacity={ohmOpacity} setOpacity={setOhmOpacity}
-                    />
-                  </div>
-                )}
-                {phase === 'edit' && (
-                  <div className="border-t border-slate-700 pt-3">
                     <LayerSidebar
                       layers={layers}
                       activeLayerId={activeLayerId}
@@ -448,11 +443,14 @@ export default function NewMapEditor() {
                   currentStepId={workflowStep}
                   onAutoGenerateGround={handleAutoGenerateGround}
                   generatingGround={generatingGround}
+                  groundProgress={groundProgress}
                   onAutoGenerateClimates={handleAutoGenerateClimates}
                   generatingClimates={generatingClimates}
                   onFillClimate={handleFillClimate}
                   groundRanges={groundRanges}
                   onGroundRangesChange={setGroundRanges}
+                  onLayerUpdate={handleLayerUpdate}
+                  bbox={bbox}
                 />
                 {workflowStep === 'regions' && (
                   <div className="px-3 pb-3 border-t border-slate-700 mt-2 pt-2">
@@ -509,9 +507,6 @@ export default function NewMapEditor() {
             onPickColor={setColor}
             bboxBounds={bbox}
             refLayers={refLayers}
-            ohmVisible={ohmVisible}
-            ohmYear={ohmYear}
-            ohmOpacity={ohmOpacity}
             box={box}
             onBoxChange={setBox}
           />

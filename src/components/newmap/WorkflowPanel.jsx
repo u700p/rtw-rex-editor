@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { CheckCircle, Circle, ChevronRight, Wand2, AlertCircle, Paintbrush } from 'lucide-react';
 import { CLIMATE_PALETTE } from '@/lib/mapLayerStore';
 import GroundTypeRangeEditor, { DEFAULT_GROUND_RANGES } from '@/components/newmap/GroundTypeRangeEditor';
+import RiverChecker from '@/components/newmap/RiverChecker';
+import OsmTagOverlayEditor from '@/components/newmap/OsmTagOverlayEditor';
 
 /**
  * WorkflowPanel — drives the step-by-step layer editing flow.
@@ -12,17 +14,19 @@ const STEPS = [
   { id: 'heights',  label: 'Heightmap',    file: 'map_heights.tga',      desc: 'Paint elevation. Sea = blue (0,0,255). Land = grayscale 1–255.' },
   { id: 'ground',   label: 'Ground Types', file: 'map_ground_types.tga', desc: 'Terrain type per tile. Configure height ranges below, then auto-generate.' },
   { id: 'climates', label: 'Climates',     file: 'map_climates.tga',     desc: 'Climate zones per tile. Auto-generate from ground types or fill with a single climate.' },
-  { id: 'features', label: 'Features',     file: 'map_features.tga',     desc: 'Rivers, cliffs, fords. Rivers must start with a white origin dot.' },
+  { id: 'features', label: 'Features',     file: 'map_features.tga',     desc: 'Rivers, cliffs, fords. Rivers = 1px pure blue (0,0,255). Origin pixel = white (255,255,255). Each river pixel has at most 2 river neighbors.' },
   { id: 'regions',  label: 'Regions',      file: 'map_regions.tga',      desc: 'Settlement placement. Each region = black pixel + unique RGB surround.' },
 ];
 
 export default function WorkflowPanel({
   layers, activeLayerId, onSetActive,
   onValidateAndNext, currentStepId,
-  onAutoGenerateGround, generatingGround,
+  onAutoGenerateGround, generatingGround, groundProgress,
   onAutoGenerateClimates, generatingClimates,
   onFillClimate,
   groundRanges, onGroundRangesChange,
+  onLayerUpdate,
+  bbox,
 }) {
   const currentIdx = STEPS.findIndex(s => s.id === currentStepId);
   const [showRangeEditor, setShowRangeEditor] = useState(false);
@@ -96,8 +100,19 @@ export default function WorkflowPanel({
                       disabled={generatingGround || !layers.heights?.imageData}
                       className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] bg-blue-700 border border-blue-600 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors font-semibold">
                       <Wand2 className={`w-3 h-3 ${generatingGround ? 'animate-spin' : ''}`} />
-                      {generatingGround ? 'Generating…' : 'Auto-generate from Heightmap'}
+                      {generatingGround ? `Generating… ${groundProgress ?? 0}%` : 'Auto-generate from Heightmap'}
                     </button>
+                    {generatingGround && (
+                      <div className="w-full bg-slate-700 rounded-full h-1 overflow-hidden">
+                        <div className="bg-blue-500 h-1 transition-all duration-200" style={{ width: `${groundProgress ?? 0}%` }} />
+                      </div>
+                    )}
+
+                    <OsmTagOverlayEditor
+                      bbox={bbox}
+                      groundLayer={layers.ground}
+                      onLayerUpdate={onLayerUpdate}
+                    />
                   </>
                 )}
 
@@ -136,12 +151,18 @@ export default function WorkflowPanel({
                   </>
                 )}
 
-                {/* Features: waterway map link */}
+                {/* Features: river checker + hints */}
                 {step.id === 'features' && (
-                  <a href="https://waterwaymap.org/" target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1.5 px-2 py-1.5 rounded text-[10px] bg-slate-700 border border-slate-600 text-blue-300 hover:bg-slate-600 transition-colors">
-                    🗺 WaterwayMap.org — trace rivers ↗
-                  </a>
+                  <>
+                    <RiverChecker
+                      featuresLayer={layers.features}
+                      onLayerUpdate={onLayerUpdate}
+                    />
+                    <div className="text-[9px] text-slate-500 bg-slate-800/60 border border-slate-700 rounded px-2 py-1.5 space-y-1">
+                      <p>Use the <strong className="text-slate-300">Generate Layers</strong> step to auto-fetch rivers from OSM, or paint them manually in the <strong className="text-slate-300">Paint</strong> tab.</p>
+                      <p>Paint with pure blue <span className="font-mono">(0,0,255)</span> — 1px brush recommended. Run the checker after painting.</p>
+                    </div>
+                  </>
                 )}
 
                 <button
