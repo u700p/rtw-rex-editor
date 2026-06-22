@@ -3,7 +3,11 @@ import { RefreshCw, Check, Waves, Droplets, Mountain } from 'lucide-react';
 import { LAYER_DEFS, getLayerDimensions } from '@/lib/mapLayerStore';
 import { rasterizeTiles } from './TileRasterizer';
 
-const OSM_OVERPASS = 'https://overpass-api.de/api/interpreter';
+const OSM_OVERPASS_MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
 const HEIGHTMAP_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
 function getHeightmapSize(mapWidth, mapHeight) {
@@ -11,13 +15,21 @@ function getHeightmapSize(mapWidth, mapHeight) {
 }
 
 async function fetchOverpass(query) {
-  const res = await fetch(OSM_OVERPASS, {
-    method: 'POST',
-    body: 'data=' + encodeURIComponent(query),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  return res.json();
+  let lastErr;
+  for (const mirror of OSM_OVERPASS_MIRRORS) {
+    try {
+      const res = await fetch(mirror, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(query),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error(`All Overpass mirrors failed: ${lastErr?.message}`);
 }
 
 function makeToXY(bbox, W, H) {
@@ -173,41 +185,7 @@ function paintSeaFromCoastline_UNUSED(imageData, coastElements, toXY, W, H) {
   }
 }
 
-/** Post-process features/rivers imageData: normalize blue, thin to 1px, set origin white. */
-function postProcessRivers(imageData) {
-  const { width, height, data } = imageData;
-  const isRiver = (i) => data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 255 && data[i + 3] > 0;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] > 0 && data[i + 2] > 100 && data[i + 2] > data[i] + 20 && data[i + 2] > data[i + 1] + 20) {
-      data[i] = 0; data[i + 1] = 0; data[i + 2] = 255; data[i + 3] = 255;
-    }
-  }
-  let originSet = false;
-  for (let y = 0; y < height && !originSet; y++) {
-    for (let x = 0; x < width && !originSet; x++) {
-      const i = (y * width + x) * 4;
-      if (isRiver(i)) { data[i] = 255; data[i + 1] = 255; data[i + 2] = 255; data[i + 3] = 255; originSet = true; }
-    }
-  }
-  for (let pass = 0; pass < 5; pass++) {
-    let changed = false;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const i = (y * width + x) * 4;
-        if (!isRiver(i)) continue;
-        let count = 0;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-          if (dx === 0 && dy === 0) continue;
-          const nx = x + dx, ny = y + dy;
-          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
-          if (isRiver((ny * width + nx) * 4)) count++;
-        }
-        if (count > 2) { data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 0; changed = true; }
-      }
-    }
-    if (!changed) break;
-  }
-}
+
 
 const RIVER_DETAIL_LEVELS = [
   { id: 'major',  label: 'Major rivers only',       filter: 'river' },
@@ -435,7 +413,6 @@ out geom;`;
       ctx.stroke();
     }
     const imageData = ctx.getImageData(0, 0, width, height);
-    postProcessRivers(imageData);
     setStatus(`Rivers: ${chains.length} chains from ${polylines.length} segments.`);
     onLayerUpdate('features', { imageData, visible: true, opacity: 0.9, dirty: true });
     setGenerated(p => ({ ...p, features: true }));
