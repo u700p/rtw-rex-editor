@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  CATEGORIES, CLASSES, VOICE_TYPES, ACCENTS, BANNER_FACTIONS, BANNER_HOLY,
-  UNIT_ATTRIBUTES, OWNERSHIP_FACTIONS, MENTAL_TYPES, MENTAL_TRAINING, ARMOUR_MATERIALS,
+  CATEGORIES, CLASSES, VOICE_TYPES, ACCENTS,
+  UNIT_ATTRIBUTES, MENTAL_TYPES, MENTAL_TRAINING,
 } from './EDUParser';
 import { Field, TextInput, NumberInput, SelectInput, Section, MultiCheckbox } from './UnitStatRow';
 import { serializeUnit } from './EDUParser';
@@ -17,6 +17,9 @@ function splitStat(str, count) {
   return parts;
 }
 function joinStat(parts) { return parts.join(', '); }
+function splitAttributeText(text) {
+  return [...new Set(String(text || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean))];
+}
 
 export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitImages, onImageUpload, onImageDelete, modeldb, onUpdateModeldbEntry, onDownloadModeldb }) {
   const [tab, setTab] = useState('identity');
@@ -34,6 +37,12 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
   const costParts = splitStat(unit.stat_cost, 8);
   const formParts = splitStat(unit.formation, 7);
   const foodParts = splitStat(unit.stat_food, 2);
+  const attributes = Array.isArray(unit.attributes) ? unit.attributes : [];
+  const knownAttributeSet = new Set(UNIT_ATTRIBUTES);
+  const selectedKnownAttributes = attributes.filter(a => knownAttributeSet.has(a));
+  const customAttributes = attributes.filter(a => !knownAttributeSet.has(a));
+  const setKnownAttributes = (nextKnown) => set('attributes', [...nextKnown, ...customAttributes]);
+  const setCustomAttributes = (text) => set('attributes', [...selectedKnownAttributes, ...splitAttributeText(text)]);
 
   const tabs = [
     { id: 'identity', label: 'Identity' },
@@ -100,17 +109,6 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
                 <SelectInput value={unit.accent} onChange={v => set('accent', v)} options={[{ value: '', label: '(faction default)' }, ...ACCENTS]} />
               </Field>
             </Section>
-            <Section title="Banners">
-              <Field label="banner faction" tooltip="Main battle banner type.">
-                <SelectInput value={unit.banner_faction} onChange={v => set('banner_faction', v)} options={BANNER_FACTIONS} />
-              </Field>
-              <Field label="banner unit" tooltip="Optional secondary banner identifier.">
-                <TextInput value={unit.banner_unit} onChange={v => set('banner_unit', v)} mono placeholder="e.g. dragon_standard" />
-              </Field>
-              <Field label="banner holy" tooltip="Rome units normally use none here.">
-                <SelectInput value={unit.banner_holy} onChange={v => set('banner_holy', v)} options={BANNER_HOLY} />
-              </Field>
-            </Section>
             <Section title="Soldier Model">
               <Field label="model name" tooltip="References an entry in battle_models.modelsdb">
                 <TextInput value={unit.soldier_model} onChange={v => set('soldier_model', v)} mono />
@@ -140,9 +138,15 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
               <MultiCheckbox
                 label="Unit attributes"
                 allOptions={UNIT_ATTRIBUTES}
-                selected={unit.attributes}
-                onChange={v => set('attributes', v)}
+                selected={selectedKnownAttributes}
+                onChange={setKnownAttributes}
               />
+              <Field label="custom attributes" tooltip="Comma or space separated.">
+                <TextInput value={customAttributes.join(', ')} onChange={setCustomAttributes} mono placeholder="custom_engine_attribute" />
+              </Field>
+              <p className="text-[10px] text-red-400 font-semibold border border-red-900/60 bg-red-950/20 rounded px-2 py-1">
+                Custom attributes must be added to the engine before the game can use them.
+              </p>
               <Field label="move_speed_mod" tooltip="Movement speed multiplier. Leave blank for default. e.g. 1.2">
                 <TextInput value={unit.move_speed_mod} onChange={v => set('move_speed_mod', v)} mono placeholder="1.0" />
               </Field>

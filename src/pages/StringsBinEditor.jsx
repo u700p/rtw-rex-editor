@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { parseStringsBin, encodeStringsBin } from '@/components/strings/stringsBinCodec';
 import { getStringsBinStore, updateStringsBinFile } from '@/lib/stringsBinStore';
 import { parseTextLocFile, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { Button } from '@/components/ui/button';
@@ -15,7 +14,7 @@ function loadFilesFromStore() {
     entries: data.entries,
     magic1: data.magic1,
     magic2: data.magic2,
-    sourceFormat: data.sourceFormat || 'strings.bin',
+    sourceFormat: 'txt',
     dirty: false,
   }));
 }
@@ -85,18 +84,6 @@ export default function StringsBinEditor() {
         const entries = textLocMapToEntries(parseTextLocFile(text));
         if (entries.length) {
           updateStringsBinFile(f.name, { entries, sourceFormat: 'txt' });
-        }
-      } else {
-        const buf = await f.arrayBuffer();
-        const parsed = parseStringsBin(buf);
-        if (parsed) {
-          const fileData = {
-            entries: parsed.entries,
-            magic1: parsed.magic1,
-            magic2: parsed.magic2,
-            sourceFormat: 'strings.bin',
-          };
-          updateStringsBinFile(f.name, fileData);
         }
       }
     }
@@ -171,25 +158,15 @@ export default function StringsBinEditor() {
 
   const handleExport = () => {
     if (!currentFile) return;
-    if (currentFile.sourceFormat === 'txt') {
-      const map = Object.fromEntries(currentFile.entries.map(e => [e.key, e.value]));
-      const text = serializeTextLocFile(map);
-      const blob = new Blob([text], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = currentFile.name.toLowerCase().endsWith('.txt') ? currentFile.name : currentFile.name.replace(/\.strings\.bin$/i, '') + '.txt';
-      a.click();
-      URL.revokeObjectURL(url);
-      updateFiles((f) => ({ ...f, dirty: false }));
-      return;
-    }
-    const buf = encodeStringsBin(currentFile.entries, currentFile.magic1, currentFile.magic2);
-    const blob = new Blob([buf], { type: 'application/octet-stream' });
+    const map = Object.fromEntries(currentFile.entries.map(e => [e.key, e.value]));
+    const text = serializeTextLocFile(map);
+    const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    let outName = currentFile.name;
-    if (!outName.endsWith('.txt.strings.bin')) outName = outName.replace(/\.strings\.bin$/i, '') + '.txt.strings.bin';
+    const outName = currentFile.name
+      .replace(/\.txt\.strings\.bin$/i, '.txt')
+      .replace(/\.strings\.bin$/i, '.txt')
+      .replace(/\.bin$/i, '.txt');
     a.href = url; a.download = outName; a.click();
     URL.revokeObjectURL(url);
     updateFiles((f) => ({ ...f, dirty: false }));
@@ -211,17 +188,17 @@ export default function StringsBinEditor() {
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700 bg-slate-900 shrink-0">
         <FileText className="w-4 h-4 text-blue-400 shrink-0" />
         <h1 className="text-sm font-bold text-white">Text Localization Editor</h1>
-        <span className="text-[11px] text-slate-400">.txt / .txt.strings.bin</span>
+        <span className="text-[11px] text-slate-400">plain .txt</span>
         <div className="flex-1" />
         <label className="cursor-pointer">
-          <input ref={fileInputRef} type="file" className="hidden" multiple accept=".txt,.bin,.strings.bin" onChange={handleLoad} />
+          <input ref={fileInputRef} type="file" className="hidden" multiple accept=".txt" onChange={handleLoad} />
           <Button asChild variant="outline" size="sm" className="gap-1.5 pointer-events-none h-8 border-slate-500 text-slate-200 hover:bg-slate-700">
             <span><Upload className="w-3.5 h-3.5" /> Open File(s)</span>
           </Button>
         </label>
         {currentFile && (
           <Button size="sm" onClick={handleExport} className="gap-1.5 h-8 bg-blue-600 hover:bg-blue-500 text-white">
-            <Download className="w-3.5 h-3.5" /> Export {currentFile.sourceFormat === 'txt' ? '.txt' : '.bin'}
+            <Download className="w-3.5 h-3.5" /> Export .txt
           </Button>
         )}
       </div>
@@ -253,7 +230,7 @@ export default function StringsBinEditor() {
             or open a plain <code className="font-mono bg-slate-800 text-slate-300 px-1 rounded">.txt</code> localization file directly.
           </p>
           <label className="cursor-pointer">
-            <input type="file" className="hidden" multiple accept=".txt,.bin,.strings.bin" onChange={handleLoad} />
+            <input type="file" className="hidden" multiple accept=".txt" onChange={handleLoad} />
             <Button asChild variant="outline" className="gap-2 pointer-events-none border-slate-600 text-slate-200 hover:bg-slate-700">
               <span><Upload className="w-4 h-4" /> Open Text File</span>
             </Button>

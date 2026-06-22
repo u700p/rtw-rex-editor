@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { parseTraitsFile, serializeTraitsFile, parseTextFile, serializeTextFile } from './TraitsParser';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
-import { encodeStringsBin } from '@/components/strings/stringsBinCodec';
 
 const TraitsContext = createContext(null);
 
@@ -18,6 +17,14 @@ export function TraitsProvider({ children }) {
   const originalTraitsData = useRef(null);
   const originalTextData = useRef(null);
 
+  const normalizeTextFilename = (filename, fallback = 'export_VnVs.txt') => {
+    const name = filename || fallback;
+    return name
+      .replace(/\.txt\.strings\.bin$/i, '.txt')
+      .replace(/\.strings\.bin$/i, '.txt')
+      .replace(/\.bin$/i, '.txt');
+  };
+
   // Auto-load from localStorage if Home page cached the files
   const loadFromStorage = useCallback(() => {
     try {
@@ -29,29 +36,25 @@ export function TraitsProvider({ children }) {
         setTraitsData(parsed);
         if (traitsName) setTraitsFilename(traitsName);
       }
-      // Try .strings.bin store first (case-insensitive), then fall back to plain txt cache
-      const store = getStringsBinStore();
-      // Accept any file whose name contains 'vnv' or matches exactly
-      const vnvsBinEntry = Object.entries(store).find(([k]) => {
-        const lk = k.toLowerCase();
-        return lk === 'export_vnvs.txt.strings.bin' || lk.includes('vnv');
-      });
-      const vnvsBin = vnvsBinEntry?.[1];
-      if (vnvsBin) {
-        const map = {};
-        for (const e of vnvsBin.entries) map[e.key] = e.value;
-        originalTextData.current = JSON.stringify(map);
-        setTextData(map);
-        setTextBinMeta(vnvsBin.sourceFormat === 'txt' ? null : { magic1: vnvsBin.magic1 ?? 2, magic2: vnvsBin.magic2 ?? 2048 });
-        setTextFilename(vnvsBinEntry[0]);
+      const vnvsContent = localStorage.getItem('m2tw_vnvs_file');
+      const vnvsName = localStorage.getItem('m2tw_vnvs_file_name');
+      if (vnvsContent) {
+        const parsed = parseTextFile(vnvsContent);
+        originalTextData.current = JSON.stringify(parsed);
+        setTextData(parsed);
+        setTextBinMeta(null);
+        if (vnvsName) setTextFilename(normalizeTextFilename(vnvsName));
       } else {
-        const vnvsContent = localStorage.getItem('m2tw_vnvs_file');
-        const vnvsName = localStorage.getItem('m2tw_vnvs_file_name');
-        if (vnvsContent) {
-          const parsed = parseTextFile(vnvsContent);
-          originalTextData.current = JSON.stringify(parsed);
-          setTextData(parsed);
-          if (vnvsName) setTextFilename(vnvsName);
+        const store = getStringsBinStore();
+        const vnvsBinEntry = Object.entries(store).find(([k]) => k.toLowerCase().includes('vnv'));
+        const vnvsBin = vnvsBinEntry?.[1];
+        if (vnvsBin) {
+          const map = {};
+          for (const e of vnvsBin.entries) map[e.key] = e.value;
+          originalTextData.current = JSON.stringify(map);
+          setTextData(map);
+          setTextBinMeta(null);
+          setTextFilename(normalizeTextFilename(vnvsBinEntry[0]));
         }
       }
     } catch {}
@@ -69,18 +72,16 @@ export function TraitsProvider({ children }) {
   }, []);
 
   const loadTextFile = useCallback((content, filename, binMeta) => {
-    // content may be a pre-parsed map (from .strings.bin) or a raw string
+    // content may be a pre-parsed map or a raw text localization file
     const parsed = (typeof content === 'object' && content !== null && !(content instanceof ArrayBuffer))
       ? content
       : parseTextFile(content);
     originalTextData.current = JSON.stringify(parsed);
     setTextData(parsed);
-    if (binMeta) setTextBinMeta(binMeta);
-    const fn = filename || 'export_VnVs.txt';
+    setTextBinMeta(null);
+    const fn = normalizeTextFilename(filename, 'export_VnVs.txt');
     setTextFilename(fn);
-    if (typeof content === 'string') {
-      try { localStorage.setItem('m2tw_vnvs_file', content); localStorage.setItem('m2tw_vnvs_file_name', fn); } catch {}
-    }
+    try { localStorage.setItem('m2tw_vnvs_file', serializeTextFile(parsed)); localStorage.setItem('m2tw_vnvs_file_name', fn); } catch {}
   }, []);
 
   useEffect(() => {
@@ -292,13 +293,8 @@ export function TraitsProvider({ children }) {
 
   const exportTextFile = useCallback(() => {
     if (!textData) return null;
-    // If the loaded file was a .strings.bin, export binary
-    if (textFilename.toLowerCase().endsWith('.bin')) {
-      const entries = Object.entries(textData).map(([key, value]) => ({ key, value: String(value) }));
-      return encodeStringsBin(entries, textBinMeta.magic1, textBinMeta.magic2);
-    }
     return serializeTextFile(textData);
-  }, [textData, textFilename, textBinMeta]);
+  }, [textData]);
 
   const getText = useCallback((key) => {
     if (!textData || !key) return '';

@@ -2,8 +2,6 @@ import React, { useRef } from 'react';
 import { useAncillaries } from './AncillariesContext';
 import { Button } from '@/components/ui/button';
 import { Upload, Download, Save, RotateCcw, Image } from 'lucide-react';
-import { parseStringsBin } from '@/components/strings/stringsBinCodec';
-import { getStringsBinStore, setStringsBinStore } from '@/lib/stringsBinStore';
 
 // Decode a TGA file (true-color 24/32-bit) to a data URL via canvas
 function decodeTgaToDataUrl(buffer) {
@@ -85,7 +83,7 @@ function decodeTgaToDataUrl(buffer) {
 
 export default function AncillariesFileLoader() {
   const {
-    ancData, textData, textBinMeta, ancFilename, textFilename,
+    ancData, textData, ancFilename, textFilename,
     loadAncFile, loadTextFile, loadTgaImages,
     exportAncFile, exportTextFile,
     saveAncillaries, revertAncillaries,
@@ -108,23 +106,9 @@ export default function AncillariesFileLoader() {
     const file = e.target.files[0];
     if (!file) return;
     e.target.value = '';
-    if (file.name.toLowerCase().endsWith('.strings.bin')) {
-      const buf = await file.arrayBuffer();
-      const parsed = parseStringsBin(buf);
-      if (parsed) {
-        // Store in global bin store
-        const existing = getStringsBinStore();
-        setStringsBinStore({ ...existing, [file.name]: parsed });
-        // Build map and directly load into context, passing bin metadata
-        const map = {};
-        for (const entry of parsed.entries) map[entry.key] = entry.value;
-        loadTextFile(map, file.name, { magic1: parsed.magic1, magic2: parsed.magic2 });
-      }
-    } else {
-      const reader = new FileReader();
-      reader.onload = ev => loadTextFile(ev.target.result, file.name);
-      reader.readAsText(file);
-    }
+    const reader = new FileReader();
+    reader.onload = ev => loadTextFile(ev.target.result, file.name);
+    reader.readAsText(file);
   };
 
   const handleTgaFolder = async (e) => {
@@ -143,20 +127,21 @@ export default function AncillariesFileLoader() {
   };
 
   const downloadFile = (content, filename) => {
-    const isBinary = content instanceof ArrayBuffer;
-    const data = isBinary ? new Uint8Array(content) : content;
-    const type = isBinary ? 'application/octet-stream' : 'text/plain';
-    const blob = new Blob([data], { type });
+    const safeName = filename
+      .replace(/\.txt\.strings\.bin$/i, '.txt')
+      .replace(/\.strings\.bin$/i, '.txt')
+      .replace(/\.bin$/i, '.txt');
+    const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = filename; a.click();
+    a.href = url; a.download = safeName; a.click();
     URL.revokeObjectURL(url);
   };
 
   return (
     <div className="flex flex-wrap items-center gap-2 p-3 border-b border-border bg-card">
       <input ref={ancRef} type="file" accept=".txt" className="hidden" onChange={handleAncFile} />
-      <input ref={textRef} type="file" accept=".txt,.strings.bin,.bin" className="hidden" onChange={handleTextFile} />
+      <input ref={textRef} type="file" accept=".txt" className="hidden" onChange={handleTextFile} />
       <input ref={tgaFolderRef} type="file" className="hidden"
         webkitdirectory="" directory="" multiple onChange={handleTgaFolder} />
 
@@ -171,7 +156,7 @@ export default function AncillariesFileLoader() {
       <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1.5 text-white"
         onClick={() => textRef.current?.click()}>
         <Upload className="w-3 h-3" />
-        Load Text (.strings.bin / .txt)
+        Load Text (.txt)
       </Button>
       {textData && <span className="text-[10px] text-muted-foreground font-mono truncate max-w-36">{textFilename}</span>}
 

@@ -5,7 +5,6 @@ import { getItemIcon, getItemLabel } from './StratOverlay';
 import { serializeDescrStrat, serializeDescrRegions, serializeWinConditions, parseWinConditions, SETTLEMENT_LEVELS, SETTLEMENT_LEVEL_ICONS } from './stratParser';
 import { exportTGA, downloadBlob } from './tgaExporter';
 import { LAYER_DEFS } from './mapLayerConstants';
-import { encodeStringsBin } from '../strings/stringsBinCodec';
 import JSZip from 'jszip';
 import { extractBuildingLevelsFromEDB, extractHiddenResourcesFromEDB } from './additionalParsers';
 import RegionColorDetector from './RegionColorDetector';
@@ -1067,17 +1066,10 @@ export default function StratPanel({
         zip.file(`${basePath}/${filename}`, blob);
       }
     }
-    // Settlement names: Rome uses plain text; M2TW may use .strings.bin.
+    // Settlement names: Rome uses plain text.
     if (settlementNames && Object.keys(settlementNames).length > 0) {
-      const namesRaw = sessionStorage.getItem('m2tw_names_raw');
-      if (namesRaw) {
-        const lines = Object.entries(settlementNames).map(([key, value]) => `{${key}}${value}`);
-        zip.file(`data/text/${campaignName}_regions_and_settlement_names.txt`, toCRLF(lines.join('\n')));
-      } else {
-        const entries = Object.entries(settlementNames).map(([key, value]) => ({ key, value }));
-        const binBuf = encodeStringsBin(entries);
-        zip.file(`data/text/${campaignName}_regions_and_settlement_names.txt.strings.bin`, binBuf);
-      }
+      const lines = Object.entries(settlementNames).map(([key, value]) => `{${key}}${value}`);
+      zip.file(`data/text/${campaignName}_regions_and_settlement_names.txt`, toCRLF(lines.join('\n')));
     }
     // Campaign descriptions: preserve Rome plain text when that was loaded.
     try {
@@ -1085,15 +1077,8 @@ export default function StratPanel({
       if (descStringsRaw) {
         const descMap = JSON.parse(descStringsRaw);
         if (descMap && Object.keys(descMap).length > 0) {
-          const descPlainRaw = localStorage.getItem('m2tw_campaign_descriptions_raw');
-          if (descPlainRaw) {
-            const lines = Object.entries(descMap).map(([key, value]) => `{${key}}${value}`);
-            zip.file(`data/text/campaign_descriptions.txt`, toCRLF(lines.join('\n')));
-          } else {
-            const descEntries = Object.entries(descMap).map(([k, v]) => ({ key: k, value: v }));
-            const descBinBuf = encodeStringsBin(descEntries);
-            zip.file(`data/text/campaign_descriptions.txt.strings.bin`, descBinBuf);
-          }
+          const lines = Object.entries(descMap).map(([key, value]) => `{${key}}${value}`);
+          zip.file(`data/text/campaign_descriptions.txt`, toCRLF(lines.join('\n')));
         }
       }
     } catch (e) { console.warn('campaign_descriptions export failed', e); }
@@ -1160,7 +1145,7 @@ export default function StratPanel({
             {[
             { label: 'descr_strat.txt', type: 'strat', loaded: !!stratData, onDl: handleExportStrat, ready: !!stratData?.raw },
             { label: 'descr_regions.txt', type: 'regions', loaded: !!regionsData, onDl: handleExportRegions, ready: !!regionsData?.length },
-            { label: 'settlement_names', type: 'names', loaded: !!settlementNames, onDl: handleExportNames, ready: !!settlementNames && Object.keys(settlementNames).length > 0, accept: '.txt,.bin,.strings.bin' },
+            { label: 'settlement_names', type: 'names', loaded: !!settlementNames, onDl: handleExportNames, ready: !!settlementNames && Object.keys(settlementNames).length > 0, accept: '.txt' },
             { label: 'descr_sm_factions.txt', type: 'factions', loaded: !!factionColors, onDl: handleExportFactions, ready: !!factionColors },
             { label: 'descr_faction_movies.xml', type: 'movies', loaded: !!factionMovies, onDl: () => {if (factionMovies) downloadBlob(new Blob([serializeFactionMovies(factionMovies)], { type: 'text/xml' }), 'descr_faction_movies.xml');}, ready: !!factionMovies, accept: '.xml' },
             { label: 'descr_disasters.txt', type: 'disasters', loaded: !!disasters, onDl: () => {if (disasters) downloadBlob(new Blob([toCRLF(serializeDisasters(disasters))], { type: 'text/plain' }), 'descr_disasters.txt');}, ready: !!disasters?.length },

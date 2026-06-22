@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Swords, Upload, Download, Plus, FileText, CheckCircle2, Copy, Database, Image, FileCode, Shield } from 'lucide-react';
 import { useRefData } from '../components/edb/RefDataContext';
@@ -8,7 +8,6 @@ import { parseEDU, serializeEDU, serializeUnit, createDefaultUnit } from '../com
 import { parseModeldb, serializeModeldb } from '../lib/modeldbCodec';
 import { parseDescrModelBattle, serializeDescrModelBattle, syncDescrModelBattleEntryAliases } from '../lib/descrModelBattleCodec';
 import { modeldbStore } from '../lib/modeldbStore';
-import { parseStringsBin } from '@/components/strings/stringsBinCodec';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
 import { parseTextLocFile } from '@/lib/textLocParser';
 
@@ -142,21 +141,41 @@ export default function UnitEditorPage() {
   const unitUiFolderRef = useRef();
   const factionsRef = useRef();
 
-  // Auto-load from cached EDU file on mount (always prefer the raw file over stale parsed cache)
-  useEffect(() => {
+  const restoreUnitsFromStorage = useCallback((resetSelection = false) => {
     try {
       const eduContent = localStorage.getItem(EDU_FILE_KEY);
       const eduName = localStorage.getItem(EDU_FILE_NAME_KEY);
-      if (eduContent) {
-        const parsed = parseEDU(eduContent);
-        if (parsed.length > 0) {
-          setUnits(parsed);
-          saveUnits(parsed);
-          if (eduName) setFilename(eduName);
-        }
+      if (!eduContent) return false;
+      const parsed = parseEDU(eduContent);
+      if (parsed.length > 0) {
+        setUnits(parsed);
+        saveUnits(parsed);
+        setActiveIndex(prev => resetSelection ? 0 : Math.min(prev, Math.max(0, parsed.length - 1)));
+        if (eduName) setFilename(eduName);
+        return true;
       }
     } catch {}
+    return false;
   }, []);
+
+  // Auto-load from cached EDU file on mount (always prefer the raw file over stale parsed cache)
+  useEffect(() => {
+    restoreUnitsFromStorage(true);
+  }, [restoreUnitsFromStorage]);
+
+  // Keep this page in sync when Home loads/replaces export_descr_unit.txt.
+  useEffect(() => {
+    const handler = (event) => {
+      if (event?.detail?.source === 'unit-editor') return;
+      restoreUnitsFromStorage(false);
+    };
+    window.addEventListener('edu-file-loaded', handler);
+    window.addEventListener('storage', handler);
+    return () => {
+      window.removeEventListener('edu-file-loaded', handler);
+      window.removeEventListener('storage', handler);
+    };
+  }, [restoreUnitsFromStorage]);
 
   // Auto-load modeldb from localStorage if available
   useEffect(() => {
@@ -286,7 +305,12 @@ export default function UnitEditorPage() {
   const active = units[activeIndex] || null;
   const activeDescr = active ? (descrMap[active.dictionary] ?? null) : null;
 
-  const update = (units) => { setUnits(units); saveUnits(units); };
+  const update = (units) => {
+    setUnits(units);
+    saveUnits(units);
+    try { localStorage.setItem(EDU_FILE_KEY, serializeEDU(units)); } catch {}
+    window.dispatchEvent(new CustomEvent('edu-file-loaded', { detail: { source: 'unit-editor' } }));
+  };
 
   const handleDescrChange = (val) => {
     if (!active) return;
@@ -305,12 +329,13 @@ export default function UnitEditorPage() {
     reader.onload = (ev) => {
       const text = ev.target.result;
       const parsed = parseEDU(text);
-      update(parsed);
+      setUnits(parsed);
+      saveUnits(parsed);
       setActiveIndex(0);
       // Persist so Unit Card Generator (and other tools) can read it
       try { localStorage.setItem(EDU_FILE_KEY, text); } catch {}
       // Notify same-tab listeners (UnitCardGenerator etc.)
-      window.dispatchEvent(new CustomEvent('edu-file-loaded'));
+      window.dispatchEvent(new CustomEvent('edu-file-loaded', { detail: { source: 'unit-editor' } }));
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -390,31 +415,12 @@ export default function UnitEditorPage() {
     if (!file) return;
     e.target.value = '';
     let newDescr = {};
-    if (file.name.toLowerCase().endsWith('.txt')) {
-      const text = await file.text();
-      newDescr = parseExportUnits(text);
-      try {
-        localStorage.setItem(EXPORT_UNITS_KEY, text);
-        localStorage.setItem('m2tw_export_units_file_name', file.name);
-      } catch {}
-    } else {
-      const buf = await file.arrayBuffer();
-      const parsed = parseStringsBin(buf);
-      if (!parsed) return;
-      const map = {};
-      for (const entry of parsed.entries) map[entry.key] = entry.value;
-      for (const [key, val] of Object.entries(map)) {
-        if (key.endsWith('_descr_short')) {
-          const base = key.slice(0, -'_descr_short'.length);
-          newDescr[base] = { ...(newDescr[base] || {}), short: val };
-        } else if (key.endsWith('_descr')) {
-          const base = key.slice(0, -'_descr'.length);
-          newDescr[base] = { ...(newDescr[base] || {}), long: val };
-        } else {
-          newDescr[key] = { ...(newDescr[key] || {}), name: val };
-        }
-      }
-    }
+    const text = await file.text();
+    newDescr = parseExportUnits(text);
+    try {
+      localStorage.setItem(EXPORT_UNITS_KEY, text);
+      localStorage.setItem('m2tw_export_units_file_name', file.name);
+    } catch {}
     // Merge over existing
     setDescrMap(prev => {
       const merged = { ...prev };
@@ -534,12 +540,12 @@ export default function UnitEditorPage() {
           <button
             onClick={() => stringsBinRef.current?.click()}
             className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-border hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-            title="Load export_units.txt or export_units.txt.strings.bin"
+            title="Load export_units.txt"
           >
             <FileCode className="w-3 h-3" />
             Load Unit Text
           </button>
-          <input ref={stringsBinRef} type="file" accept=".txt,.bin,.strings.bin" className="hidden" onChange={handleStringsBinLoad} />
+          <input ref={stringsBinRef} type="file" accept=".txt" className="hidden" onChange={handleStringsBinLoad} />
           <button
             onClick={() => unitUiFolderRef.current?.click()}
             className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-border hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"

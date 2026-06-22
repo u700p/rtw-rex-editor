@@ -512,7 +512,11 @@ export default function Home() {
         loaderMap[key]?.(text);
         // Store factions in sessionStorage for campaign map editor
         if (key === 'fac') {
-          try {sessionStorage.setItem('m2tw_factions_raw', text);} catch {}
+          try {
+            sessionStorage.setItem('m2tw_factions_raw', text);
+            localStorage.setItem('m2tw_factions_file_name', file.name);
+          } catch {}
+          window.dispatchEvent(new CustomEvent('factions-file-loaded'));
         }
         // Store resources in sessionStorage + localStorage
         if (key === 'res') {
@@ -525,8 +529,10 @@ export default function Home() {
         if (key === 'unit') {
           try {
             localStorage.setItem('m2tw_units_file', text);
+            localStorage.setItem('m2tw_edu_file_name', file.name);
             sessionStorage.setItem('m2tw_edu_raw', text);
           } catch {}
+          window.dispatchEvent(new CustomEvent('edu-file-loaded'));
         }
       }
       setFileStatus((prev) => ({ ...prev, [key]: 'ok' }));

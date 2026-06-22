@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { parseAncillariesFile, serializeAncillariesFile, parseTextFile, serializeTextFile } from './AncillariesParser';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
-import { encodeStringsBin } from '@/components/strings/stringsBinCodec';
 
 const AncillariesContext = createContext(null);
 
@@ -19,6 +18,14 @@ export function AncillariesProvider({ children }) {
   // Snapshots for revert
   const originalAncData = useRef(null);
   const originalTextData = useRef(null);
+
+  const normalizeTextFilename = (filename, fallback = 'export_ancillaries.txt') => {
+    const name = filename || fallback;
+    return name
+      .replace(/\.txt\.strings\.bin$/i, '.txt')
+      .replace(/\.strings\.bin$/i, '.txt')
+      .replace(/\.bin$/i, '.txt');
+  };
 
   // Listen for TGA images broadcast from Home page
   useEffect(() => {
@@ -42,29 +49,27 @@ export function AncillariesProvider({ children }) {
         setAncData(parsed);
         if (ancName) setAncFilename(ancName);
       }
-      // Try .strings.bin store first (case-insensitive), then fall back to plain txt cache
-      const store = getStringsBinStore();
-      const anctxtEntry = Object.entries(store).find(([k]) =>
-        k.toLowerCase() === 'export_ancillaries.txt.strings.bin' ||
-        k.toLowerCase() === 'export_ancillaries.txt' ||
-        k.toLowerCase().includes('export_ancillaries')
-      );
-      if (anctxtEntry) {
-        const [filename, binData] = anctxtEntry;
-        const map = {};
-        for (const e of binData.entries) map[e.key] = e.value;
-        originalTextData.current = JSON.stringify(map);
-        setTextData(map);
-        setTextFilename(filename);
-        setTextBinMeta(binData.sourceFormat === 'txt' ? null : { magic1: binData.magic1 ?? 2, magic2: binData.magic2 ?? 2048 });
+      const txtContent = localStorage.getItem('m2tw_anctxt_file');
+      const txtName = localStorage.getItem('m2tw_anctxt_file_name');
+      if (txtContent) {
+        const parsed = parseTextFile(txtContent);
+        originalTextData.current = JSON.stringify(parsed);
+        setTextData(parsed);
+        if (txtName) setTextFilename(normalizeTextFilename(txtName));
+        setTextBinMeta(null);
       } else {
-        const txtContent = localStorage.getItem('m2tw_anctxt_file');
-        const txtName = localStorage.getItem('m2tw_anctxt_file_name');
-        if (txtContent) {
-          const parsed = parseTextFile(txtContent);
-          originalTextData.current = JSON.stringify(parsed);
-          setTextData(parsed);
-          if (txtName) setTextFilename(txtName);
+        const store = getStringsBinStore();
+        const anctxtEntry = Object.entries(store).find(([k]) =>
+          k.toLowerCase() === 'export_ancillaries.txt' ||
+          k.toLowerCase().includes('export_ancillaries')
+        );
+        if (anctxtEntry) {
+          const [filename, binData] = anctxtEntry;
+          const map = {};
+          for (const e of binData.entries) map[e.key] = e.value;
+          originalTextData.current = JSON.stringify(map);
+          setTextData(map);
+          setTextFilename(normalizeTextFilename(filename));
           setTextBinMeta(null);
         }
       }
@@ -83,20 +88,16 @@ export function AncillariesProvider({ children }) {
   }, []);
 
   const loadTextFile = useCallback((content, filename, binMeta) => {
-    // content may be a pre-parsed map (from .strings.bin) or a raw string
+    // content may be a pre-parsed map or a raw text localization file
     const parsed = (typeof content === 'object' && content !== null && !(content instanceof ArrayBuffer))
       ? content
       : parseTextFile(content);
     originalTextData.current = JSON.stringify(parsed);
     setTextData(parsed);
-    const fn = filename || 'export_ancillaries.txt';
+    const fn = normalizeTextFilename(filename, 'export_ancillaries.txt');
     setTextFilename(fn);
-    if (binMeta) {
-      setTextBinMeta(binMeta);
-    } else if (typeof content === 'string') {
-      setTextBinMeta(null);
-      try { localStorage.setItem('m2tw_anctxt_file', content); localStorage.setItem('m2tw_anctxt_file_name', fn); } catch {}
-    }
+    setTextBinMeta(null);
+    try { localStorage.setItem('m2tw_anctxt_file', serializeTextFile(parsed)); localStorage.setItem('m2tw_anctxt_file_name', fn); } catch {}
   }, []);
 
   useEffect(() => {
@@ -284,13 +285,8 @@ export function AncillariesProvider({ children }) {
 
   const exportTextFile = useCallback(() => {
     if (!textData) return null;
-    if (textBinMeta) {
-      // Export as .strings.bin binary
-      const entries = Object.entries(textData).map(([key, value]) => ({ key, value: String(value) }));
-      return encodeStringsBin(entries, textBinMeta.magic1, textBinMeta.magic2);
-    }
     return serializeTextFile(textData);
-  }, [textData, textBinMeta]);
+  }, [textData]);
 
   const getText = useCallback((key) => {
     if (!textData || !key) return '';

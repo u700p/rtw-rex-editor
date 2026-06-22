@@ -3,7 +3,6 @@ import { useEDB } from '../components/edb/EDBContext';
 import { useTraits } from '../components/traits/TraitsContext';
 import { useAncillaries } from '../components/ancillaries/AncillariesContext';
 import { useRefData } from '../components/edb/RefDataContext';
-import { encodeStringsBin } from '../components/strings/stringsBinCodec';
 import { parseDescrStrat, serializeDescrStrat } from '../components/map/stratParser';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,10 +53,18 @@ const IMAGE_SLOT_DEFS = [
   { type: 'construction', w: 300, h: 245 },
 ];
 
+function normalizeTextFilename(filename, fallback) {
+  const name = filename || fallback;
+  return name
+    .replace(/\.txt\.strings\.bin$/i, '.txt')
+    .replace(/\.strings\.bin$/i, '.txt')
+    .replace(/\.bin$/i, '.txt');
+}
+
 export default function Export() {
   const { edbData, exportEDB, textData, exportTextFile, imageData } = useEDB();
-  const { traitsData, traitsFilename, exportTraitsFile, textData: traitsTextData, textBinMeta: traitsBinMeta, textFilename: traitsTextFilename, exportTextFile: exportTraitsTextFile } = useTraits();
-  const { ancData, ancFilename, exportAncFile, textData: ancTextData, textBinMeta: ancBinMeta, textFilename: ancTextFilename, exportTextFile: exportAncTextFile } = useAncillaries();
+  const { traitsData, traitsFilename, exportTraitsFile, textData: traitsTextData, textFilename: traitsTextFilename, exportTextFile: exportTraitsTextFile } = useTraits();
+  const { ancData, ancFilename, exportAncFile, textData: ancTextData, textFilename: ancTextFilename, exportTextFile: exportAncTextFile } = useAncillaries();
   const { guildData, exportGuildsFile } = useRefData();
   const [building, setBuilding] = useState(false);
   const [done, setDone] = useState(false);
@@ -69,10 +76,7 @@ export default function Export() {
   const modName = (() => {
     try { return localStorage.getItem('m2tw_mod_name') || 'my_mod'; } catch { return 'my_mod'; }
   })();
-  const buildingTextIsBinary = (() => {
-    try { return !!localStorage.getItem('m2tw_edb_txt_bin_magic1') || !!localStorage.getItem('m2tw_edb_txt_bin_magic2'); } catch { return false; }
-  })();
-  const buildingTextLabel = buildingTextIsBinary ? 'export_buildings.txt.strings.bin' : 'export_buildings.txt';
+  const buildingTextLabel = 'export_buildings.txt';
 
   const handleExportZip = async () => {
     setBuilding(true);
@@ -87,15 +91,7 @@ export default function Export() {
     }
 
     if (textData && Object.keys(textData).length > 0) {
-      if (buildingTextIsBinary) {
-        const magic1 = parseInt(localStorage.getItem('m2tw_edb_txt_bin_magic1') || '2');
-        const magic2 = parseInt(localStorage.getItem('m2tw_edb_txt_bin_magic2') || '2048');
-        const entries = Object.entries(textData).map(([key, value]) => ({ key, value: String(value) }));
-        const binBuf = encodeStringsBin(entries, magic1, magic2);
-        dataFolder.folder('text').file('export_buildings.txt.strings.bin', new Uint8Array(binBuf));
-      } else {
-        dataFolder.folder('text').file('export_buildings.txt', toCRLF(exportTextFile()));
-      }
+      dataFolder.folder('text').file('export_buildings.txt', toCRLF(exportTextFile()));
     }
 
     // Export building images as TGA files
@@ -121,10 +117,8 @@ export default function Export() {
       dataFolder.file('export_descr_character_traits.txt', toCRLF(exportTraitsFile()));
     }
     if (traitsTextData && Object.keys(traitsTextData).length > 0) {
-      let traitsTextContent = exportTraitsTextFile();
-      if (typeof traitsTextContent === 'string') traitsTextContent = toCRLF(traitsTextContent);
-      if (traitsTextContent instanceof ArrayBuffer) traitsTextContent = new Uint8Array(traitsTextContent);
-      const traitsTextName = traitsTextFilename || 'export_VnVs.txt';
+      const traitsTextContent = toCRLF(exportTraitsTextFile());
+      const traitsTextName = normalizeTextFilename(traitsTextFilename, 'export_VnVs.txt');
       dataFolder.folder('text').file(traitsTextName, traitsTextContent);
     }
 
@@ -138,10 +132,8 @@ export default function Export() {
       dataFolder.file('export_descr_ancillaries.txt', toCRLF(exportAncFile()));
     }
     if (ancTextData && Object.keys(ancTextData).length > 0) {
-      let ancTextContent = exportAncTextFile();
-      if (typeof ancTextContent === 'string') ancTextContent = toCRLF(ancTextContent);
-      if (ancTextContent instanceof ArrayBuffer) ancTextContent = new Uint8Array(ancTextContent);
-      const ancTextName = ancTextFilename || 'export_ancillaries.txt';
+      const ancTextContent = toCRLF(exportAncTextFile());
+      const ancTextName = normalizeTextFilename(ancTextFilename, 'export_ancillaries.txt');
       dataFolder.folder('text').file(ancTextName, ancTextContent);
     }
 
@@ -237,7 +229,7 @@ export default function Export() {
                 label={buildingTextLabel}
                 path={`${modName}/data/text/`}
                 status={hasText ? 'ready' : 'skip'}
-                detail={hasText ? `${Object.keys(textData).length} text entries${buildingTextIsBinary ? ' (.strings.bin)' : ' (.txt)'}` : 'No text data — will be skipped'}
+                detail={hasText ? `${Object.keys(textData).length} text entries (.txt)` : 'No text data — will be skipped'}
               />
               {imageData && Object.keys(imageData).length > 0 && (
                 <ExportRow
@@ -264,10 +256,10 @@ export default function Export() {
               />
               <ExportRow
                 icon={<FileText className="w-4 h-4 text-purple-300/70" />}
-                label={traitsTextFilename || 'export_VnVs.txt'}
+                label={normalizeTextFilename(traitsTextFilename, 'export_VnVs.txt')}
                 path={`${modName}/data/text/`}
                 status={hasTraitsText ? 'ready' : 'skip'}
-                detail={hasTraitsText ? `${Object.keys(traitsTextData).length} entries${traitsBinMeta ? ' (.strings.bin)' : ' (.txt)'}` : 'No VnVs text loaded'}
+                detail={hasTraitsText ? `${Object.keys(traitsTextData).length} entries (.txt)` : 'No VnVs text loaded'}
               />
               <ExportRow
                 icon={<FileText className="w-4 h-4 text-yellow-400/70" />}
@@ -278,10 +270,10 @@ export default function Export() {
               />
               <ExportRow
                 icon={<FileText className="w-4 h-4 text-yellow-300/70" />}
-                label={ancTextFilename || 'export_ancillaries.txt'}
+                label={normalizeTextFilename(ancTextFilename, 'export_ancillaries.txt')}
                 path={`${modName}/data/text/`}
                 status={hasAncText ? 'ready' : 'skip'}
-                detail={hasAncText ? `${Object.keys(ancTextData).length} entries${ancBinMeta ? ' (.strings.bin)' : ' (.txt)'}` : 'No ancillaries text loaded'}
+                detail={hasAncText ? `${Object.keys(ancTextData).length} entries (.txt)` : 'No ancillaries text loaded'}
               />
               <ExportRow
                 icon={<Globe2 className="w-4 h-4 text-blue-400/70" />}

@@ -6,8 +6,6 @@ export const CATEGORIES = ['infantry', 'cavalry', 'siege', 'ship'];
 export const CLASSES = ['light', 'heavy', 'missile', 'spearmen'];
 export const VOICE_TYPES = ['Heavy', 'Light', 'General'];
 export const ACCENTS = ['Roman', 'Barbarian', 'Greek', 'Carthaginian', 'Eastern', 'Egyptian'];
-export const BANNER_FACTIONS = ['main_spear', 'main_infantry', 'main_cavalry', 'main_missile'];
-export const BANNER_HOLY = ['none'];
 export const UNIT_ATTRIBUTES = [
   'sea_faring','hide_forest','hide_improved_forest','hide_anywhere','frighten_foot',
   'frighten_mounted','can_run_amok','general_unit','general_unit_upgrade','cantabrian_circle',
@@ -41,7 +39,6 @@ function parseUnit(lines) {
   const unit = {
     type: '', dictionary: '', dictionaryComment: '',
     category: 'infantry', class: 'heavy', voice_type: 'Heavy', accent: '',
-    banner_faction: 'main_infantry', banner_unit: '', banner_holy: 'none',
     // soldier: model, num, extras, mass
     soldier_model: '', soldier_num: 60, soldier_extras: 0, soldier_mass: 1,
     officer1: '', officer2: '', officer3: '',
@@ -71,7 +68,6 @@ function parseUnit(lines) {
     armour_ug_levels: '3',
     armour_ug_models: '',
     ownership: ['romans_julii'],
-    era0: [], era1: [], era2: [],
     info_pics: '',
     card_pic: '',
     card_info: '',
@@ -97,14 +93,6 @@ function parseUnit(lines) {
       case 'class': unit.class = cleanVal; break;
       case 'voice_type': unit.voice_type = cleanVal; break;
       case 'accent': unit.accent = cleanVal; break;
-      case 'banner': {
-        // "banner faction main_spear" or "banner holy crusade" or "banner unit dragon_standard"
-        const rest = value.trim();
-        if (rest.startsWith('faction')) unit.banner_faction = rest.replace('faction', '').trim();
-        else if (rest.startsWith('holy')) unit.banner_holy = rest.replace('holy', '').trim();
-        else if (rest.startsWith('unit')) unit.banner_unit = rest.replace('unit', '').trim();
-        break;
-      }
       case 'soldier': {
         const parts = cleanVal.split(',').map(s => s.trim());
         unit.soldier_model = parts[0] || '';
@@ -140,13 +128,6 @@ function parseUnit(lines) {
       case 'armour_ug_levels': unit.armour_ug_levels = cleanVal; break;
       case 'armour_ug_models': unit.armour_ug_models = cleanVal; break;
       case 'ownership': unit.ownership = cleanVal.split(',').map(s => s.trim()).filter(Boolean); break;
-      case 'era': {
-        const rest = value.trim();
-        if (rest.startsWith('0')) unit.era0 = rest.replace(/^0\s+/, '').split(',').map(s => s.trim()).filter(Boolean);
-        else if (rest.startsWith('1')) unit.era1 = rest.replace(/^1\s+/, '').split(',').map(s => s.trim()).filter(Boolean);
-        else if (rest.startsWith('2')) unit.era2 = rest.replace(/^2\s+/, '').split(',').map(s => s.trim()).filter(Boolean);
-        break;
-      }
       case 'info_pic_dir': unit.info_pics = cleanVal; break;
       case 'card_pic_dir': unit.card_pic = cleanVal; break;
       case 'card_info_pic_dir': unit.card_info = cleanVal; break;
@@ -186,9 +167,6 @@ export function serializeUnit(unit) {
   lines.push(`class            ${unit.class}`);
   lines.push(`voice_type       ${unit.voice_type}`);
   if (unit.accent) lines.push(`accent           ${unit.accent}`);
-  lines.push(`banner faction   ${unit.banner_faction}`);
-  if (unit.banner_unit) lines.push(`banner unit      ${unit.banner_unit}`);
-  if (unit.banner_holy && unit.banner_holy !== 'none') lines.push(`banner holy      ${unit.banner_holy}`);
   lines.push(`soldier          ${unit.soldier_model}, ${unit.soldier_num}, ${unit.soldier_extras}, ${unit.soldier_mass}`);
   if (unit.officer1) lines.push(`officer          ${unit.officer1}`);
   if (unit.officer2) lines.push(`officer          ${unit.officer2}`);
@@ -218,9 +196,6 @@ export function serializeUnit(unit) {
   lines.push(`armour_ug_levels ${unit.armour_ug_levels}`);
   lines.push(`armour_ug_models ${unit.armour_ug_models || unit.soldier_model}`);
   lines.push(`ownership        ${unit.ownership.join(', ')}`);
-  if (unit.era0.length) lines.push(`era 0            ${unit.era0.join(', ')}`);
-  if (unit.era1.length) lines.push(`era 1            ${unit.era1.join(', ')}`);
-  if (unit.era2.length) lines.push(`era 2            ${unit.era2.join(', ')}`);
   if (unit.info_pics) lines.push(`info_pic_dir     ${unit.info_pics}`);
   if (unit.card_pic) lines.push(`card_pic_dir     ${unit.card_pic}`);
   if (unit.card_info) lines.push(`card_info_pic_dir ${unit.card_info}`);
@@ -235,7 +210,6 @@ export function createDefaultUnit() {
   return {
     type: 'New_Unit', dictionary: 'New_Unit', dictionaryComment: 'New Unit',
     category: 'infantry', class: 'heavy', voice_type: 'Heavy', accent: '',
-    banner_faction: 'main_infantry', banner_unit: '', banner_holy: 'none',
     soldier_model: 'New_Unit', soldier_num: 60, soldier_extras: 0, soldier_mass: 1,
     officer1: '', officer2: '', officer3: '',
     mount: '', mount_effect: '',
@@ -259,7 +233,6 @@ export function createDefaultUnit() {
     armour_ug_levels: '3',
     armour_ug_models: 'New_Unit',
     ownership: ['romans_julii'],
-    era0: [], era1: [], era2: [],
     info_pics: '', card_pic: '', card_info: '',
   };
 }

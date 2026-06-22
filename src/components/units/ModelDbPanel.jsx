@@ -137,9 +137,6 @@ export default function ModelDbPanel({ soldierModel, unit, modeldb, onUpdateEntr
     if (!unit || !factions.length) return [];
     const allOwned = new Set([
       ...(unit.ownership || []),
-      ...(unit.era0 || []),
-      ...(unit.era1 || []),
-      ...(unit.era2 || []),
     ]);
     const entryFactionSet = new Set(factions.map(f => f.faction?.toLowerCase()));
     return [...allOwned].filter(f => {

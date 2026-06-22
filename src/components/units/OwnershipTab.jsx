@@ -100,10 +100,7 @@ export default function OwnershipTab({ unit, onChange, modeldb }) {
 
   const allOwned = useMemo(() => new Set([
     ...(unit.ownership || []),
-    ...(unit.era0 || []),
-    ...(unit.era1 || []),
-    ...(unit.era2 || []),
-  ]), [unit.ownership, unit.era0, unit.era1, unit.era2]);
+  ]), [unit.ownership]);
 
   const missingFromModeldb = useMemo(() => {
     if (!modeldb || !allOwned.size) return [];
@@ -138,24 +135,6 @@ export default function OwnershipTab({ unit, onChange, modeldb }) {
         onChange={v => set('ownership', v)}
         allFactions={allFactions}
       />
-
-      <div className="space-y-4">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Era Availability</p>
-        <p className="text-[10px] text-muted-foreground -mt-2">Leave empty = always available.</p>
-        {[
-          { key: 'era0', label: 'Era 0 — Early' },
-          { key: 'era1', label: 'Era 1 — High' },
-          { key: 'era2', label: 'Era 2 — Late' },
-        ].map(({ key, label }) => (
-          <FactionTagSelect
-            key={key}
-            label={label}
-            selected={unit[key] || []}
-            onChange={v => set(key, v)}
-            allFactions={allFactions}
-          />
-        ))}
-      </div>
     </div>
   );
 }

@@ -108,11 +108,32 @@ export function RefDataProvider({ children }) {
     } catch {}
   }, []);
 
+  useEffect(() => {
+    const handler = () => {
+      try {
+        const facRaw = localStorage.getItem(LS_KEYS.factions);
+        if (!facRaw) return;
+        const result = parseFactionsFile(facRaw);
+        if (result.factions) setFactions(result.factions);
+        if (result.cultures) setCultures(result.cultures);
+      } catch {}
+    };
+    window.addEventListener('factions-file-loaded', handler);
+    window.addEventListener('storage', handler);
+    return () => {
+      window.removeEventListener('factions-file-loaded', handler);
+      window.removeEventListener('storage', handler);
+    };
+  }, []);
+
   const loadFactionsFile = useCallback((text) => {
     const result = parseFactionsFile(text);
     if (result.factions) setFactions(result.factions);
     if (result.cultures) setCultures(result.cultures);
-    try { localStorage.setItem(LS_KEYS.factions, text); } catch {}
+    try {
+      localStorage.setItem(LS_KEYS.factions, text);
+      window.dispatchEvent(new CustomEvent('factions-file-loaded'));
+    } catch {}
   }, []);
 
   const loadResourcesFile = useCallback((text) => {

@@ -43,7 +43,7 @@ function useLoadedPages() {
     check();
     window.addEventListener('storage', check);
     // Also re-check when custom load events fire
-    const events = ['load-traits','load-ancillaries','load-export-units','strings-bin-updated','modeldb-file-loaded'];
+    const events = ['load-traits','load-ancillaries','load-export-units','edu-file-loaded','factions-file-loaded','strings-bin-updated','modeldb-file-loaded'];
     events.forEach(e => window.addEventListener(e, check));
     return () => {
       window.removeEventListener('storage', check);

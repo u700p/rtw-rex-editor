@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { parseDescrSmFactions, serializeDescrSmFactions } from '@/lib/descrSmFactionsCodec';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
-import { textBlob } from '@/lib/lineEndings';
+import { textBlob, toCRLF } from '@/lib/lineEndings';
 import romeUi from '@/assets/rome/rome-ui.jpg';
 
 function downloadBlob(blob, filename) {
@@ -143,8 +143,8 @@ function UnitImporterTab() {
 
     const zip = new JSZip();
     zip.file('export_descr_unit.txt', serializeEDU(merged));
-    zip.file('export_units.txt', serializeTextLocFile(targetLoc, { header: 'Merged by Rome Tools unit importer' }));
-    zip.file('unit_import_report.txt', report);
+    zip.file('export_units.txt', toCRLF(serializeTextLocFile(targetLoc, { header: 'Merged by Rome Tools unit importer' })));
+    zip.file('unit_import_report.txt', toCRLF(report));
     const blob = await zip.generateAsync({ type: 'blob' });
     downloadBlob(blob, 'rtw_unit_import.zip');
     setLastReport(report);
@@ -268,24 +268,79 @@ function hueDistance(a, b) {
   return Math.min(d, 360 - d);
 }
 
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function smoothMask(value) {
+  const t = clamp01(value);
+  return t * t * (3 - 2 * t);
+}
+
+function colorDistance(a, b) {
+  const dr = a.r - b.r;
+  const dg = a.g - b.g;
+  const db = a.b - b.b;
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+function isProtectedMaterial(pixel, hsl, settings) {
+  if (!settings.protectMaterials) return false;
+  const { r, g, b } = pixel;
+  const skinLike = hsl.h >= 12 && hsl.h <= 48 && hsl.s >= 0.14 && hsl.s <= 0.72 && hsl.l >= 0.22 && hsl.l <= 0.84 && r >= g * 0.88 && g >= b * 0.72;
+  const leatherOrHair = hsl.h >= 12 && hsl.h <= 55 && hsl.s >= 0.08 && hsl.l >= 0.06 && hsl.l <= 0.52;
+  const steelOrIron = hsl.s <= 0.18 && hsl.l >= 0.12 && hsl.l <= 0.88;
+  const bronzeOrGold = hsl.h >= 34 && hsl.h <= 62 && hsl.s >= 0.16 && hsl.l >= 0.22 && hsl.l <= 0.78;
+  return skinLike || leatherOrHair || steelOrIron || bronzeOrGold;
+}
+
+function recolorPasses(settings) {
+  const passes = [
+    { label: 'primary', source: settings.source, target: settings.target },
+  ];
+  if (settings.secondaryEnabled) passes.push({ label: 'secondary', source: settings.secondarySource, target: settings.secondaryTarget });
+  if (settings.tertiaryEnabled) passes.push({ label: 'tertiary', source: settings.tertiarySource, target: settings.tertiaryTarget });
+  return passes.map(pass => {
+    const srcRgb = hexToRgb(pass.source);
+    const tgtRgb = hexToRgb(pass.target);
+    return {
+      ...pass,
+      srcRgb,
+      src: rgbToHsl(srcRgb.r, srcRgb.g, srcRgb.b),
+      tgt: rgbToHsl(tgtRgb.r, tgtRgb.g, tgtRgb.b),
+    };
+  });
+}
+
 function recolorImageData(imageData, settings) {
-  const src = rgbToHsl(...Object.values(hexToRgb(settings.source)));
-  const tgtRgb = hexToRgb(settings.target);
-  const tgt = rgbToHsl(tgtRgb.r, tgtRgb.g, tgtRgb.b);
+  const passes = recolorPasses(settings);
   const out = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
   const d = out.data;
   const tolerance = Number(settings.tolerance);
+  const rgbTolerance = Number(settings.rgbTolerance);
   const strength = Number(settings.strength) / 100;
   const minSat = Number(settings.minSat) / 100;
   for (let i = 0; i < d.length; i += 4) {
     const a = d[i + 3];
     if (a < 8) continue;
-    const hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]);
-    const hueMask = settings.useSource ? Math.max(0, 1 - hueDistance(hsl.h, src.h) / Math.max(1, tolerance)) : 1;
-    const satMask = hsl.s >= minSat ? 1 : (settings.recolorNeutrals ? 0.45 : 0);
-    const mask = Math.min(1, hueMask * satMask * strength);
+    const pixel = { r: d[i], g: d[i + 1], b: d[i + 2] };
+    const hsl = rgbToHsl(pixel.r, pixel.g, pixel.b);
+    if (isProtectedMaterial(pixel, hsl, settings)) continue;
+    if (!settings.recolorNeutrals && hsl.s < minSat) continue;
+    let best = null;
+    for (const pass of passes) {
+      const hueMask = settings.useSource ? Math.max(0, 1 - hueDistance(hsl.h, pass.src.h) / Math.max(1, tolerance)) : 1;
+      const rgbMask = settings.useSource ? Math.max(0, 1 - colorDistance(pixel, pass.srcRgb) / Math.max(1, rgbTolerance)) : 1;
+      const score = Math.sqrt(hueMask * rgbMask);
+      if (!best || score > best.score) best = { ...pass, score };
+    }
+    const satMask = hsl.s >= minSat ? 1 : 0.38;
+    const detailMask = settings.protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;
+    const mask = smoothMask((best?.score || 0) * satMask * detailMask) * strength;
     if (mask <= 0) continue;
-    const recolored = hslToRgb(tgt.h, Math.max(hsl.s, tgt.s * 0.72), settings.preserveLight ? hsl.l : (hsl.l * 0.75 + tgt.l * 0.25));
+    const targetSat = clamp01(hsl.s * 0.7 + best.tgt.s * 0.3);
+    const targetLight = settings.preserveLight ? hsl.l : clamp01(hsl.l * 0.82 + best.tgt.l * 0.18);
+    const recolored = hslToRgb(best.tgt.h, targetSat, targetLight);
     d[i] = Math.round(d[i] * (1 - mask) + recolored.r * mask);
     d[i + 1] = Math.round(d[i + 1] * (1 - mask) + recolored.g * mask);
     d[i + 2] = Math.round(d[i + 2] * (1 - mask) + recolored.b * mask);
@@ -346,6 +401,46 @@ function encodeTga(imageData) {
     out[p++] = data[i + 2]; out[p++] = data[i + 1]; out[p++] = data[i]; out[p++] = data[i + 3];
   }
   return out;
+}
+
+function encodeDds(imageData) {
+  const { width, height, data } = imageData;
+  const headerSize = 128;
+  const bodySize = width * height * 4;
+  const out = new Uint8Array(headerSize + bodySize);
+  const view = new DataView(out.buffer);
+
+  view.setUint32(0, 0x20534444, true); // DDS
+  view.setUint32(4, 124, true);
+  view.setUint32(8, 0x0002100f, true); // caps, height, width, pitch, pixelformat
+  view.setUint32(12, height, true);
+  view.setUint32(16, width, true);
+  view.setUint32(20, width * 4, true);
+  view.setUint32(76, 32, true);
+  view.setUint32(80, 0x41, true); // RGB + alpha pixels
+  view.setUint32(88, 32, true);
+  view.setUint32(92, 0x00ff0000, true);
+  view.setUint32(96, 0x0000ff00, true);
+  view.setUint32(100, 0x000000ff, true);
+  view.setUint32(104, 0xff000000, true);
+  view.setUint32(108, 0x1000, true); // texture
+
+  let p = headerSize;
+  for (let i = 0; i < data.length; i += 4) {
+    out[p++] = data[i + 2];
+    out[p++] = data[i + 1];
+    out[p++] = data[i];
+    out[p++] = data[i + 3];
+  }
+  return out;
+}
+
+function appendSuffix(filename, suffix, ext) {
+  const parts = String(filename || 'texture').replace(/\\/g, '/').split('/');
+  const base = parts.pop() || 'texture';
+  const stem = base.replace(/\.(tga|dds|png|jpg|jpeg)$/i, '');
+  parts.push(`${stem}${suffix || ''}.${ext}`);
+  return parts.join('/');
 }
 
 function rgb565(v) {
@@ -457,8 +552,12 @@ function imageDataUrl(imageData) {
 function TextureRecolorTab() {
   const [files, setFiles] = useState([]);
   const [settings, setSettings] = useState({
-    source: '#9e1a1a', target: '#2f6fc0', tolerance: 42, strength: 88, minSat: 18,
-    useSource: true, preserveLight: true, recolorNeutrals: false,
+    source: '#9e1a1a', target: '#2f6fc0', tolerance: 38, rgbTolerance: 190, strength: 88, minSat: 18,
+    secondarySource: '#d7c04a', secondaryTarget: '#e4e4e4',
+    tertiarySource: '#2d6d37', tertiaryTarget: '#8c2f2f',
+    suffix: '_recolor', outputFormat: 'both',
+    useSource: true, preserveLight: true, recolorNeutrals: false, protectExtremes: true,
+    protectMaterials: true, secondaryEnabled: false, tertiaryEnabled: false,
   });
   const [preview, setPreview] = useState(null);
   const [status, setStatus] = useState('');
@@ -478,7 +577,7 @@ function TextureRecolorTab() {
   };
 
   const handleFiles = async (e) => {
-    const list = Array.from(e.target.files || []);
+    const list = Array.from(e.target.files || []).filter(file => /\.(tga|dds|png|jpe?g)$/i.test(file.name));
     e.target.value = '';
     setFiles(list);
     setStatus(`${list.length} texture files queued.`);
@@ -486,6 +585,11 @@ function TextureRecolorTab() {
   };
 
   const refreshPreview = () => loadPreview(files);
+  const clearQueue = () => {
+    setFiles([]);
+    setPreview(null);
+    setStatus('Texture queue cleared.');
+  };
 
   const exportZip = async () => {
     const zip = new JSZip();
@@ -494,14 +598,24 @@ function TextureRecolorTab() {
       try {
         const original = await decodeImageFile(file);
         const processed = recolorImageData(original, settings);
-        const outName = file.name.replace(/\.(tga|dds|png|jpg|jpeg)$/i, '_recolor.tga');
-        zip.file(outName, encodeTga(processed));
-        lines.push(`OK ${file.name} -> ${outName}`);
+        const sourcePath = file.webkitRelativePath || file.name;
+        const outNames = [];
+        if (settings.outputFormat === 'tga' || settings.outputFormat === 'both') {
+          const outName = appendSuffix(sourcePath, settings.suffix, 'tga');
+          zip.file(outName, encodeTga(processed));
+          outNames.push(outName);
+        }
+        if (settings.outputFormat === 'dds' || settings.outputFormat === 'both') {
+          const outName = appendSuffix(sourcePath, settings.suffix, 'dds');
+          zip.file(outName, encodeDds(processed));
+          outNames.push(outName);
+        }
+        lines.push(`OK ${sourcePath} -> ${outNames.join(', ')}`);
       } catch (err) {
         lines.push(`FAILED ${file.name}: ${err.message}`);
       }
     }
-    zip.file('recolor_report.txt', lines.join('\n'));
+    zip.file('recolor_report.txt', toCRLF(lines.join('\n')));
     const blob = await zip.generateAsync({ type: 'blob' });
     downloadBlob(blob, 'rtw_texture_recolor.zip');
     setStatus(lines.join('\n'));
@@ -515,15 +629,66 @@ function TextureRecolorTab() {
           <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg" multiple className="hidden" onChange={handleFiles} />
           <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load TGA/DDS textures</span>
         </label>
+        <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
+          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg" multiple webkitdirectory="" directory="" className="hidden" onChange={handleFiles} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load texture folder</span>
+        </label>
+        <div className="flex items-center justify-between text-[10px] text-slate-500">
+          <span>{files.length} queued</span>
+          <button onClick={clearQueue} disabled={!files.length} className="text-slate-400 hover:text-slate-200 disabled:opacity-40">Clear</button>
+        </div>
         <Swatch label="Source faction color" value={settings.source} onChange={v => update('source', v)} />
         <Swatch label="Target faction color" value={settings.target} onChange={v => update('target', v)} />
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input type="checkbox" checked={settings.secondaryEnabled} onChange={e => update('secondaryEnabled', e.target.checked)} className="accent-amber-500" />
+          Secondary color pass
+        </label>
+        {settings.secondaryEnabled && (
+          <div className="grid grid-cols-2 gap-2">
+            <Swatch label="Secondary source" value={settings.secondarySource} onChange={v => update('secondarySource', v)} />
+            <Swatch label="Secondary target" value={settings.secondaryTarget} onChange={v => update('secondaryTarget', v)} />
+          </div>
+        )}
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input type="checkbox" checked={settings.tertiaryEnabled} onChange={e => update('tertiaryEnabled', e.target.checked)} className="accent-amber-500" />
+          Tertiary color pass
+        </label>
+        {settings.tertiaryEnabled && (
+          <div className="grid grid-cols-2 gap-2">
+            <Swatch label="Tertiary source" value={settings.tertiarySource} onChange={v => update('tertiarySource', v)} />
+            <Swatch label="Tertiary target" value={settings.tertiaryTarget} onChange={v => update('tertiaryTarget', v)} />
+          </div>
+        )}
         <Range label="Hue tolerance" value={settings.tolerance} min={1} max={180} onChange={v => update('tolerance', v)} />
+        <Range label="RGB tolerance" value={settings.rgbTolerance} min={24} max={360} onChange={v => update('rgbTolerance', v)} />
         <Range label="Strength" value={settings.strength} min={1} max={100} onChange={v => update('strength', v)} />
         <Range label="Minimum saturation" value={settings.minSat} min={0} max={100} onChange={v => update('minSat', v)} />
+        <label className="block">
+          <span className="text-[10px] uppercase text-slate-500">Batch suffix</span>
+          <input
+            value={settings.suffix}
+            onChange={e => update('suffix', e.target.value)}
+            className="w-full h-8 mt-1 px-2 text-xs font-mono bg-slate-900 border border-slate-700 rounded"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase text-slate-500">Export format</span>
+          <select
+            value={settings.outputFormat}
+            onChange={e => update('outputFormat', e.target.value)}
+            className="w-full h-8 mt-1 px-2 text-xs bg-slate-900 border border-slate-700 rounded"
+          >
+            <option value="both">TGA + DDS</option>
+            <option value="tga">TGA only</option>
+            <option value="dds">DDS only</option>
+          </select>
+        </label>
         {[
           ['useSource', 'Match source hue'],
           ['preserveLight', 'Preserve shadows/highlights'],
           ['recolorNeutrals', 'Allow low-saturation pixels'],
+          ['protectExtremes', 'Protect black/white detail'],
+          ['protectMaterials', 'Protect skin/hair/leather/armor'],
         ].map(([key, label]) => (
           <label key={key} className="flex items-center gap-2 text-xs text-slate-300">
             <input type="checkbox" checked={settings[key]} onChange={e => update(key, e.target.checked)} className="accent-amber-500" />
@@ -533,7 +698,7 @@ function TextureRecolorTab() {
         <Button variant="outline" className="w-full h-8 text-xs" onClick={refreshPreview} disabled={!files.length}>Refresh preview</Button>
         <Button className="w-full h-8 text-xs gap-1.5" onClick={exportZip} disabled={!files.length}>
           <Download className="w-3.5 h-3.5" />
-          Export recolored TGA zip
+          Export recolored zip
         </Button>
       </div>
       <div className="rounded border border-slate-700 bg-slate-950/60 p-3 min-h-[420px]">
@@ -546,7 +711,7 @@ function TextureRecolorTab() {
           <div className="h-full grid place-items-center text-sm text-slate-500">Load textures to preview recolor results.</div>
         )}
       </div>
-      <pre className="rounded border border-slate-700 bg-black/30 p-2 text-[10px] text-slate-300 whitespace-pre-wrap overflow-auto">{status || 'Supports true-color/RLE TGA, DXT1/DXT3/DXT5 DDS, and browser image formats. Output is uncompressed 32-bit TGA for RTW tools.'}</pre>
+      <pre className="rounded border border-slate-700 bg-black/30 p-2 text-[10px] text-slate-300 whitespace-pre-wrap overflow-auto">{status || 'Supports true-color/RLE TGA, DXT1/DXT3/DXT5 DDS, and browser image formats. Output uses 32-bit TGA and uncompressed 32-bit DDS for cleaner results.'}</pre>
     </div>
   );
 }

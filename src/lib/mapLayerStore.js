@@ -93,14 +93,6 @@ window.addEventListener('beforeunload', () => {
     'm2tw_mercenaries_raw', 'm2tw_music_types_raw',
   ];
   SESSION_KEYS.forEach(k => { try { sessionStorage.removeItem(k); } catch {} });
-  // Also clear localStorage campaign keys to avoid ghost data on next session
-  const LOCAL_KEYS = [
-    'm2tw_campaign_strat', 'm2tw_factions_file', 'm2tw_religions_file',
-    'm2tw_rebel_factions_file', 'm2tw_resources_file', 'm2tw_campaign_mercenaries',
-    'm2tw_names_file', 'm2tw_traits_file', 'm2tw_anc_file', 'm2tw_units_file',
-    'm2tw_campaign_script', 'm2tw_names_bin_entries', 'm2tw_names_bin_meta',
-  ];
-  LOCAL_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch {} });
 });
 
 export function setLayer(layerId, layerData) {
