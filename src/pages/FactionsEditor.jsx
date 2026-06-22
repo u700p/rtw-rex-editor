@@ -125,6 +125,7 @@ function parseDescrSmFactions(text) {
         rebel_symbol: '',
         primary_colour: { r: 0, g: 0, b: 0 },
         secondary_colour: { r: 0, g: 0, b: 0 },
+        tertiary_colour: undefined,
         loading_logo: '',
         standard_index: 0,
         logo_index: '',
@@ -162,6 +163,8 @@ function parseDescrSmFactions(text) {
       case 'primary_color':current.primary_colour = parseColour(val);break;
       case 'secondary_colour':
       case 'secondary_color':current.secondary_colour = parseColour(val);break;
+      case 'tertiary_colour':
+      case 'tertiary_color':current.tertiary_colour = parseColour(val);break;
       case 'loading_logo':current.loading_logo = val;break;
       case 'standard_index':current.standard_index = parseInt(val) || 0;break;
       case 'logo_index':current.logo_index = val;break;
@@ -225,11 +228,12 @@ function serialiseDescrSmFactions(factions) {
     const rows = [
     factionLine,
     `culture${T}${f.culture}`,
-    `religion${T5}${f.religion}`,
+    f.religion?.trim() ? `religion${T5}${f.religion.trim()}` : null,
     `symbol${T}${symbolVal}`,
     f.rebel_symbol ? `rebel_symbol${T4}${f.rebel_symbol}` : null,
     `primary_colour${T4}${fmtC(f.primary_colour)}`,
     `secondary_colour${T3}${fmtC(f.secondary_colour)}`,
+    f.tertiary_colour ? `tertiary_colour${T3}${fmtC(f.tertiary_colour)}` : null,
     `loading_logo${T4}${loadingLogoVal}`,
     f.standard_index !== 0 ? `standard_index${T4}${f.standard_index}` : null,
     `logo_index${T5}${logoIndexVal}`,
@@ -329,13 +333,14 @@ function YesNo({ label, value, onChange }) {
 }
 
 // ── Dropdown or text input ────────────────────────────────────────────────────
-function SelectOrInput({ label, value, onChange, options, placeholder }) {
+function SelectOrInput({ label, value, onChange, options, placeholder, allowBlank = false }) {
   return (
     <div className="flex items-center gap-3 py-0.5">
       <label className="text-[10px] text-slate-300 w-40 shrink-0">{label}</label>
       {options && options.length > 0 ?
       <select value={value} onChange={(e) => onChange(e.target.value)}
       className="flex-1 h-6 text-[11px] px-2 rounded border border-slate-600 bg-slate-700 text-slate-100 font-mono">
+          {allowBlank && <option value="">— none —</option>}
           {!options.includes(value) && value && <option value={value}>{value} (custom)</option>}
           {options.map((o) => <option key={o} value={o}>{o}</option>)}
         </select> :
@@ -456,7 +461,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSav
             </div>
           }
           <SelectOrInput label="Culture" value={draft.culture} onChange={(v) => set('culture', v)} options={cultures} placeholder="e.g. roman" />
-          <SelectOrInput label="Religion" value={draft.religion} onChange={(v) => set('religion', v)} options={religions} placeholder="e.g. pagan" />
+          <SelectOrInput label="Religion" value={draft.religion} onChange={(v) => set('religion', v)} options={religions} placeholder="optional" allowBlank />
         </section>
 
         <section className="space-y-2">
@@ -466,7 +471,16 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSav
           <div className="flex items-center gap-2 py-0.5">
             <span className="text-[10px] text-slate-300 w-40 shrink-0">Tertiary Colour (M2EX only)</span>
             <button
-              onClick={() => setTertiaryEnabled(!tertiaryEnabled)}
+              onClick={() => {
+                if (tertiaryEnabled) {
+                  const { tertiary_colour, ...rest } = draft;
+                  setDraft(rest);
+                  setTertiaryEnabled(false);
+                } else {
+                  setDraft({ ...draft, tertiary_colour: draft.tertiary_colour || { r: 0, g: 0, b: 0 } });
+                  setTertiaryEnabled(true);
+                }
+              }}
               className={`px-2 py-0.5 text-[9px] rounded border ${tertiaryEnabled ? 'bg-green-700 border-green-600 text-white' : 'bg-slate-700 border-slate-600 text-slate-400'}`}
             >
               {tertiaryEnabled ? 'Enabled' : 'Disabled'}
@@ -701,7 +715,7 @@ export default function FactionsEditor() {
     const newF = {
       name: 'new_faction',
       culture: cultures[0] || '',
-      religion: religions[0] || '',
+      religion: '',
       spawn_type: 'default',
       shadow_faction: '',
       symbol: '',

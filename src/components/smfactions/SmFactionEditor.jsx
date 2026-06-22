@@ -132,7 +132,7 @@ export default function SmFactionEditor() {
             />
             <div>
               <div className="text-sm font-bold font-mono">{form.name}</div>
-              <div className="text-[10px] text-muted-foreground">{form.culture} · {form.religion}</div>
+              <div className="text-[10px] text-muted-foreground">{form.culture}{form.religion ? ` · ${form.religion}` : ''}</div>
             </div>
           </div>
           <Button
@@ -165,6 +165,7 @@ export default function SmFactionEditor() {
             <div>
               <div className={LBL}>Religion</div>
               <select value={form.religion} onChange={e => set('religion', e.target.value)} className={SEL}>
+                <option value="">— none —</option>
                 {SM_RELIGIONS.map(r => <option key={r} value={r}>{r}</option>)}
                 {!SM_RELIGIONS.includes(form.religion) && form.religion && (
                   <option value={form.religion}>{form.religion}</option>
@@ -194,6 +195,34 @@ export default function SmFactionEditor() {
         <Section title="Colours">
           <ColourEditor label="Primary colour" colour={form.primary_colour} onChange={v => set('primary_colour', v)} />
           <ColourEditor label="Secondary colour" colour={form.secondary_colour} onChange={v => set('secondary_colour', v)} />
+          {form.tertiary_colour ? (
+            <>
+              <ColourEditor label="Tertiary colour" colour={form.tertiary_colour} onChange={v => set('tertiary_colour', v)} />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 text-[10px]"
+                onClick={() => {
+                  const { tertiary_colour, ...rest } = form;
+                  setForm(rest);
+                  setDirty(true);
+                }}
+              >
+                Remove tertiary colour
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 text-[10px]"
+              onClick={() => set('tertiary_colour', { r: 0, g: 0, b: 0 })}
+            >
+              Add tertiary colour
+            </Button>
+          )}
         </Section>
 
         {/* Indexes */}

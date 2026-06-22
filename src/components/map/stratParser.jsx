@@ -1157,6 +1157,9 @@ export function parseDescrSmFactions(text) {
     if ((m = line.match(/^secondary_colour\s+red\s+(\d+),?\s*green\s+(\d+),?\s*blue\s+(\d+)/))) {
       factions[currentFaction].secondaryColor = { r: parseInt(m[1]), g: parseInt(m[2]), b: parseInt(m[3]) };
     }
+    if ((m = line.match(/^tertiary_colour\s+red\s+(\d+),?\s*green\s+(\d+),?\s*blue\s+(\d+)/))) {
+      factions[currentFaction].tertiaryColor = { r: parseInt(m[1]), g: parseInt(m[2]), b: parseInt(m[3]) };
+    }
     if ((m = line.match(/^logo_filename\s+(.+)/))) {
       factions[currentFaction].logo = m[1].trim();
     }

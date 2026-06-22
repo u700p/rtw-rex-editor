@@ -11,6 +11,7 @@
  *       rebel_symbol               <path>
  *       primary_colour             { red <r> green <g> blue <b> }
  *       secondary_colour           { red <r> green <g> blue <b> }
+ *       tertiary_colour            { red <r> green <g> blue <b> }   (optional)
  *       loading_logo               <path>
  *       standard_index             <int>
  *       logo_index                 <int>
@@ -89,6 +90,7 @@ function parseFactionBlock(lines, startIndex) {
     rebel_symbol: '',
     primary_colour: { r: 0, g: 0, b: 0 },
     secondary_colour: { r: 0, g: 0, b: 0 },
+    tertiary_colour: undefined,
     loading_logo: '',
     standard_index: 0,
     logo_index: 0,
@@ -146,6 +148,8 @@ function parseFactionBlock(lines, startIndex) {
       case 'primary_color':              faction.primary_colour = parseColour(rest); break;
       case 'secondary_colour':
       case 'secondary_color':            faction.secondary_colour = parseColour(rest); break;
+      case 'tertiary_colour':
+      case 'tertiary_color':             faction.tertiary_colour = parseColour(rest); break;
       case 'loading_logo':               faction.loading_logo = rest; break;
       case 'standard_index':             faction.standard_index = parseInt(rest, 10) || 0; break;
       case 'logo_index':                 faction.logo_index = parseInt(rest, 10) || 0; break;
@@ -207,11 +211,12 @@ export function serializeDescrSmFactions(factions) {
     const add = (k, v) => lines.push(`\t${k.padEnd(34)}${v}`);
 
     if (f.culture)       add('culture',      f.culture);
-    if (f.religion)      add('religion',     f.religion);
+    if (String(f.religion || '').trim()) add('religion', String(f.religion).trim());
     if (f.symbol)        add('symbol',       f.symbol);
     if (f.rebel_symbol)  add('rebel_symbol', f.rebel_symbol);
     add('primary_colour',   serializeColour(f.primary_colour   || { r: 0, g: 0, b: 0 }));
     add('secondary_colour', serializeColour(f.secondary_colour || { r: 0, g: 0, b: 0 }));
+    if (f.tertiary_colour) add('tertiary_colour', serializeColour(f.tertiary_colour));
     if (f.loading_logo)     add('loading_logo',               f.loading_logo);
     add('standard_index',   String(f.standard_index  ?? 0));
     add('logo_index',       String(f.logo_index       ?? 0));
