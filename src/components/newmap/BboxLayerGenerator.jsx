@@ -185,12 +185,29 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
     pushHeightmap(elevData, { heightmap: true, lakes: false });
   };
 
-  // ── STEP 2: Lakes ─────────────────────────────────────────────────────────
-  const paintLakes = async () => {
-    if (!heightmapRef.current) { setStatus('Generate the heightmap first (Step 1).'); return; }
+  // ── STEP 2: Water Bodies ──────────────────────────────────────────────────
+  // Options: A = place=sea/ocean, B = water=lagoon, C = water=lake
+  const [waterOpts, setWaterOpts] = useState({ sea: true, lagoon: false, lake: false });
 
-    setStatus('Fetching lakes from OpenStreetMap…');
-    const osmQuery = `[out:json][timeout:120];(\n  way["water"="lake"](${bboxStr});\n  relation["water"="lake"](${bboxStr});\n);out geom;`;
+  const paintWaterBodies = async () => {
+    if (!heightmapRef.current) { setStatus('Generate the heightmap first (Step 1).'); return; }
+    if (!waterOpts.sea && !waterOpts.lagoon && !waterOpts.lake) { setStatus('Select at least one water type.'); return; }
+
+    setStatus('Fetching water bodies from OpenStreetMap…');
+
+    const blocks = [];
+    if (waterOpts.sea) {
+      blocks.push(`way["place"="sea"](${bboxStr}); relation["place"="sea"](${bboxStr});`);
+      blocks.push(`way["place"="ocean"](${bboxStr}); relation["place"="ocean"](${bboxStr});`);
+    }
+    if (waterOpts.lagoon) {
+      blocks.push(`way["water"="lagoon"](${bboxStr}); relation["water"="lagoon"](${bboxStr});`);
+    }
+    if (waterOpts.lake) {
+      blocks.push(`way["water"="lake"](${bboxStr}); relation["water"="lake"](${bboxStr});`);
+    }
+
+    const osmQuery = `[out:json][timeout:120];\n(\n  ${blocks.join('\n  ')}\n);\nout geom;`;
 
     let elements = [];
     try {
@@ -201,16 +218,14 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
       );
     } catch (e) { setStatus(`Error: ${e.message}`); return; }
 
-    if (elements.length === 0) { setStatus('No lakes found in this area.'); return; }
+    if (elements.length === 0) { setStatus('No water bodies found in this area.'); return; }
 
     const imageData = new ImageData(
       new Uint8ClampedArray(heightmapRef.current.data),
       heightmapRef.current.width, heightmapRef.current.height
     );
-
     paintPolygonsBlue(imageData, elements, toXY, W, H);
-
-    setStatus(`Lakes painted — ${elements.length} features.`);
+    setStatus(`Water bodies painted — ${elements.length} features.`);
     pushHeightmap(imageData, { lakes: true });
   };
 
@@ -323,17 +338,34 @@ out geom;`;
         </button>
       </div>
 
-      {/* Step 2: Lakes */}
+      {/* Step 2: Water Bodies */}
       <div className="border border-slate-700 rounded p-2.5 space-y-2">
         <div className="flex items-center gap-2">
           <span className="text-[9px] font-bold bg-blue-700 text-white rounded-full w-4 h-4 flex items-center justify-center shrink-0">2</span>
-          <p className="text-[10px] text-slate-300 font-semibold">Lakes &amp; Water Bodies</p>
+          <p className="text-[10px] text-slate-300 font-semibold">Water Bodies</p>
           {generated.lakes && <Check className="w-3 h-3 text-green-400 ml-auto" />}
         </div>
         <p className="text-[9px] text-slate-500">
-          Fetches <code className="text-amber-300">water=lake</code> polygons and paints them as <code className="text-amber-300">(0,0,255)</code> on top of the heightmap.
+          Paint selected water body types as sea <code className="text-amber-300">(0,0,255)</code> on the heightmap.
         </p>
-        <button onClick={async () => { setGenerating(true); await paintLakes(); setGenerating(false); }} disabled={generating || !generated.heightmap}
+        <div className="space-y-1">
+          {[
+            { key: 'sea',    label: 'Seas & Oceans',  desc: 'place=sea / place=ocean' },
+            { key: 'lagoon', label: 'Lagoons',         desc: 'water=lagoon' },
+            { key: 'lake',   label: 'Lakes',           desc: 'water=lake (not reservoirs/ponds/basins)' },
+          ].map(opt => (
+            <label key={opt.key} className="flex items-start gap-2 cursor-pointer group">
+              <input type="checkbox" checked={waterOpts[opt.key]}
+                onChange={e => setWaterOpts(p => ({ ...p, [opt.key]: e.target.checked }))}
+                className="mt-0.5 accent-blue-400" />
+              <span className="flex-1">
+                <span className="text-[10px] text-slate-300 font-medium">{opt.label}</span>
+                <span className="text-[9px] text-slate-600 ml-1.5 font-mono">{opt.desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <button onClick={async () => { setGenerating(true); await paintWaterBodies(); setGenerating(false); }} disabled={generating || !generated.heightmap}
           className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors disabled:opacity-50 font-semibold ${generated.lakes ? 'bg-green-800/30 border-green-600/40 text-green-300 hover:bg-green-700/40' : 'bg-blue-800 border-blue-600 text-white hover:bg-blue-700'}`}>
           <Droplets className={`w-3 h-3 ${generating ? 'animate-pulse' : ''}`} />
           {generated.lakes ? '✓ Re-paint Water Bodies' : 'Paint Water Bodies'}
