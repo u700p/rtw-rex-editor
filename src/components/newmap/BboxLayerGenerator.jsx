@@ -153,9 +153,8 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
   };
 
   // ── STEP 1: Heightmap ─────────────────────────────────────────────────────
-  // 1. Fetch Terrarium elevation tiles as grayscale.
-  // 2. Fetch OSM coastline → flood-fill sea pixels from edges → paint (0,0,255).
-  // 3. Clamp remaining black land pixels to (1,1,1).
+  // Fetch Terrarium elevation tiles (grayscale). Pixels with value 0 = sea level → (0,0,255).
+  // All other pixels stay as grayscale land elevation.
   const generateHeightmap = async () => {
     setStatus('Fetching elevation tiles (Terrarium)…');
     setRasterProgress({ heights: { done: 0, total: 1 } });
@@ -174,80 +173,15 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
     }
     setRasterProgress({});
 
-    // Clamp all (0,0,0) pixels to (1,1,1) — will re-open black for sea below
+    // Mark sea level (value 0) as (0,0,255); clamp remaining black land to (1,1,1)
     const d = elevData.data;
     for (let i = 0; i < d.length; i += 4) {
       if (d[i] === 0 && d[i + 1] === 0 && d[i + 2] === 0) {
-        d[i] = 1; d[i + 1] = 1; d[i + 2] = 1;
+        d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255; // sea
       }
     }
 
-    // Fetch coastline and flood-fill sea
-    setStatus('Fetching coastline from OSM…');
-    let coastElements = [];
-    try {
-      const coastData = await fetchOverpass(`[out:json][timeout:120];(way["natural"="coastline"](${bboxStr}););out geom;`);
-      coastElements = (coastData.elements || []).filter(e => e.geometry?.length > 1);
-    } catch (e) {
-      setStatus(`Heightmap ready (no coastline data: ${e.message}). Lowest ground clamped to (1,1,1).`);
-      pushHeightmap(elevData, { heightmap: true, lakes: false });
-      return;
-    }
-
-    if (coastElements.length === 0) {
-      setStatus('Heightmap ready — no coastline found (inland map). Lowest ground clamped to (1,1,1).');
-      pushHeightmap(elevData, { heightmap: true, lakes: false });
-      return;
-    }
-
-    // Draw coastline as 1px black barrier on a temp canvas, then flood-fill sea from edges
-    const tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = W; tmpCanvas.height = H;
-    const ctx = tmpCanvas.getContext('2d');
-    ctx.imageSmoothingEnabled = false;
-    // Fill white (land), draw black barrier
-    ctx.fillStyle = 'rgb(255,255,255)';
-    ctx.fillRect(0, 0, W, H);
-    const chains = chainPolylines(coastElements.map(e => e.geometry));
-    ctx.strokeStyle = 'rgb(0,0,0)'; ctx.lineWidth = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const chain of chains) {
-      if (chain.length < 2) continue;
-      ctx.beginPath();
-      chain.forEach(({ lat, lon }, i) => {
-        const [x, y] = toXY(lat, lon);
-        i === 0 ? ctx.moveTo(x + 0.5, y + 0.5) : ctx.lineTo(x + 0.5, y + 0.5);
-      });
-      ctx.stroke();
-    }
-    const mask = ctx.getImageData(0, 0, W, H).data;
-
-    // BFS flood-fill sea from edges (white pixels reachable from edge = sea)
-    const visited = new Uint8Array(W * H);
-    const queue = [];
-    const enq = (x, y) => {
-      const idx = y * W + x; if (visited[idx]) return;
-      const i = idx * 4;
-      if (mask[i] === 0) return; // black barrier
-      visited[idx] = 1; queue.push(x, y);
-    };
-    for (let x = 0; x < W; x++) { enq(x, 0); enq(x, H - 1); }
-    for (let y = 0; y < H; y++) { enq(0, y); enq(W - 1, y); }
-    let qi = 0;
-    while (qi < queue.length) {
-      const x = queue[qi++], y = queue[qi++];
-      if (x > 0) enq(x - 1, y); if (x < W - 1) enq(x + 1, y);
-      if (y > 0) enq(x, y - 1); if (y < H - 1) enq(x, y + 1);
-    }
-
-    // Paint visited (sea) pixels as (0,0,255) on the elevation data
-    for (let idx = 0; idx < W * H; idx++) {
-      if (visited[idx]) {
-        const i = idx * 4;
-        d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255;
-      }
-    }
-
-    setStatus(`Heightmap ready — ${coastElements.length} coastline ways, sea flood-filled.`);
+    setStatus('Heightmap ready — sea level marked (0,0,255).');
     pushHeightmap(elevData, { heightmap: true, lakes: false });
   };
 
