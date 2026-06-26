@@ -154,24 +154,33 @@ export async function rasterizeTiles(urlTemplate, bbox, width, height, onProgres
 
   if (options?.grayscale) {
     // Terrarium tiles encode elevation as: elevation = (R*256 + G + B/256) - 32768
-    // Sea level = 0. Sea pixels → RGB(0,0,255). Land pixels → grayscale 1–255.
+    // elevation <= 0  → sea  → (0, 0, 255)
+    // elevation >  0  → land → grayscale 1–255 (normalised to max land elevation)
     const d = imageData.data;
     const len = d.length;
 
-    // First pass: find max land elevation (>0) to normalise
-    let maxElev = 0;
+    // Decode all elevations first
+    const elevs = new Float32Array(len / 4);
     for (let i = 0; i < len; i += 4) {
-      const elev = d[i] * 256 + d[i + 1] + d[i + 2] / 256 - 32768;
-      if (elev > maxElev) maxElev = elev;
+      elevs[i / 4] = d[i] * 256 + d[i + 1] + d[i + 2] / 256 - 32768;
+    }
+
+    // Find max land elevation for normalisation
+    let maxElev = 0;
+    for (let j = 0; j < elevs.length; j++) {
+      if (elevs[j] > maxElev) maxElev = elevs[j];
     }
     const range = maxElev || 1;
 
-    // Second pass: all pixels → grayscale land (1–255), no sea detection here
+    // Write output: sea pixels → blue, land → grayscale 1–255
     for (let i = 0; i < len; i += 4) {
-      const elev = d[i] * 256 + d[i + 1] + d[i + 2] / 256 - 32768;
-      // Clamp to minimum 1 so (0,0,0) is never produced — sea is added separately in Step 2
-      const v = Math.max(1, Math.round(Math.max(0, elev) / range * 255));
-      d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 255;
+      const elev = elevs[i / 4];
+      if (elev <= 0) {
+        d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255;
+      } else {
+        const v = Math.max(1, Math.round(elev / range * 255));
+        d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 255;
+      }
     }
   }
 

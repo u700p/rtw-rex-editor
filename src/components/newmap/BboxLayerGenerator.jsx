@@ -174,6 +174,27 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
   const { width: W, height: H } = getHeightmapSize(mapWidth, mapHeight);
   const toXY = makeToXY(bbox, W, H);
 
+  const pushHeightmap = (imageData, extraGenerated = {}) => {
+    heightmapRef.current = imageData;
+    onLayerUpdate('heights', { imageData, visible: true, opacity: 0.8, dirty: true });
+    setGenerated(p => ({ ...p, ...extraGenerated }));
+  };
+
+  const paintSeaLevel = () => {
+    if (!heightmapRef.current) return;
+    const src = heightmapRef.current;
+    const copy = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
+    const d = copy.data;
+    let count = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] === 0 && d[i + 1] === 0 && d[i + 2] === 0) {
+        d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255;
+        count++;
+      }
+    }
+    setHeightmapStatus(`✓ Re-painted ${count} sea-level pixels.`);
+    pushHeightmap(copy, { seaLevel: true });
+  };
 
   // ── STEP 1: Heightmap ─────────────────────────────────────────────────────
   // Fetch Terrarium elevation tiles (grayscale). Pixels with value 0 = sea level → (0,0,255).
@@ -196,20 +217,10 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
     }
     setRasterProgress({});
 
-    // Mark ALL elevation-0 pixels as sea (0,0,255) — this is done by default since
-    // Terrarium reliably encodes sea/ocean as exactly 0. Land at true elevation 0
-    // (coastal plains, deltas) is rare but can be corrected manually afterwards.
-    const d = elevData.data;
-    let seaCount = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      if (d[i] === 0 && d[i + 1] === 0 && d[i + 2] === 0) {
-        d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255;
-        seaCount++;
-      }
-    }
-
-    setHeightmapStatus(`✓ Heightmap ready — ${seaCount} sea-level pixels marked (0,0,255).`);
-    pushHeightmap(elevData, { heightmap: true, lakes: true, seaLevel: true });
+    // Sea pixels are already (0,0,255) — handled inside rasterizeTiles grayscale mode.
+    const seaCount = elevData.data.reduce((n, _, i) => (i % 4 === 2 && elevData.data[i] === 255 && elevData.data[i - 1] === 0 && elevData.data[i - 2] === 0) ? n + 1 : n, 0);
+    setHeightmapStatus(`✓ Heightmap ready — ${seaCount} sea pixels (0,0,255), land grayscale 1–255.`);
+    pushHeightmap(elevData, { heightmap: true, seaLevel: true });
   };
 
   // ── STEP 2: Water Bodies ──────────────────────────────────────────────────
