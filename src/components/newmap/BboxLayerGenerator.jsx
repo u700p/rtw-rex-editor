@@ -219,16 +219,20 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
     }
     setRasterProgress({});
 
-    // Mark sea level (value 0) as (0,0,255); clamp remaining black land to (1,1,1)
+    // Mark ALL elevation-0 pixels as sea (0,0,255) — this is done by default since
+    // Terrarium reliably encodes sea/ocean as exactly 0. Land at true elevation 0
+    // (coastal plains, deltas) is rare but can be corrected manually afterwards.
     const d = elevData.data;
+    let seaCount = 0;
     for (let i = 0; i < d.length; i += 4) {
       if (d[i] === 0 && d[i + 1] === 0 && d[i + 2] === 0) {
-        d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255; // sea
+        d[i] = 0; d[i + 1] = 0; d[i + 2] = 255; d[i + 3] = 255;
+        seaCount++;
       }
     }
 
-    setHeightmapStatus('✓ Heightmap ready — sea level marked (0,0,255).');
-    pushHeightmap(elevData, { heightmap: true, lakes: false, seaLevel: false });
+    setHeightmapStatus(`✓ Heightmap ready — ${seaCount} sea-level pixels marked (0,0,255).`);
+    pushHeightmap(elevData, { heightmap: true, lakes: false, seaLevel: true });
   };
 
   // ── STEP 2: Water Bodies ──────────────────────────────────────────────────
@@ -514,13 +518,12 @@ out geom;`;
           <div className="border border-slate-600 rounded p-2 space-y-1.5 bg-slate-800/40">
             <p className="text-[9px] text-slate-400 font-semibold">1b — Paint Sea-Level Pixels</p>
             <p className="text-[9px] text-slate-500 leading-snug">
-              Converts every remaining pure-black pixel <code className="text-amber-300">(0,0,0)</code> in the heightmap to sea <code className="text-amber-300">(0,0,255)</code>. Useful for seas like the Tyrrhenian or Adriatic that aren't tagged as OSM polygons but have elevation 0 in Terrarium data.
+              Sea-level pixels are painted automatically on fetch. Use this to re-apply if you've manually edited the heightmap and want to restore any <code className="text-amber-300">(0,0,0)</code> pixels back to sea <code className="text-amber-300">(0,0,255)</code>.
             </p>
-            {generated.seaLevel && <p className="text-[9px] text-green-400">✓ Sea-level pixels already painted.</p>}
             <button onClick={paintSeaLevel} disabled={generating}
               className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors disabled:opacity-50 font-semibold bg-blue-900/40 border-blue-600/50 text-blue-300 hover:bg-blue-800/50">
               <Droplets className="w-3 h-3" />
-              {generated.seaLevel ? 'Re-paint Sea Level' : 'Paint Sea Level (elevation 0)'}
+              Re-paint Sea Level (elevation 0 → blue)
             </button>
           </div>
         )}
