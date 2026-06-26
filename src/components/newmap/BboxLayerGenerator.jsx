@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { RefreshCw, Check, Waves, Droplets, Mountain, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Check, Waves, Droplets, Mountain, AlertTriangle, Download } from 'lucide-react';
 import { LAYER_DEFS, getLayerDimensions } from '@/lib/mapLayerStore';
 import { rasterizeTiles } from './TileRasterizer';
 
@@ -173,6 +173,17 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
   const bboxStr = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
   const { width: W, height: H } = getHeightmapSize(mapWidth, mapHeight);
   const toXY = makeToXY(bbox, W, H);
+
+  const downloadImageData = (imageData, filename) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    canvas.getContext('2d').putImageData(imageData, 0, 0);
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = filename;
+    a.click();
+  };
 
   const pushHeightmap = (imageData, extraGenerated = {}) => {
     heightmapRef.current = imageData;
@@ -501,6 +512,12 @@ out geom;`;
           {generated.heightmap ? '✓ Re-fetch Heightmap' : 'Fetch Heightmap'}
           {rasterPct !== null && <span className="ml-auto font-mono text-amber-200">{rasterPct}%</span>}
         </button>
+        {generated.heightmap && (
+          <button onClick={() => downloadImageData(heightmapRef.current, 'heightmap.png')}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors font-semibold bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+            <Download className="w-3 h-3" /> Download Heightmap (PNG)
+          </button>
+        )}
         {/* 1b: sea-level flood fill */}
         {generated.heightmap && (
           <div className="border border-slate-600 rounded p-2 space-y-1.5 bg-slate-800/40">
@@ -597,6 +614,12 @@ out geom;`;
           <RefreshCw className={`w-3 h-3 ${generating ? 'animate-spin' : ''}`} />
           {generated.features ? '✓ Re-fetch Rivers' : 'Fetch Rivers'}
         </button>
+        {featuresImageDataRef.current && (
+          <button onClick={() => downloadImageData(featuresImageDataRef.current, 'map_features.png')}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors font-semibold bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+            <Download className="w-3 h-3" /> Download Features Layer (PNG)
+          </button>
+        )}
       </div>
 
       {/* Step 4: Cliffs (features layer) */}
@@ -617,6 +640,12 @@ out geom;`;
           <Mountain className={`w-3 h-3 ${generating ? 'animate-pulse' : ''}`} />
           {generated.cliffs ? '✓ Re-fetch Cliffs' : 'Fetch Cliffs'}
         </button>
+        {generated.cliffs && (
+          <button onClick={() => downloadImageData(featuresImageDataRef.current, 'map_features.png')}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors font-semibold bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+            <Download className="w-3 h-3" /> Download Features Layer (PNG)
+          </button>
+        )}
       </div>
 
       {/* Step 5: Volcanoes (features layer) */}
@@ -637,6 +666,12 @@ out geom;`;
           <Waves className={`w-3 h-3 ${generating ? 'animate-pulse' : ''}`} />
           {generated.volcanoes ? '✓ Re-fetch Volcanoes' : 'Fetch Volcanoes'}
         </button>
+        {generated.volcanoes && (
+          <button onClick={() => downloadImageData(featuresImageDataRef.current, 'map_features.png')}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors font-semibold bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+            <Download className="w-3 h-3" /> Download Features Layer (PNG)
+          </button>
+        )}
       </div>
 
       {/* Manual imports */}
