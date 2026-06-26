@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { RefreshCw, Check, Waves, Droplets, Mountain, AlertTriangle, Download } from 'lucide-react';
 import { LAYER_DEFS, getLayerDimensions } from '@/lib/mapLayerStore';
 import { rasterizeTiles } from './TileRasterizer';
+import SvgMapDownloader from './SvgMapDownloader';
 
 const OSM_OVERPASS_MIRRORS = [
   'https://overpass.kumi.systems/api/interpreter',
@@ -168,6 +169,10 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
 
   const heightmapRef = useRef(null);
   const featuresImageDataRef = useRef(null);
+  // Separate water layer image datas for individual downloads (transparent bg)
+  const riversImageDataRef = useRef(null);
+  const lakesImageDataRef = useRef(null);
+  const lagoonsImageDataRef = useRef(null);
   const [heightmapStatus, setHeightmapStatus] = useState('');
 
   const bboxStr = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
@@ -179,6 +184,21 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
     canvas.width = imageData.width;
     canvas.height = imageData.height;
     canvas.getContext('2d').putImageData(imageData, 0, 0);
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = filename;
+    a.click();
+  };
+
+  // Download an imageData keeping only painted (non-transparent) pixels, rest transparent
+  const downloadLayerTransparent = (imageData, filename) => {
+    if (!imageData) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    const ctx = canvas.getContext('2d');
+    // Copy then make fully-transparent pixels stay transparent
+    ctx.putImageData(imageData, 0, 0);
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
     a.download = filename;
@@ -245,39 +265,59 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
 
     setWaterStatus('Fetching water bodies from OpenStreetMap…');
 
-    const blocks = [];
+    // Build per-type queries so we can store separate download layers
+    const typeQueries = [];
     if (waterOpts.sea) {
-      blocks.push(`way["natural"="water"]["water"="sea"](${bboxStr}); relation["natural"="water"]["water"="sea"](${bboxStr});`);
-      blocks.push(`way["place"="sea"](${bboxStr}); relation["place"="sea"](${bboxStr});`);
-      blocks.push(`way["place"="ocean"](${bboxStr}); relation["place"="ocean"](${bboxStr});`);
+      typeQueries.push({ key: 'sea', query: `[out:json][timeout:120];\n(\n  way["natural"="water"]["water"="sea"](${bboxStr});\n  relation["natural"="water"]["water"="sea"](${bboxStr});\n  way["place"="sea"](${bboxStr});\n  relation["place"="sea"](${bboxStr});\n  way["place"="ocean"](${bboxStr});\n  relation["place"="ocean"](${bboxStr});\n);\nout geom;` });
     }
     if (waterOpts.lagoon) {
-      blocks.push(`way["water"="lagoon"](${bboxStr}); relation["water"="lagoon"](${bboxStr});`);
+      typeQueries.push({ key: 'lagoon', query: `[out:json][timeout:120];\n(\n  way["water"="lagoon"](${bboxStr});\n  relation["water"="lagoon"](${bboxStr});\n);\nout geom;` });
     }
     if (waterOpts.lake) {
-      blocks.push(`way["water"="lake"](${bboxStr}); relation["water"="lake"](${bboxStr});`);
+      typeQueries.push({ key: 'lake', query: `[out:json][timeout:120];\n(\n  way["water"="lake"](${bboxStr});\n  relation["water"="lake"](${bboxStr});\n);\nout geom;` });
     }
 
-    const osmQuery = `[out:json][timeout:120];\n(\n  ${blocks.join('\n  ')}\n);\nout geom;`;
+    const allElements = [];
+    const byType = {};
 
-    let elements = [];
-    try {
-      const data = await fetchOverpass(osmQuery);
-      elements = (data.elements || []).filter(e =>
-        (e.type === 'way' && e.geometry?.length > 1) ||
-        (e.type === 'relation' && e.members?.some(m => m.geometry?.length > 1))
-      );
-    } catch (e) { setWaterStatus(`Error: ${e.message}`); return; }
+    for (const { key, query } of typeQueries) {
+      setWaterStatus(`Fetching ${key}s…`);
+      try {
+        const data = await fetchOverpass(query);
+        const els = (data.elements || []).filter(e =>
+          (e.type === 'way' && e.geometry?.length > 1) ||
+          (e.type === 'relation' && e.members?.some(m => m.geometry?.length > 1))
+        );
+        byType[key] = els;
+        allElements.push(...els);
+      } catch (e) { setWaterStatus(`Error fetching ${key}: ${e.message}`); return; }
+    }
 
-    if (elements.length === 0) { setWaterStatus('No water bodies found in this area.'); return; }
+    if (allElements.length === 0) { setWaterStatus('No water bodies found in this area.'); return; }
 
     setWaterStatus('Painting water bodies onto heightmap…');
+
+    // Build separate per-type transparent download layers
+    const makeBlankImageData = () => new ImageData(new Uint8ClampedArray(W * H * 4), W, H);
+
+    if (byType.lake?.length) {
+      const lakesID = makeBlankImageData();
+      paintPolygonsBlue(lakesID, byType.lake, toXY, W, H, minWaterPixels);
+      lakesImageDataRef.current = lakesID;
+    }
+    if (byType.lagoon?.length) {
+      const lagoonsID = makeBlankImageData();
+      paintPolygonsBlue(lagoonsID, byType.lagoon, toXY, W, H, minWaterPixels);
+      lagoonsImageDataRef.current = lagoonsID;
+    }
+
+    // Paint all onto the heightmap
     const imageData = new ImageData(
       new Uint8ClampedArray(heightmapRef.current.data),
       heightmapRef.current.width, heightmapRef.current.height
     );
-    paintPolygonsBlue(imageData, elements, toXY, W, H, minWaterPixels);
-    setWaterStatus(`✓ Painted ${elements.length} features.`);
+    paintPolygonsBlue(imageData, allElements, toXY, W, H, minWaterPixels);
+    setWaterStatus(`✓ Painted ${allElements.length} features.`);
     pushHeightmap(imageData, { lakes: true });
   };
 
@@ -287,53 +327,61 @@ export default function BboxLayerGenerator({ bbox, mapWidth, mapHeight, onLayerU
   const generateRivers = async () => {
     const detail = RIVER_DETAIL_LEVELS.find(d => d.id === riverDetail) ?? RIVER_DETAIL_LEVELS[0];
     setRiverStatus(`Fetching rivers (${detail.label})…`);
+    // Use [out:json] with way geometry included via `out geom` — works for ways.
+    // For relations we also need member geometry, so we split into two queries.
     const osmQuery = `[out:json][timeout:90];
 (
   way["waterway"~"^(${detail.filter})$"](${bboxStr});
-  relation["waterway"~"^(${detail.filter})$"](${bboxStr});
 );
 out geom;`;
 
     const def = LAYER_DEFS.find(d => d.id === 'features') ?? LAYER_DEFS.find(d => d.id === 'map_features');
     const { width, height } = def ? getLayerDimensions(def, mapWidth, mapHeight) : { width: mapWidth, height: mapHeight };
-    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
-    const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = false;
     const rToXY = makeToXY(bbox, width, height);
-    ctx.clearRect(0, 0, width, height);
 
     let elements = [];
     try {
       const data = await fetchOverpass(osmQuery);
-      elements = (data.elements || []).filter(e =>
-        (e.type === 'way' && e.geometry?.length > 1) ||
-        (e.type === 'relation' && e.members?.some(m => m.geometry?.length > 1))
-      );
+      elements = (data.elements || []).filter(e => e.type === 'way' && e.geometry?.length > 1);
     } catch (e) { setRiverStatus(`Error: ${e.message}`); return; }
 
     if (!elements.length) { setRiverStatus('No waterways found.'); return; }
 
-    const polylines = [];
-    for (const el of elements) {
-      if (el.type === 'way') polylines.push(el.geometry);
-      else if (el.type === 'relation') for (const m of el.members) if (m.type === 'way' && m.geometry?.length > 1) polylines.push(m.geometry);
-    }
+    const polylines = elements.map(el => el.geometry);
     const chains = chainPolylines(polylines);
 
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const d = imageData.data;
+    // Separate canvas for rivers-only download (transparent bg)
+    const riverCanvas = document.createElement('canvas'); riverCanvas.width = width; riverCanvas.height = height;
+    const riverCtx = riverCanvas.getContext('2d'); riverCtx.imageSmoothingEnabled = false;
+    riverCtx.clearRect(0, 0, width, height);
+    const riverImageData = riverCtx.getImageData(0, 0, width, height);
+    const rd = riverImageData.data;
+
     for (const chain of chains) {
       if (chain.length < 2) continue;
       for (let s = 0; s < chain.length - 1; s++) {
         const [x0, y0] = rToXY(chain[s].lat, chain[s].lon);
         const [x1, y1] = rToXY(chain[s + 1].lat, chain[s + 1].lon);
-        bresenhamLine(d, width, height, x0, y0, x1, y1, 0, 0, 255);
+        bresenhamLine(rd, width, height, x0, y0, x1, y1, 0, 0, 255);
       }
       const [ox, oy] = rToXY(chain[0].lat, chain[0].lon);
       if (ox >= 0 && ox < width && oy >= 0 && oy < height) {
         const oi = (oy * width + ox) * 4;
-        d[oi] = 255; d[oi + 1] = 255; d[oi + 2] = 255; d[oi + 3] = 255;
+        rd[oi] = 255; rd[oi + 1] = 255; rd[oi + 2] = 255; rd[oi + 3] = 255;
       }
     }
+    riversImageDataRef.current = riverImageData;
+
+    // Merge rivers onto features layer (on top of existing data)
+    const featCanvas = document.createElement('canvas'); featCanvas.width = width; featCanvas.height = height;
+    const featCtx = featCanvas.getContext('2d');
+    if (featuresImageDataRef.current) featCtx.putImageData(featuresImageDataRef.current, 0, 0);
+    const imageData = featCtx.getImageData(0, 0, width, height);
+    const d = imageData.data;
+    for (let i = 0; i < rd.length; i += 4) {
+      if (rd[i + 3] > 0) { d[i] = rd[i]; d[i+1] = rd[i+1]; d[i+2] = rd[i+2]; d[i+3] = 255; }
+    }
+
     setRiverStatus(`✓ ${chains.length} river chains painted.`);
     featuresImageDataRef.current = imageData;
     onLayerUpdate('features', { imageData, visible: true, opacity: 0.9, dirty: true });
@@ -580,6 +628,24 @@ out geom;`;
           {generated.lakes ? '✓ Re-paint Water Bodies' : 'Paint Water Bodies'}
         </button>
         {!generated.heightmap && <p className="text-[9px] text-amber-500">⚠ Complete Step 1 first</p>}
+        {/* Separate layer downloads (transparent bg) */}
+        {(lakesImageDataRef.current || lagoonsImageDataRef.current) && (
+          <div className="space-y-1 pt-1 border-t border-slate-700">
+            <p className="text-[9px] text-slate-500 font-semibold">Download separate layers (transparent bg)</p>
+            {lakesImageDataRef.current && (
+              <button onClick={() => downloadLayerTransparent(lakesImageDataRef.current, 'lakes.png')}
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors font-semibold bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                <Download className="w-3 h-3" /> Download Lakes (PNG, transparent)
+              </button>
+            )}
+            {lagoonsImageDataRef.current && (
+              <button onClick={() => downloadLayerTransparent(lagoonsImageDataRef.current, 'lagoons.png')}
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors font-semibold bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                <Download className="w-3 h-3" /> Download Lagoons (PNG, transparent)
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Step 3: Rivers (features layer) */}
@@ -618,6 +684,12 @@ out geom;`;
           <button onClick={() => downloadImageData(featuresImageDataRef.current, 'map_features.png')}
             className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors font-semibold bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
             <Download className="w-3 h-3" /> Download Features Layer (PNG)
+          </button>
+        )}
+        {riversImageDataRef.current && (
+          <button onClick={() => downloadLayerTransparent(riversImageDataRef.current, 'rivers.png')}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-[10px] border transition-colors font-semibold bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+            <Download className="w-3 h-3" /> Download Rivers only (PNG, transparent)
           </button>
         )}
       </div>
@@ -673,6 +745,9 @@ out geom;`;
           </button>
         )}
       </div>
+
+      {/* SVG Reference Map Downloads */}
+      <SvgMapDownloader bbox={bbox} />
 
       {/* Manual imports */}
       <div>
