@@ -116,12 +116,20 @@ async function fetchPolygons(key, value, bboxStr) {
   throw lastErr ?? new Error('All mirrors failed');
 }
 
+function latToMercN(lat) {
+  const latRad = lat * Math.PI / 180;
+  return Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+}
+
 function paintPolygonsOntoImageData(imageData, elements, bbox, color) {
   const { width, height, data } = imageData;
   const [r, g, b] = color;
+  const mercNorth = latToMercN(bbox.north);
+  const mercSouth = latToMercN(bbox.south);
+  const mercRange = mercNorth - mercSouth;
   const toXY = (lat, lon) => [
     Math.round(((lon - bbox.west) / (bbox.east - bbox.west)) * (width - 1)),
-    Math.round(((bbox.north - lat) / (bbox.north - bbox.south)) * (height - 1)),
+    Math.round(((mercNorth - latToMercN(lat)) / mercRange) * (height - 1)),
   ];
   const canvas = document.createElement('canvas');
   canvas.width = width; canvas.height = height;
