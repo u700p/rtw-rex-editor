@@ -33,10 +33,24 @@ async function fetchOverpass(query) {
   throw new Error(`All Overpass mirrors failed: ${lastErr?.message}`);
 }
 
+/** Mercator Y helper — same projection used by TileRasterizer */
+function latToMercN(lat) {
+  const latRad = lat * Math.PI / 180;
+  return Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+}
+
+/**
+ * Build a coordinate→pixel mapper that uses Web Mercator Y projection,
+ * matching how the heightmap tiles are rendered by TileRasterizer.
+ * X is still linear (longitude is equirectangular in Web Mercator).
+ */
 function makeToXY(bbox, W, H) {
+  const mercNorth = latToMercN(bbox.north);
+  const mercSouth = latToMercN(bbox.south);
+  const mercRange = mercNorth - mercSouth;
   return (lat, lon) => [
     Math.round(((lon - bbox.west) / (bbox.east - bbox.west)) * (W - 1)),
-    Math.round(((bbox.north - lat) / (bbox.north - bbox.south)) * (H - 1)),
+    Math.round(((mercNorth - latToMercN(lat)) / mercRange) * (H - 1)),
   ];
 }
 
@@ -529,9 +543,34 @@ out geom;`;
       {/* Bbox info */}
       <div className="bg-slate-800 rounded p-2 text-[10px] text-slate-400 space-y-0.5">
         <p className="text-slate-300 font-semibold mb-1">Bounding Box</p>
-        <p>Lat: <span className="text-slate-200 font-mono">{bbox.south.toFixed(3)}° → {bbox.north.toFixed(3)}°</span></p>
-        <p>Lng: <span className="text-slate-200 font-mono">{bbox.west.toFixed(3)}° → {bbox.east.toFixed(3)}°</span></p>
+        <p>Lat: <span className="text-slate-200 font-mono">{bbox.south.toFixed(6)}° → {bbox.north.toFixed(6)}°</span></p>
+        <p>Lng: <span className="text-slate-200 font-mono">{bbox.west.toFixed(6)}° → {bbox.east.toFixed(6)}°</span></p>
         <p>Output: <span className="text-amber-300 font-mono">{mapWidth}×{mapHeight}</span> (×2+1: <span className="text-amber-300 font-mono">{W}×{H}</span>)</p>
+        <button
+          onClick={() => {
+            const lines = [
+              `# BboxLayerGenerator — Selected Area Coordinates`,
+              `# Generated: ${new Date().toISOString()}`,
+              ``,
+              `north=${bbox.north.toFixed(6)}`,
+              `south=${bbox.south.toFixed(6)}`,
+              `west=${bbox.west.toFixed(6)}`,
+              `east=${bbox.east.toFixed(6)}`,
+              ``,
+              `map_width=${mapWidth}`,
+              `map_height=${mapHeight}`,
+              `heightmap_width=${W}`,
+              `heightmap_height=${H}`,
+            ].join('\n');
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([lines], { type: 'text/plain' }));
+            a.download = 'bbox_coords.txt';
+            a.click();
+          }}
+          className="mt-1.5 w-full flex items-center justify-center gap-2 px-2 py-1 rounded text-[9px] border border-slate-600 bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors font-semibold"
+        >
+          <Download className="w-3 h-3" /> Download bbox_coords.txt
+        </button>
       </div>
 
       {/* Step 1: Heightmap */}
