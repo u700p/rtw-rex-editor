@@ -1,10 +1,10 @@
 /**
  * EDBExporter — exports a ZIP containing:
  *   data/export_descr_buildings.txt
- *   data/text/export_buildings.txt.strings.bin
+ *   data/text/export_buildings.txt
  *
- * The strings.bin is built by:
- *  1. Loading the user's existing export_buildings.txt.strings.bin (optional)
+ * The text file is built by:
+ *  1. Loading the user's existing export_buildings.txt (optional)
  *  2. Collecting all text keys needed for every building/level in edbData
  *  3. Merging: existing entries are kept; new keys are appended with values
  *     from textData (falling back to base desc if culture-specific is empty)
@@ -16,7 +16,7 @@ import { FileArchive, Upload } from 'lucide-react';
 import { useEDB } from './EDBContext';
 import { useRefData } from './RefDataContext';
 import { serializeEDB } from './EDBParser';
-import { parseStringsBin, encodeStringsBin } from '../strings/stringsBinCodec';
+import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 
 const IMAGE_SLOT_DEFS = [
   { type: 'icon',         w: 64,  h: 51  },
@@ -109,24 +109,22 @@ function mergeEntries(existingEntries, newEntries) {
 export default function EDBExporter() {
   const { edbData, textData, fileName, imageData } = useEDB();
   const { cultures } = useRefData();
-  const [existingBin, setExistingBin] = useState(null); // { entries, magic1, magic2 }
-  const [binFileName, setBinFileName] = useState('');
+  const [existingTextEntries, setExistingTextEntries] = useState([]);
+  const [textFileName, setTextFileName] = useState('');
   const [exporting, setExporting] = useState(false);
-  const binRef = useRef();
+  const textRef = useRef();
 
-  const handleBinLoad = (e) => {
+  const handleTextLoad = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const parsed = parseStringsBin(ev.target.result);
-      if (parsed) {
-        setExistingBin(parsed);
-        setBinFileName(file.name);
-      }
+      const parsed = parseTextLocFile(ev.target.result);
+      setExistingTextEntries(Object.entries(parsed).map(([key, value]) => ({ key, value })));
+      setTextFileName(file.name);
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsText(file, 'utf-8');
   };
 
   const handleExport = async () => {
@@ -141,14 +139,12 @@ export default function EDBExporter() {
       const edbText = serializeEDB(edbData).replace(/\n/g, '\r\n');
       zip.file('data/export_descr_buildings.txt', edbText);
 
-      // 2. Strings.bin
+      // 2. Building text localization
       const expectedEntries = buildExpectedEntries(edbData, textData, cultures);
-      const baseEntries = existingBin ? existingBin.entries : [];
+      const baseEntries = existingTextEntries;
       const merged = mergeEntries(baseEntries, expectedEntries);
-      const magic1 = existingBin?.magic1 ?? 2;
-      const magic2 = existingBin?.magic2 ?? 2048;
-      const binBuffer = encodeStringsBin(merged, magic1, magic2);
-      zip.file('data/text/export_buildings.txt.strings.bin', binBuffer);
+      const textMap = Object.fromEntries(merged.map(({ key, value }) => [key, value]));
+      zip.file('data/text/export_buildings.txt', serializeTextLocFile(textMap));
 
       // 3. Building images as TGA
       if (imageData && Object.keys(imageData).length > 0) {
@@ -183,15 +179,15 @@ export default function EDBExporter() {
   return (
     <div className="flex items-center gap-1">
       {/* Optional: load existing .strings.bin to merge into */}
-      <input ref={binRef} type="file" className="hidden" accept=".bin,.strings.bin" onChange={handleBinLoad} />
+      <input ref={textRef} type="file" className="hidden" accept=".txt,text/plain" onChange={handleTextLoad} />
       <button
-        onClick={() => binRef.current?.click()}
+        onClick={() => textRef.current?.click()}
         className="h-7 px-2 rounded text-[10px] font-medium flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors shrink-0"
-        title="Load existing export_buildings.txt.strings.bin to merge new entries into it"
+        title="Load existing export_buildings.txt to merge new entries into it"
       >
         <Upload className="w-3 h-3" />
-        <span className="hidden xl:block">{binFileName || 'Load .bin'}</span>
-        {binFileName && <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />}
+        <span className="hidden xl:block">{textFileName || 'Load text'}</span>
+        {textFileName && <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />}
       </button>
 
       <Button
@@ -199,7 +195,7 @@ export default function EDBExporter() {
         disabled={!edbData || exporting}
         onClick={handleExport}
         className="bg-green-700 text-white px-3 text-xs font-medium rounded-md inline-flex items-center justify-center h-7 gap-1 shrink-0 hover:bg-green-600 disabled:opacity-50"
-        title="Export ZIP: export_descr_buildings.txt + export_buildings.txt.strings.bin"
+        title="Export ZIP: export_descr_buildings.txt + export_buildings.txt"
       >
         <FileArchive className="w-3 h-3" />
         <span className="hidden lg:block">{exporting ? 'Exporting…' : 'Export Buildings Data'}</span>
