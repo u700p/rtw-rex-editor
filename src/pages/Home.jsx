@@ -384,7 +384,8 @@ export default function Home() {
       // Campaign map text + TGA files (base, imperial, or custom/* subfolders)
       const CAMPAIGN_MAP_TXTS = ['descr_strat.txt', 'descr_regions.txt', 'descr_mercenaries.txt', 'descr_win_conditions.txt', 'campaign_script.txt', 'descr_event.txt', 'descr_events.txt', 'description.txt', 'descr_faction_movies.xml', 'descr_disasters.txt'];
       const inCampaignPath = pathFramed.includes('/maps/campaign/') || pathFramed.includes('/maps/base/');
-      if ((CAMPAIGN_MAP_TXTS.includes(name) || name.endsWith('.tga')) && inCampaignPath) {
+      const isStandaloneCampaignText = CAMPAIGN_MAP_TXTS.includes(name) && !DATA_FILE_MAP[name];
+      if ((name.endsWith('.tga') && inCampaignPath) || (CAMPAIGN_MAP_TXTS.includes(name) && (inCampaignPath || isStandaloneCampaignText))) {
         baseMapFiles.push(file);
         // Store campaign text files in localStorage/sessionStorage for map editor
         const CAMPAIGN_STORE_MAP = {
@@ -422,7 +423,7 @@ export default function Home() {
             try { sessionStorage.setItem('m2tw_mercenaries_raw', csTxt); } catch {}
           }
         }
-        continue;
+        if (name.endsWith('.tga') || !DATA_FILE_MAP[name]) continue;
       }
 
       const key = DATA_FILE_MAP[name];
