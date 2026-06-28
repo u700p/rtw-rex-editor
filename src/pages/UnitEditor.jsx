@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Swords, Upload, Download, Plus, FileText, CheckCircle2, Copy, Database, Image, FileCode, Shield } from 'lucide-react';
+import { Swords, Upload, Download, Plus, FileText, CheckCircle2, Copy, Database, Image, FileCode, Shield, Undo2 } from 'lucide-react';
 import { useRefData } from '../components/edb/RefDataContext';
 import UnitList from '../components/units/UnitList';
 import UnitEditorPanel from '../components/units/UnitEditor';
@@ -135,6 +135,24 @@ function serializeExportUnits(descrMap) {
   return lines.join('\n');
 }
 
+function mergeUnitDescriptions(baseMap, text) {
+  const parsed = parseExportUnits(text);
+  const merged = { ...baseMap };
+  for (const [k, v] of Object.entries(parsed)) {
+    merged[k] = { ...(merged[k] || {}), ...v };
+  }
+  return merged;
+}
+
+function looksLikeEdu(text) {
+  return /^type\s+.+$/im.test(text) && /^ownership\s+/im.test(text) && /^stat_cost\s+/im.test(text);
+}
+
+function looksLikeUnitText(text) {
+  const loc = parseTextLocFile(text);
+  return Object.keys(loc).some(k => k.endsWith('_descr') || k.endsWith('_descr_short'));
+}
+
 function loadUnitImages() {
   try {
     const s = localStorage.getItem(UNIT_IMAGES_KEY);
@@ -190,6 +208,18 @@ export default function UnitEditorPage() {
   const stringsBinRef = useRef();
   const unitUiFolderRef = useRef();
   const factionsRef = useRef();
+  const undoStackRef = useRef([]);
+  const unitsRef = useRef(units);
+  const descrMapRef = useRef(descrMap);
+  const activeIndexRef = useRef(activeIndex);
+  const filenameRef = useRef(filename);
+
+  useEffect(() => {
+    unitsRef.current = units;
+    descrMapRef.current = descrMap;
+    activeIndexRef.current = activeIndex;
+    filenameRef.current = filename;
+  }, [units, descrMap, activeIndex, filename]);
 
   const restoreUnitsFromStorage = useCallback((resetSelection = false) => {
     try {
@@ -352,43 +382,140 @@ export default function UnitEditorPage() {
     return () => window.removeEventListener('load-export-units', handler);
   }, []);
 
+  const pushUndo = useCallback(() => {
+    const snapshot = {
+      units: JSON.parse(JSON.stringify(unitsRef.current || [])),
+      descrMap: JSON.parse(JSON.stringify(descrMapRef.current || {})),
+      activeIndex: activeIndexRef.current,
+      filename: filenameRef.current,
+    };
+    const key = JSON.stringify(snapshot);
+    const stack = undoStackRef.current;
+    if (stack[stack.length - 1]?.key === key) return;
+    stack.push({ key, snapshot });
+    if (stack.length > 60) stack.shift();
+  }, []);
+
+  const undoLast = useCallback(() => {
+    const entry = undoStackRef.current.pop();
+    if (!entry) return;
+    const snap = entry.snapshot;
+    setUnits(snap.units);
+    setDescrMap(snap.descrMap);
+    setActiveIndex(Math.min(snap.activeIndex || 0, Math.max(0, snap.units.length - 1)));
+    setFilename(snap.filename || 'export_descr_unit.txt');
+    saveUnits(snap.units);
+    saveEduRaw(serializeEDU(snap.units), snap.filename || 'export_descr_unit.txt');
+    try { localStorage.setItem(EXPORT_UNITS_KEY + '_edits', JSON.stringify(snap.descrMap)); } catch {}
+    window.dispatchEvent(new CustomEvent('edu-file-loaded', { detail: { source: 'unit-editor' } }));
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const key = String(e.key || '').toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && key === 'z' && !e.shiftKey) {
+        if (undoStackRef.current.length > 0) {
+          e.preventDefault();
+          undoLast();
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [undoLast]);
+
   const active = units[activeIndex] || null;
   const activeDescr = active ? (descrMap[active.dictionary] ?? null) : null;
 
-  const update = (units) => {
-    setUnits(units);
-    saveUnits(units);
-    saveEduRaw(serializeEDU(units), filename);
+  const update = (nextUnits, { recordUndo = true } = {}) => {
+    if (recordUndo) pushUndo();
+    setUnits(nextUnits);
+    saveUnits(nextUnits);
+    saveEduRaw(serializeEDU(nextUnits), filename);
     window.dispatchEvent(new CustomEvent('edu-file-loaded', { detail: { source: 'unit-editor' } }));
   };
 
   const handleDescrChange = (val) => {
     if (!active) return;
+    pushUndo();
     const updated = { ...descrMap, [active.dictionary]: val };
     setDescrMap(updated);
     // Save edits back as a JSON overlay; the raw file is preserved separately
     try { localStorage.setItem(EXPORT_UNITS_KEY + '_edits', JSON.stringify(updated)); } catch {}
   };
 
-  const handleFileLoad = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setFilename(file.name);
-    localStorage.setItem(EDU_FILE_NAME_KEY, file.name);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target.result;
-      const parsed = parseEDU(text);
-      setUnits(parsed);
-      saveUnits(parsed);
-      setActiveIndex(0);
-      // Persist so Unit Card Generator (and other tools) can read it
-      saveEduRaw(text, file.name);
-      // Notify same-tab listeners (UnitCardGenerator etc.)
-      window.dispatchEvent(new CustomEvent('edu-file-loaded', { detail: { source: 'unit-editor' } }));
-    };
-    reader.readAsText(file);
+  const loadEduText = useCallback((text, name = 'export_descr_unit.txt') => {
+    const parsed = parseEDU(text);
+    if (!parsed.length) return false;
+    pushUndo();
+    setFilename(name);
+    try { localStorage.setItem(EDU_FILE_NAME_KEY, name); } catch {}
+    setUnits(parsed);
+    saveUnits(parsed);
+    setActiveIndex(0);
+    saveEduRaw(text, name);
+    window.dispatchEvent(new CustomEvent('edu-file-loaded', { detail: { source: 'unit-editor' } }));
+    return true;
+  }, [pushUndo]);
+
+  const loadUnitText = useCallback((text, name = 'export_units.txt') => {
+    pushUndo();
+    try {
+      localStorage.setItem(EXPORT_UNITS_KEY, text);
+      localStorage.setItem('m2tw_export_units_file_name', name);
+    } catch {}
+    setDescrMap(prev => {
+      const merged = mergeUnitDescriptions(prev, text);
+      try { localStorage.setItem(EXPORT_UNITS_KEY + '_edits', JSON.stringify(merged)); } catch {}
+      return merged;
+    });
+    window.dispatchEvent(new CustomEvent('load-export-units'));
+    return true;
+  }, [pushUndo]);
+
+  const loadFactionsText = useCallback((text, name = 'descr_sm_factions.txt') => {
+    loadFactionsFile(text, name);
+    try {
+      localStorage.setItem('m2tw_sm_factions_raw', text);
+      localStorage.setItem('m2tw_factions_raw', text);
+      sessionStorage.setItem('m2tw_factions_raw', text);
+    } catch {}
+    return true;
+  }, [loadFactionsFile]);
+
+  const loadBattleModelText = useCallback((text, name = '') => {
+    const parsed = parseBattleModels(text, name);
+    if (!parsed) return false;
+    modeldbStore.set(parsed);
+    setModeldb(parsed);
+    try {
+      localStorage.setItem('m2tw_modeldb_file', text);
+      if (name) localStorage.setItem('m2tw_modeldb_file_name', name);
+    } catch {}
+    return true;
+  }, []);
+
+  const handleTextFilesLoad = async (e) => {
+    const files = Array.from(e.target.files || []);
     e.target.value = '';
+    if (!files.length) return;
+    let loadedAny = false;
+    for (const file of files) {
+      const name = file.name.toLowerCase();
+      const text = await file.text();
+      if (name === 'export_descr_unit.txt' || looksLikeEdu(text)) {
+        loadedAny = loadEduText(text, file.name) || loadedAny;
+      } else if (name === 'export_units.txt' || name === 'export_units_wip.txt' || looksLikeUnitText(text)) {
+        loadedAny = loadUnitText(text, file.name) || loadedAny;
+      } else if (name === 'descr_sm_factions.txt') {
+        loadedAny = loadFactionsText(text, file.name) || loadedAny;
+      } else if (name === 'descr_model_battle.txt') {
+        loadedAny = loadBattleModelText(text, file.name) || loadedAny;
+      }
+    }
+    if (!loadedAny && files.length === 1) {
+      alert('No supported EDU-related text data found in that file.');
+    }
   };
 
   const handleAdd = () => {

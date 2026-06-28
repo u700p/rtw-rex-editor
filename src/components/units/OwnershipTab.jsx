@@ -15,12 +15,16 @@ function FactionTagSelect({ label, selected = [], onChange, allFactions }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const available = useMemo(() =>
-    allFactions.filter(f => !selected.includes(f) && f.toLowerCase().includes(search.toLowerCase())),
-    [allFactions, selected, search]
-  );
+  const selectedSet = useMemo(() => new Set((selected || []).map(f => String(f).toLowerCase())), [selected]);
+  const available = useMemo(() => {
+    if (selectedSet.has('all')) return [];
+    return allFactions.filter(f => !selectedSet.has(f.toLowerCase()) && f.toLowerCase().includes(search.toLowerCase()));
+  }, [allFactions, selectedSet, search]);
 
-  const add = (f) => { onChange([...selected, f]); setSearch(''); };
+  const add = (f) => {
+    onChange(f === 'all' ? ['all'] : [...selected.filter(x => x.toLowerCase() !== 'all'), f]);
+    setSearch('');
+  };
   const remove = (f) => onChange(selected.filter(x => x !== f));
 
   return (
@@ -109,7 +113,7 @@ export default function OwnershipTab({ unit, onChange, modeldb }) {
     if (!entry) return [];
     const entryFactions = new Set((entry.factions || []).map(f => f.faction?.toLowerCase()));
     return [...allOwned].filter(f => {
-      if (!f || f === 'slave' || f === 'rebels' || f.endsWith('_rebels')) return false;
+      if (!f || f === 'all' || f === 'slave' || f === 'rebels' || f.endsWith('_rebels')) return false;
       return !entryFactions.has(f.toLowerCase());
     });
   }, [allOwned, modeldb, unit.soldier_model]);

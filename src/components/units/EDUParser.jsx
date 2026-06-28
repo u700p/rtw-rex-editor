@@ -24,6 +24,7 @@ export const MENTAL_TYPES = ['impetuous','normal','calm','steady'];
 export const MENTAL_TRAINING = ['untrained','trained','highly_trained','disciplined'];
 export const FORMATIONS = ['square','wedge','phalanx','horde','testudo','column','line'];
 export const OWNERSHIP_FACTIONS = [
+  'all',
   'romans_julii','romans_brutii','romans_scipii','romans_senate','egypt','seleucid',
   'carthage','parthia','pontus','gauls','germans','britons','greek_cities','macedon',
   'dacia','numidia','scythia','spain','thrace','armenia','slave',
