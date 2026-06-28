@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  ChevronRight, ChevronDown, Castle, Layers, Plus, Trash2, Search, AlertTriangle, GripVertical } from
+  ChevronRight, ChevronDown, Castle, Layers, Plus, Trash2, Search, AlertTriangle, GripVertical, Copy } from
 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
@@ -27,7 +27,7 @@ const PREFIXES = [
 
 function BuildingNode({ building, dragHandleProps }) {
   const { selectedBuilding, setSelectedBuilding, selectedLevel, setSelectedLevel,
-    deleteBuilding, addLevel, deleteLevel } = useEDB();
+    deleteBuilding, duplicateBuilding, addLevel, deleteLevel, duplicateLevel } = useEDB();
   const [expanded, setExpanded] = useState(selectedBuilding === building.name);
   const isSelected = selectedBuilding === building.name && !selectedLevel;
 
@@ -56,6 +56,12 @@ function BuildingNode({ building, dragHandleProps }) {
         <span className="text-muted-foreground">
           {building.levels.length}L
         </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); duplicateBuilding(building.name); }}
+          className="p-1 rounded hover:bg-accent transition-opacity"
+          title="Duplicate building chain">
+          <Copy className="w-3 h-3 text-muted-foreground" />
+        </button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <button className="pr-2 pl-2 rounded hover:bg-destructive/20 transition-opacity" title="Delete building tree">
@@ -106,6 +112,12 @@ function BuildingNode({ building, dragHandleProps }) {
                   <Layers className="w-3 h-3 shrink-0" />
                   <span className="flex-1 truncate">{level.name}</span>
                   <span className="text-[10px] opacity-60">{level.settlementType}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); duplicateLevel(building.name, level.name); }}
+                    className="p-0.5 hover:bg-accent rounded"
+                    title="Duplicate building level">
+                    <Copy className="w-2.5 h-2.5 text-muted-foreground" />
+                  </button>
                   {building.levels.length > 1 &&
                 <AlertDialog>
                       <AlertDialogTrigger asChild>

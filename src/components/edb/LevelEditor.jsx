@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Settings, Shield, Swords, Trash2 } from 'lucide-react';
+import { Copy, Settings, Shield, Swords, Trash2 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -24,7 +24,7 @@ import LevelCultureEditor from './LevelCultureEditor';
 import GuildEditor from './GuildEditor';
 
 export default function LevelEditor() {
-  const { edbData, selectedBuilding, selectedLevel, setSelectedLevel, updateLevel, deleteLevel, deleteBuilding } = useEDB();
+  const { edbData, selectedBuilding, selectedLevel, setSelectedLevel, updateLevel, renameLevel, duplicateLevel, deleteLevel } = useEDB();
 
   if (!edbData || !selectedBuilding) {
     return (
@@ -52,12 +52,14 @@ export default function LevelEditor() {
     selectedLevel={selectedLevel}
     setSelectedLevel={setSelectedLevel}
     updateLevel={updateLevel}
+    renameLevel={renameLevel}
+    duplicateLevel={duplicateLevel}
     deleteLevel={deleteLevel}
     edbData={edbData} />;
 
 }
 
-function LevelEditorInner({ building, level, levelIndex, selectedBuilding, selectedLevel, setSelectedLevel, updateLevel, deleteLevel, edbData }) {
+function LevelEditorInner({ building, level, levelIndex, selectedBuilding, selectedLevel, setSelectedLevel, updateLevel, renameLevel, duplicateLevel, deleteLevel, edbData }) {
   const update = (field, value) => updateLevel(selectedBuilding, selectedLevel, { [field]: value });
 
   const [localName, setLocalName] = useState(level.name);
@@ -79,6 +81,13 @@ function LevelEditorInner({ building, level, levelIndex, selectedBuilding, selec
           <Badge variant="outline" className="ml-auto text-[10px]">
             #{levelIndex + 1}
           </Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs gap-1"
+            onClick={() => duplicateLevel(building.name, level.name)}>
+            <Copy className="w-3 h-3" /> Duplicate Level
+          </Button>
           {building.levels.length > 1 &&
           <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -116,8 +125,8 @@ function LevelEditorInner({ building, level, levelIndex, selectedBuilding, selec
                 onChange={(e) => setLocalName(e.target.value)}
                 onBlur={() => {
                   if (localName !== level.name) {
-                    updateLevel(selectedBuilding, selectedLevel, (prev) => ({ ...prev, name: localName }));
-                    setSelectedLevel(localName);
+                    const renamed = renameLevel(selectedBuilding, selectedLevel, localName);
+                    setLocalName(renamed || level.name);
                   }
                 }} />
                 
@@ -231,7 +240,9 @@ function LevelEditorInner({ building, level, levelIndex, selectedBuilding, selec
 }
 
 function BuildingOverview({ building, edbData }) {
-  const { updateBuilding, deleteBuilding, setSelectedBuilding } = useEDB();
+  const { updateBuilding, renameBuilding, duplicateBuilding, deleteBuilding, setSelectedBuilding } = useEDB();
+  const [localName, setLocalName] = useState(building.name);
+  useEffect(() => { setLocalName(building.name); }, [building.name]);
   const buildingOptions = edbData.buildings.
   map((b) => ({ value: b.name, label: b.name }));
 
@@ -248,6 +259,13 @@ function BuildingOverview({ building, edbData }) {
               {building.levels.length} levels · {building.convertTo ? `converts to ${building.convertTo}` : 'no conversion'}
             </p>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs gap-1"
+            onClick={() => duplicateBuilding(building.name)}>
+            <Copy className="w-3 h-3" /> Duplicate Tree
+          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button size="sm" variant="destructive" className="h-7 px-2 text-xs gap-1">
@@ -272,6 +290,24 @@ function BuildingOverview({ building, edbData }) {
             <CardTitle className="text-xs font-semibold">Building Properties</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 space-y-3">
+            <div>
+              <Label className="text-[10px] text-muted-foreground">Building Chain Name</Label>
+              <Input
+                className="h-7 text-xs mt-1 font-mono"
+                value={localName}
+                onChange={(e) => setLocalName(e.target.value)}
+                onBlur={() => {
+                  if (localName !== building.name) {
+                    const renamed = renameBuilding(building.name, localName);
+                    setLocalName(renamed || building.name);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') setLocalName(building.name);
+                }}
+              />
+            </div>
             <div>
               <Label className="text-[10px] text-muted-foreground">Convert To</Label>
               <div className="mt-1">
