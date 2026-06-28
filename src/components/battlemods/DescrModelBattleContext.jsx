@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { parseDescrModelBattle, serializeDescrModelBattle, createDefaultBattleModelEntry } from '@/lib/descrModelBattleCodec';
 import { parseModeldb, serializeModeldb } from '@/lib/modeldbCodec';
+import { loadLargeText, saveLargeText } from '@/lib/largeTextStore';
 
 const DescrModelBattleContext = createContext(null);
 
@@ -28,6 +29,7 @@ export function DescrModelBattleProvider({ children }) {
 
   // ── Auto-restore from localStorage ──────────────────────────────────────
   useEffect(() => {
+    let loadedDmbFromLocal = false;
     try {
       const sharedName = localStorage.getItem('m2tw_modeldb_file_name') || '';
       const sharedRaw = sharedName.toLowerCase() === 'descr_model_battle.txt'
@@ -40,8 +42,17 @@ export function DescrModelBattleProvider({ children }) {
         origDmb.current = JSON.stringify(parsed);
         setDmbData(parsed);
         if (name) setDmbFilename(name);
+        loadedDmbFromLocal = true;
       }
     } catch {}
+    let cancelled = false;
+    loadLargeText(LS_DMB).then((record) => {
+      if (cancelled || loadedDmbFromLocal || !record?.text) return;
+      const parsed = parseDescrModelBattle(record.text);
+      origDmb.current = JSON.stringify(parsed);
+      setDmbData(parsed);
+      if (record.metadata?.filename) setDmbFilename(record.metadata.filename);
+    }).catch(() => {});
     try {
       const raw = localStorage.getItem(LS_BMDB);
       const name = localStorage.getItem(LS_BMDB_NAME);
@@ -52,6 +63,7 @@ export function DescrModelBattleProvider({ children }) {
         if (name) setBmdbFilename(name);
       }
     } catch {}
+    return () => { cancelled = true; };
   }, []);
 
   // ── descr_model_battle.txt actions ──────────────────────────────────────
@@ -67,6 +79,7 @@ export function DescrModelBattleProvider({ children }) {
       localStorage.setItem(LS_DMB, content);
       localStorage.setItem(LS_DMB_NAME, fn);
     } catch {}
+    saveLargeText(LS_DMB, content, { filename: fn }).catch(() => {});
   }, []);
 
   const updateDmbEntry = useCallback((updatedEntry) => {
@@ -148,7 +161,8 @@ export function DescrModelBattleProvider({ children }) {
     origDmb.current = JSON.stringify(dmbData);
     setDmbDirty(false);
     try { localStorage.setItem(LS_DMB, serialized); } catch {}
-  }, [dmbData]);
+    saveLargeText(LS_DMB, serialized, { filename: dmbFilename }).catch(() => {});
+  }, [dmbData, dmbFilename]);
 
   const revertDmb = useCallback(() => {
     if (!origDmb.current) return;

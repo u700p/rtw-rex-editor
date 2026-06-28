@@ -14,11 +14,12 @@ import { parseDescrStrat, parseDescrRegions, parseSettlementNames, parseDescrSmF
 import { parseDescrRebelFactions, parseDescrReligions, parseDescrSmResources, parseDescrMercenaries, parseDescrSoundsMusicTypes, parseDescrCultures, extractHiddenResourcesFromEDB, extractBuildingLevelsFromEDB, parseDescrNames, parseExportDescrTraits, parseExportDescrAncillaries } from '../components/map/additionalParsers';
 import { parseFactionMovies } from '../components/map/factionMoviesParser';
 import { parseEDU } from '../components/units/EDUParser';
-import { getStringsBinStore } from '../lib/stringsBinStore';
+import { getTextLocalizationStore } from '../lib/textLocalizationStore';
 import { importCampaignToDatabase } from '../components/map/campaignImporter';
 import { useEDB } from '../components/edb/EDBContext';
 import { base44 } from '@/api/base44Client';
 import { setLayer, getLayer, getAllLayers, hasAnyLayer } from '../lib/mapLayerStore';
+import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
 
 const INITIAL_PAINT = {
   active: false,
@@ -66,7 +67,7 @@ export default function CampaignMap() {
   const [stratData, setStratDataRaw] = useState(() => {
     try {
       const raw = sessionStorage.getItem('m2tw_strat_raw');
-      if (raw && raw.length < 20_000_000) { // guard against absurdly large files
+      if (raw) {
         const p = parseDescrStrat(raw);
         // Merge any persisted overlay items (includes newly added items from previous session)
         const savedOverlay = sessionStorage.getItem('m2tw_overlay_items_json');
@@ -93,7 +94,7 @@ export default function CampaignMap() {
       const savedJson = sessionStorage.getItem('m2tw_regions_data_json');
       if (savedJson) return JSON.parse(savedJson);
       const raw = sessionStorage.getItem('m2tw_regions_raw');
-      if (raw && raw.length < 5_000_000) return parseDescrRegions(raw);
+      if (raw) return parseDescrRegions(raw);
     } catch (e) {
       console.error('[CampaignMap] Failed to restore regions from sessionStorage:', e);
       try { sessionStorage.removeItem('m2tw_regions_data_json'); sessionStorage.removeItem('m2tw_regions_raw'); } catch {}
@@ -121,7 +122,7 @@ export default function CampaignMap() {
       if (savedOverlay) return JSON.parse(savedOverlay);
       // Fall back to parsing strat raw
       const raw = sessionStorage.getItem('m2tw_strat_raw');
-      if (raw && raw.length < 20_000_000) { const p = parseDescrStrat(raw); return p.items || []; }
+      if (raw) { const p = parseDescrStrat(raw); return p.items || []; }
     } catch (e) {
       console.error('[CampaignMap] Failed to restore overlayItems:', e);
       try { sessionStorage.removeItem('m2tw_overlay_items_json'); } catch {}
@@ -149,7 +150,7 @@ export default function CampaignMap() {
   const [descrNames, setDescrNames] = useState(() => { try { const r = sessionStorage.getItem('m2tw_descr_names_raw'); return r ? parseDescrNames(r) : null; } catch { return null; } });
   const [traitsList, setTraitsList] = useState(() => { try { const r = sessionStorage.getItem('m2tw_traits_raw'); return r ? parseExportDescrTraits(r) : []; } catch { return []; } });
   const [ancillariesList, setAncillariesList] = useState(() => { try { const r = sessionStorage.getItem('m2tw_ancillaries_raw'); return r ? parseExportDescrAncillaries(r) : []; } catch { return []; } });
-  const [eduUnits, setEduUnits] = useState(() => { try { const r = sessionStorage.getItem('m2tw_edu_raw'); return r ? parseEDU(r) : []; } catch { return []; } });
+  const [eduUnits, setEduUnits] = useState(() => { try { const r = getEduRawText(); return r ? parseEDU(r) : []; } catch { return []; } });
   // namesDisplayMap: loaded from names.txt (separate from region settlement names)
   const [namesDisplayMap, setNamesDisplayMap] = useState(() => { try { const r = sessionStorage.getItem('m2tw_char_names_display'); return r ? JSON.parse(r) : {}; } catch { return {}; } });
 
@@ -235,7 +236,7 @@ export default function CampaignMap() {
     // Auto-restore names display map from sessionStorage only (no localStorage cross-session)
     try {
       if (!sessionStorage.getItem('m2tw_char_names_display')) {
-        const store = getStringsBinStore();
+        const store = getTextLocalizationStore();
         for (const [fname, binData] of Object.entries(store)) {
           if (fname.toLowerCase().includes('names') && !fname.toLowerCase().includes('settlement') && !fname.toLowerCase().includes('region')) {
             const namesMap = {};
@@ -250,7 +251,7 @@ export default function CampaignMap() {
     // Auto-restore settlement names from text localization store if not already loaded
     try {
       if (!sessionStorage.getItem('m2tw_names_raw')) {
-        const store = getStringsBinStore();
+        const store = getTextLocalizationStore();
         for (const [fname, binData] of Object.entries(store)) {
           if (fname.toLowerCase().includes('regions_and_settlement_names')) {
             const namesMap = {};
@@ -432,13 +433,7 @@ export default function CampaignMap() {
       }
       if (name === 'export_descr_unit.txt') {
         const text = await file.text();
-        try {
-          sessionStorage.setItem('m2tw_edu_raw', text);
-          localStorage.setItem('m2tw_units_file', text);
-          localStorage.setItem('m2tw_edu_file_name', file.name);
-          const units = [...new Set(text.split('\n').map(line => line.replace(/;.*$/, '').trim().match(/^type\s+(.+)/i)?.[1]?.trim()).filter(Boolean))].sort();
-          if (units.length) localStorage.setItem('m2tw_edu_units_list', JSON.stringify(units));
-        } catch {}
+        setEduRawText(text, file.name);
         setEduUnits(parseEDU(text));
         window.dispatchEvent(new CustomEvent('edu-file-loaded'));
       }

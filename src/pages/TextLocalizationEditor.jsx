@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { getStringsBinStore, updateStringsBinFile } from '@/lib/stringsBinStore';
-import { parseTextLocFile, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
+import { getTextLocalizationStore, hydrateTextLocalizationStore, updateTextLocalizationFile } from '@/lib/textLocalizationStore';
+import { parseTextLocFile, serializeTextLocEntries, textLocMapToEntries } from '@/lib/textLocParser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,18 +8,19 @@ import { Badge } from '@/components/ui/badge';
 import { Upload, Download, Plus, Trash2, Search, X, FileText, ChevronUp, ChevronDown, Save } from 'lucide-react';
 
 function loadFilesFromStore() {
-  const store = getStringsBinStore();
+  const store = getTextLocalizationStore();
   return Object.entries(store).map(([name, data]) => ({
     name,
     entries: data.entries,
     magic1: data.magic1,
     magic2: data.magic2,
+    rawText: data.rawText || '',
     sourceFormat: 'txt',
     dirty: false,
   }));
 }
 
-export default function StringsBinEditor() {
+export default function TextLocalizationEditor() {
   const [files, setFiles] = useState(() => loadFilesFromStore());
   const [activeFile, setActiveFile] = useState(() => {
     const f = loadFilesFromStore();
@@ -51,8 +52,9 @@ export default function StringsBinEditor() {
         return merged;
       });
     };
-    window.addEventListener('strings-bin-updated', handler);
-    return () => window.removeEventListener('strings-bin-updated', handler);
+    window.addEventListener('text-localization-updated', handler);
+    hydrateTextLocalizationStore().then(handler);
+    return () => window.removeEventListener('text-localization-updated', handler);
   }, []);
 
   const currentFile = activeFile !== null ? files[activeFile] : null;
@@ -83,7 +85,7 @@ export default function StringsBinEditor() {
         const text = await f.text();
         const entries = textLocMapToEntries(parseTextLocFile(text));
         if (entries.length) {
-          updateStringsBinFile(f.name, { entries, sourceFormat: 'txt' });
+          updateTextLocalizationFile(f.name, { entries, rawText: text, sourceFormat: 'txt' });
         }
       }
     }
@@ -120,10 +122,11 @@ export default function StringsBinEditor() {
 
     updateFiles((f) => ({ ...f, entries: newEntries, dirty: true }));
     // Immediately persist to shared store so other editors see the change
-    updateStringsBinFile(currentFile.name, {
+    updateTextLocalizationFile(currentFile.name, {
       entries: newEntries,
       magic1: currentFile.magic1,
       magic2: currentFile.magic2,
+      rawText: currentFile.rawText,
       sourceFormat: currentFile.sourceFormat,
     });
   };
@@ -131,10 +134,11 @@ export default function StringsBinEditor() {
   const handleDelete = (idx) => {
     const newEntries = currentFile.entries.filter((_, i) => i !== idx);
     updateFiles((f) => ({ ...f, entries: newEntries, dirty: true }));
-    updateStringsBinFile(currentFile.name, {
+    updateTextLocalizationFile(currentFile.name, {
       entries: newEntries,
       magic1: currentFile.magic1,
       magic2: currentFile.magic2,
+      rawText: currentFile.rawText,
       sourceFormat: currentFile.sourceFormat,
     });
     if (selected === idx) { setSelected(null); setEditKey(''); setEditValue(''); }
@@ -147,10 +151,11 @@ export default function StringsBinEditor() {
     const newEntries = [...currentFile.entries];
     [newEntries[idx], newEntries[newIdx]] = [newEntries[newIdx], newEntries[idx]];
     updateFiles((f) => ({ ...f, entries: newEntries, dirty: true }));
-    updateStringsBinFile(currentFile.name, {
+    updateTextLocalizationFile(currentFile.name, {
       entries: newEntries,
       magic1: currentFile.magic1,
       magic2: currentFile.magic2,
+      rawText: currentFile.rawText,
       sourceFormat: currentFile.sourceFormat,
     });
     if (selected === idx) setSelected(newIdx);
@@ -158,8 +163,7 @@ export default function StringsBinEditor() {
 
   const handleExport = () => {
     if (!currentFile) return;
-    const map = Object.fromEntries(currentFile.entries.map(e => [e.key, e.value]));
-    const text = serializeTextLocFile(map);
+    const text = serializeTextLocEntries(currentFile.entries, { rawText: currentFile.rawText });
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

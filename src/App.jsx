@@ -12,7 +12,7 @@ import TraitsEditor from './pages/TraitsEditor';
 import AncillariesEditor from './pages/AncillariesEditor';
 import LuaScripts from './pages/LuaScripts';
 import UnitEditor from './pages/UnitEditor';
-import StringsBinEditor from './pages/StringsBinEditor';
+import TextLocalizationEditor from './pages/TextLocalizationEditor';
 import AssetsConverter from './pages/AssetsConverter';
 import UnitCardGenerator from './pages/UnitCardGenerator';
 import AnimationEditor from './pages/AnimationEditor';
@@ -61,7 +61,7 @@ const LocalApp = () => {
       <Route path="/AncillariesEditor" element={<LayoutWrapper currentPageName="AncillariesEditor"><AncillariesEditor /></LayoutWrapper>} />
       <Route path="/LuaScripts" element={<LayoutWrapper currentPageName="LuaScripts"><LuaScripts /></LayoutWrapper>} />
       <Route path="/UnitEditor" element={<LayoutWrapper currentPageName="UnitEditor"><UnitEditor /></LayoutWrapper>} />
-      <Route path="/StringsBinEditor" element={<LayoutWrapper currentPageName="StringsBinEditor"><StringsBinEditor /></LayoutWrapper>} />
+      <Route path="/TextLocalizationEditor" element={<LayoutWrapper currentPageName="TextLocalizationEditor"><TextLocalizationEditor /></LayoutWrapper>} />
       <Route path="/AssetsConverter" element={<LayoutWrapper currentPageName="AssetsConverter"><AssetsConverter /></LayoutWrapper>} />
       <Route path="/UnitCardGenerator" element={<LayoutWrapper currentPageName="UnitCardGenerator"><UnitCardGenerator /></LayoutWrapper>} />
       <Route path="/AnimationEditor" element={<LayoutWrapper currentPageName="AnimationEditor"><AnimationEditor /></LayoutWrapper>} />

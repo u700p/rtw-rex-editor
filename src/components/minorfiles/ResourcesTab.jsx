@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Download, Plus, X, AlertCircle, ImageIcon } from 'lucide-react';
-import { getStringsBinStore } from '@/lib/stringsBinStore';
+import { getTextLocalizationStore } from '@/lib/textLocalizationStore';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
@@ -83,7 +83,7 @@ export default function ResourcesTab() {
       if (raw) { setResources(parseResourcesFull(raw)); setLoaded(true); }
     } catch {}
     try {
-      const store = getStringsBinStore();
+      const store = getTextLocalizationStore();
       const stratBinEntry = Object.entries(store).find(([k]) => {
         const lk = k.toLowerCase();
         return lk === 'strat.txt' || (lk.includes('strat') && lk.endsWith('.txt'));

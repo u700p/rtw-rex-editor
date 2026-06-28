@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Download, Upload, Trash2, Check, Edit2 } from 'lucide-react';
-import { getStringsBinStore } from '../../lib/stringsBinStore';
+import { getTextLocalizationStore } from '../../lib/textLocalizationStore';
 import { parseTextLocFile, serializeTextLocFile } from '../../lib/textLocParser';
 import { downloadBlob } from './tgaExporter';
 
@@ -26,7 +26,7 @@ function setCampaignDescStrings(map) {
 // Try to auto-load from the text localization store (loaded via Home/folder import)
 function tryAutoLoadFromStore() {
   try {
-    const store = getStringsBinStore();
+    const store = getTextLocalizationStore();
     for (const [fname, binData] of Object.entries(store)) {
       if (fname.toLowerCase().includes('campaign_descriptions')) {
         const map = {};
@@ -87,7 +87,7 @@ export default function CampaignDescriptionsStrings({ stratData, onCampaignNameC
     }
   }, []);
 
-  // Listen for strings-bin-updated events (fired when folder is imported)
+  // Listen for text-localization-updated events (fired when folder is imported)
   useEffect(() => {
     const handler = () => {
       const auto = tryAutoLoadFromStore();
@@ -97,8 +97,8 @@ export default function CampaignDescriptionsStrings({ stratData, onCampaignNameC
         setLocMeta(auto.meta);
       }
     };
-    window.addEventListener('strings-bin-updated', handler);
-    return () => window.removeEventListener('strings-bin-updated', handler);
+    window.addEventListener('text-localization-updated', handler);
+    return () => window.removeEventListener('text-localization-updated', handler);
   }, []);
 
   const allFactions = useMemo(() => {

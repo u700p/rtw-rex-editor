@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { parseAncillariesFile, serializeAncillariesFile, parseTextFile, serializeTextFile } from './AncillariesParser';
-import { getStringsBinStore } from '@/lib/stringsBinStore';
+import { getTextLocalizationStore } from '@/lib/textLocalizationStore';
 
 const AncillariesContext = createContext(null);
 
@@ -54,7 +54,7 @@ export function AncillariesProvider({ children }) {
         if (txtName) setTextFilename(normalizeTextFilename(txtName));
         setTextBinMeta(null);
       } else {
-        const store = getStringsBinStore();
+        const store = getTextLocalizationStore();
         const anctxtEntry = Object.entries(store).find(([k]) =>
           k.toLowerCase() === 'export_ancillaries.txt' ||
           k.toLowerCase().includes('export_ancillaries')
@@ -83,7 +83,7 @@ export function AncillariesProvider({ children }) {
     try { localStorage.setItem('m2tw_anc_file', content); localStorage.setItem('m2tw_anc_file_name', fn); } catch {}
   }, []);
 
-  const loadTextFile = useCallback((content, filename, binMeta) => {
+  const loadTextFile = useCallback((content, filename, textMeta) => {
     // content may be a pre-parsed map or a raw text localization file
     const parsed = (typeof content === 'object' && content !== null && !(content instanceof ArrayBuffer))
       ? content
@@ -107,19 +107,19 @@ export function AncillariesProvider({ children }) {
     };
     const handleAncTxt = (e) => {
       if (e.detail?.content) {
-        loadTextFile(e.detail.content, e.detail.filename, e.detail.binMeta);
+        loadTextFile(e.detail.content, e.detail.filename, e.detail.textMeta);
       } else {
         loadFromStorage();
       }
     };
-    const handleBin = () => loadFromStorage();
+    const handleTextLocalization = () => loadFromStorage();
     window.addEventListener('load-ancillaries', handleAnc);
     window.addEventListener('load-anctxt', handleAncTxt);
-    window.addEventListener('strings-bin-updated', handleBin);
+    window.addEventListener('text-localization-updated', handleTextLocalization);
     return () => {
       window.removeEventListener('load-ancillaries', handleAnc);
       window.removeEventListener('load-anctxt', handleAncTxt);
-      window.removeEventListener('strings-bin-updated', handleBin);
+      window.removeEventListener('text-localization-updated', handleTextLocalization);
     };
   }, [loadFromStorage, loadAncFile, loadTextFile]);
 

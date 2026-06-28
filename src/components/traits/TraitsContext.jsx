@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { parseTraitsFile, serializeTraitsFile, parseTextFile, serializeTextFile } from './TraitsParser';
-import { getStringsBinStore } from '@/lib/stringsBinStore';
+import { getTextLocalizationStore } from '@/lib/textLocalizationStore';
 
 const TraitsContext = createContext(null);
 
@@ -41,7 +41,7 @@ export function TraitsProvider({ children }) {
         setTextBinMeta(null);
         if (vnvsName) setTextFilename(normalizeTextFilename(vnvsName));
       } else {
-        const store = getStringsBinStore();
+        const store = getTextLocalizationStore();
         const vnvsBinEntry = Object.entries(store).find(([k]) => k.toLowerCase().includes('vnv'));
         const vnvsBin = vnvsBinEntry?.[1];
         if (vnvsBin) {
@@ -67,7 +67,7 @@ export function TraitsProvider({ children }) {
     try { localStorage.setItem('m2tw_traits_file', content); localStorage.setItem('m2tw_traits_file_name', fn); } catch {}
   }, []);
 
-  const loadTextFile = useCallback((content, filename, binMeta) => {
+  const loadTextFile = useCallback((content, filename, textMeta) => {
     // content may be a pre-parsed map or a raw text localization file
     const parsed = (typeof content === 'object' && content !== null && !(content instanceof ArrayBuffer))
       ? content
@@ -91,19 +91,19 @@ export function TraitsProvider({ children }) {
     };
     const handleVnvs = (e) => {
       if (e.detail?.content) {
-        loadTextFile(e.detail.content, e.detail.filename, e.detail.binMeta);
+        loadTextFile(e.detail.content, e.detail.filename, e.detail.textMeta);
       } else {
         loadFromStorage();
       }
     };
-    const handleBin = () => loadFromStorage();
+    const handleTextLocalization = () => loadFromStorage();
     window.addEventListener('load-traits', handleTraits);
     window.addEventListener('load-vnvs', handleVnvs);
-    window.addEventListener('strings-bin-updated', handleBin);
+    window.addEventListener('text-localization-updated', handleTextLocalization);
     return () => {
       window.removeEventListener('load-traits', handleTraits);
       window.removeEventListener('load-vnvs', handleVnvs);
-      window.removeEventListener('strings-bin-updated', handleBin);
+      window.removeEventListener('text-localization-updated', handleTextLocalization);
     };
   }, [loadFromStorage, loadTraitsFile, loadTextFile]);
 

@@ -4,6 +4,7 @@ import {
   FACTIONS as DEFAULT_FACTIONS, CULTURES as DEFAULT_CULTURES, HIDDEN_RESOURCES_DEFAULT
 } from './EDBParser';
 import { parseGuildsFile, serializeGuildsFile } from './GuildsParser';
+import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
 
 const RefDataContext = createContext(null);
 
@@ -64,16 +65,6 @@ function parseKeywordList(text, keyword) {
   return [...new Set(values)].sort();
 }
 
-function parseUnitTypeList(text) {
-  const values = [];
-  for (const raw of String(text || '').split('\n')) {
-    const line = raw.replace(/;.*$/, '').trim();
-    const m = line.match(/^type\s+(.+)/i);
-    if (m) values.push(m[1].trim());
-  }
-  return [...new Set(values)].sort();
-}
-
 function setLocal(key, value) {
   try { localStorage.setItem(key, value); } catch {}
 }
@@ -91,10 +82,7 @@ function saveFactionsText(text, filename) {
 }
 
 function saveUnitsText(text, filename) {
-  setLocal(LS_KEYS.units, text);
-  setSession('m2tw_edu_raw', text);
-  if (filename) setLocal('m2tw_edu_file_name', filename);
-  const units = parseUnitTypeList(text);
+  const units = setEduRawText(text, filename);
   if (units.length) setLocal('m2tw_edu_units_list', JSON.stringify(units));
 }
 
@@ -133,7 +121,7 @@ export function RefDataProvider({ children }) {
       if (evRaw) { for (const e of parseEventsFile(evRaw)) allCounters.add(e); }
       if (scriptRaw) { for (const e of parseCampaignScriptCounters(scriptRaw)) allCounters.add(e); }
       if (allCounters.size) setEventCounters([...allCounters]);
-      const unitRaw = localStorage.getItem(LS_KEYS.units);
+      const unitRaw = getEduRawText();
       if (unitRaw) {
         const u = parseUnitsFile(unitRaw);
         if (u.length) setUnits(u);

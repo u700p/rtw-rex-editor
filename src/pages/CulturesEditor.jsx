@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { getStringsBinStore, setStringsBinStore } from '../lib/stringsBinStore';
+import { getTextLocalizationStore, setTextLocalizationStore } from '../lib/textLocalizationStore';
 import { Globe, FolderOpen, Download, Trash2, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { parseDescrCulturesFull, serializeDescrCulturesFull, SETTLEMENT_TYPES, AGENT_TYPES } from '../components/cultures/culturesParser';
@@ -10,18 +10,18 @@ function upsertCultureStrings(cultureName) {
   const key = cultureName.toUpperCase();
   const display = cultureName.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   const newEntries = [{ key, value: display }];
-  const store = getStringsBinStore();
-  const BIN_NAME = 'expanded_bi.txt';
-  const existing = store[BIN_NAME] || { entries: [], sourceFormat: 'txt' };
+  const store = getTextLocalizationStore();
+  const TEXT_NAME = 'expanded_bi.txt';
+  const existing = store[TEXT_NAME] || { entries: [], sourceFormat: 'txt' };
   // Replace or append each key
   const entryMap = {};
   for (const e of existing.entries) entryMap[e.key] = e.value;
   for (const e of newEntries) entryMap[e.key] = e.value;
   const merged = Object.entries(entryMap).map(([k, v]) => ({ key: k, value: v }));
   const updated = { ...existing, entries: merged };
-  store[BIN_NAME] = updated;
-  setStringsBinStore(store);
-  window.dispatchEvent(new CustomEvent('strings-bin-updated', { detail: { name: BIN_NAME } }));
+  store[TEXT_NAME] = updated;
+  setTextLocalizationStore(store);
+  window.dispatchEvent(new CustomEvent('text-localization-updated', { detail: { name: TEXT_NAME } }));
 }
 
 function downloadText(text, filename) {

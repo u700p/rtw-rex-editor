@@ -2,22 +2,20 @@
  * Shared store for Total War localization files.
  * Uses an in-memory store as primary (survives localStorage quota failures).
  * Also persists to localStorage when possible.
- * Shape: { [filename]: { entries: [{key, value}], sourceFormat: 'txt' } }
+ * Shape: { [filename]: { entries: [{key, value}], sourceFormat: 'txt', rawText?: string } }
  */
 
-const STORE_KEY = 'm2tw_text_localization_files';
-const LEGACY_STORE_KEY = 'm2tw_strings_bin_files';
+import { loadLargeText, saveLargeText } from './largeTextStore';
 
+const STORE_KEY = 'm2tw_text_localization_files';
 // In-memory store — always available regardless of localStorage limits
 let _memoryStore = null;
 
 export function normalizeTextLocalizationName(name) {
   const raw = String(name || 'localization.txt').trim() || 'localization.txt';
-  let clean = raw
-    .replace(/\.txt\.strings\.bin$/i, '.txt')
-    .replace(/\.strings\.bin$/i, '.txt')
-    .replace(/\.bin$/i, '.txt');
+  let clean = raw;
   if (clean.toLowerCase() === 'expanded.txt') clean = 'expanded_bi.txt';
+  if (!/\.txt$/i.test(clean)) clean = `${clean}.txt`;
   return clean;
 }
 
@@ -26,6 +24,7 @@ function normalizeStore(store) {
   for (const [name, data] of Object.entries(store || {})) {
     normalized[normalizeTextLocalizationName(name)] = {
       ...data,
+      entries: Array.isArray(data?.entries) ? data.entries : [],
       sourceFormat: 'txt',
     };
   }
@@ -36,7 +35,7 @@ function getMemoryStore() {
   if (_memoryStore === null) {
     // Try to hydrate from localStorage on first access
     try {
-      const raw = localStorage.getItem(STORE_KEY) || localStorage.getItem(LEGACY_STORE_KEY);
+      const raw = localStorage.getItem(STORE_KEY);
       _memoryStore = raw ? normalizeStore(JSON.parse(raw)) : {};
     } catch {
       _memoryStore = {};
@@ -45,32 +44,46 @@ function getMemoryStore() {
   return _memoryStore;
 }
 
-export function getStringsBinStore() {
+export function getTextLocalizationStore() {
   return getMemoryStore();
 }
 
-export function setStringsBinStore(store) {
+export function setTextLocalizationStore(store) {
   _memoryStore = normalizeStore(store);
+  saveLargeText(STORE_KEY, JSON.stringify(_memoryStore)).catch(() => {});
   // Best-effort persist to localStorage
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(_memoryStore));
-    localStorage.removeItem(LEGACY_STORE_KEY);
   } catch (e) {
-    console.warn('[StringsBinStore] localStorage write failed (quota), using in-memory only:', e.message);
+    console.warn('[TextLocalizationStore] localStorage write failed (quota), using in-memory only:', e.message);
   }
 }
 
-export function updateStringsBinFile(name, fileData) {
-  const store = getMemoryStore();
-  store[normalizeTextLocalizationName(name)] = { ...fileData, sourceFormat: 'txt' };
-  setStringsBinStore(store);
-  window.dispatchEvent(new CustomEvent('strings-bin-updated', { detail: { name } }));
+export async function hydrateTextLocalizationStore() {
+  const current = getMemoryStore();
+  if (Object.keys(current).length > 0) return current;
+
+  try {
+    const record = await loadLargeText(STORE_KEY);
+    if (!record?.text) return current;
+    _memoryStore = normalizeStore(JSON.parse(record.text));
+    window.dispatchEvent(new CustomEvent('text-localization-updated', { detail: { hydrated: true } }));
+    return _memoryStore;
+  } catch {
+    return current;
+  }
 }
 
-export function clearStringsBinStore() {
+export function updateTextLocalizationFile(name, fileData) {
+  const store = getMemoryStore();
+  store[normalizeTextLocalizationName(name)] = { ...fileData, sourceFormat: 'txt' };
+  setTextLocalizationStore(store);
+  window.dispatchEvent(new CustomEvent('text-localization-updated', { detail: { name } }));
+}
+
+export function clearTextLocalizationStore() {
   _memoryStore = {};
   try {
     localStorage.removeItem(STORE_KEY);
-    localStorage.removeItem(LEGACY_STORE_KEY);
   } catch {}
 }

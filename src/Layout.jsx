@@ -10,6 +10,7 @@ import { Castle, Download, Home, Shield, Package, Swords, Map, Globe, Volume2, F
 import AppErrorBoundary from './components/AppErrorBoundary';
 import romeLogo from './assets/rome/rome-logo.png';
 import romeHeader from './assets/rome/rome-header.jpg';
+import { hasEduRawText } from '@/lib/eduStorage';
 
 // localStorage keys that indicate a given editor has data loaded
 const NAV_DATA_KEYS = {
@@ -24,7 +25,7 @@ const NAV_DATA_KEYS = {
   CulturesEditor:    ['m2tw_cultures_file'],
   UnitCardGenerator: ['m2tw_unitcard_entries'],
   FactionsEditor:    ['m2tw_factions_file'],
-  StringsBinEditor:  ['m2tw_edb_txt_file'],
+  TextLocalizationEditor: ['m2tw_edb_txt_file'],
   RomeTools:          ['rtw_tools_last_output'],
 };
 
@@ -35,7 +36,9 @@ function useLoadedPages() {
       const result = {};
       for (const [page, keys] of Object.entries(NAV_DATA_KEYS)) {
         try {
-          result[page] = keys.some(k => !!localStorage.getItem(k));
+          result[page] = page === 'UnitEditor'
+            ? hasEduRawText()
+            : keys.some(k => !!localStorage.getItem(k));
         } catch { result[page] = false; }
       }
       setLoaded(result);
@@ -43,7 +46,7 @@ function useLoadedPages() {
     check();
     window.addEventListener('storage', check);
     // Also re-check when custom load events fire
-    const events = ['load-traits','load-ancillaries','load-export-units','edu-file-loaded','factions-file-loaded','resources-file-loaded','events-file-loaded','cultures-file-loaded','religions-file-loaded','strings-bin-updated','modeldb-file-loaded','m2tw-map-folder-loaded'];
+    const events = ['load-traits','load-ancillaries','load-export-units','edu-file-loaded','factions-file-loaded','resources-file-loaded','events-file-loaded','cultures-file-loaded','religions-file-loaded','text-localization-updated','modeldb-file-loaded','m2tw-map-folder-loaded'];
     events.forEach(e => window.addEventListener(e, check));
     return () => {
       window.removeEventListener('storage', check);
@@ -67,7 +70,7 @@ const navItems = [
 { name: 'Cultures', icon: Globe, page: 'CulturesEditor' },
 { name: 'Factions', icon: Shield, page: 'FactionsEditor' },
 { name: 'Sound Files', icon: Volume2, page: 'SoundEditor' },
-{ name: 'Strings Editor', icon: FileText, page: 'StringsBinEditor' },
+{ name: 'Text Localization', icon: FileText, page: 'TextLocalizationEditor' },
 { name: '3D Model Viewer', icon: Package, page: 'AssetsConverter' },
 { name: 'Unit Card Gen', icon: Image, page: 'UnitCardGenerator' },
 { name: 'Animations', icon: Swords, page: 'AnimationEditor' },

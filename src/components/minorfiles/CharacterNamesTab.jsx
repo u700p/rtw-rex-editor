@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Upload, Download, Plus, X, Search, Copy } from 'lucide-react';
-import { getStringsBinStore } from '@/lib/stringsBinStore';
+import { getTextLocalizationStore } from '@/lib/textLocalizationStore';
 import { useModData } from '@/components/shared/ModDataContext';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
@@ -150,7 +150,7 @@ export default function CharacterNamesTab() {
     } catch {}
 
     try {
-      const store = getStringsBinStore();
+      const store = getTextLocalizationStore();
       const entry = Object.entries(store).find(([k]) => k.toLowerCase().includes('names'));
       if (entry?.[1]) {
         applyNamesTextEntries(entry[1].entries);
@@ -167,16 +167,16 @@ export default function CharacterNamesTab() {
     const onNamesLoaded = (e) => { if (e.detail?.raw) applyDescrNames(e.detail.raw); };
     const onTextLocalizationUpdated = () => {
       try {
-        const store = getStringsBinStore();
+        const store = getTextLocalizationStore();
         const entry = Object.entries(store).find(([k]) => k.toLowerCase().includes('names'));
         if (entry?.[1]) applyNamesTextEntries(entry[1].entries);
       } catch {}
     };
     window.addEventListener('load-character-names', onNamesLoaded);
-    window.addEventListener('strings-bin-updated', onTextLocalizationUpdated);
+    window.addEventListener('text-localization-updated', onTextLocalizationUpdated);
     return () => {
       window.removeEventListener('load-character-names', onNamesLoaded);
-      window.removeEventListener('strings-bin-updated', onTextLocalizationUpdated);
+      window.removeEventListener('text-localization-updated', onTextLocalizationUpdated);
     };
   }, []);
 

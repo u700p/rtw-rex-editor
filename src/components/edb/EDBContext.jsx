@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { parseEDB, serializeEDB, createDefaultBuilding, createDefaultLevel, parseTextFile, serializeTextFile, parseBuildingImageKey } from './EDBParser';
 import { useEDBAutoSave } from './useEDBAutoSave';
+import { loadLargeText, saveLargeText } from '@/lib/largeTextStore';
 
 const EDBContext = createContext(null);
 
@@ -128,6 +129,13 @@ export function EDBProvider({ children }) {
       }
       // Note: image data URLs are NOT restored from localStorage (too large, quota killer)
     } catch {}
+    let cancelled = false;
+    loadLargeText(EDB_TXT_LS_KEY).then((record) => {
+      if (cancelled || !record?.text) return;
+      const parsed = parseTextFile(record.text);
+      setTextData(prev => ({ ...prev, ...parsed }));
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   const loadEDB = useCallback((text, name) => {
@@ -152,6 +160,7 @@ export function EDBProvider({ children }) {
     const parsed = parseTextFile(text);
     setTextData(prev => ({ ...prev, ...parsed }));
     try { localStorage.setItem(EDB_TXT_LS_KEY, text); } catch {}
+    saveLargeText(EDB_TXT_LS_KEY, text).catch(() => {});
   }, []);
 
   const exportTextFile = useCallback(() => {
@@ -482,9 +491,8 @@ export function EDBProvider({ children }) {
         localStorage.setItem('m2tw_edb_file_name', fileName);
         if (textData && Object.keys(textData).length > 0) {
           const txtSerialized = serializeTextFile(textData);
-          if (txtSerialized.length < 500_000) { // skip if > 500KB to avoid quota
-            localStorage.setItem('m2tw_edb_txt_file', txtSerialized);
-          }
+          try { localStorage.setItem('m2tw_edb_txt_file', txtSerialized); } catch {}
+          await saveLargeText(EDB_TXT_LS_KEY, txtSerialized);
         }
       } catch {}
     }

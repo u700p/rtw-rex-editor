@@ -125,6 +125,28 @@ export function textLocMapToEntries(map) {
     .map(([key, value]) => ({ key, value: String(value ?? '') }));
 }
 
+export function textLocEntriesToMap(entries, rawText = '') {
+  const map = rawText ? parseTextLocFile(rawText) : {};
+  const keep = new Set();
+
+  for (const entry of entries || []) {
+    const key = String(entry?.key || '').trim().replace(/^\{/, '').replace(/\}$/, '');
+    if (!key) continue;
+    keep.add(key);
+    map[key] = String(entry.value ?? '');
+  }
+
+  for (const key of Object.keys(map)) {
+    if (!keep.has(key)) delete map[key];
+  }
+
+  return map;
+}
+
+export function serializeTextLocEntries(entries, { rawText = '', header } = {}) {
+  return serializeTextLocFile(textLocEntriesToMap(entries, rawText), { header });
+}
+
 export function serializeTextLocFile(map, { header } = {}) {
   const lines = [];
   const meta = map?.[TEXT_LOC_META];
@@ -150,7 +172,7 @@ export function serializeTextLocFile(map, { header } = {}) {
     return toCRLF(lines.join('\n').replace(/\n+$/, '') + '\n');
   }
 
-  if (header) lines.push(`¬ ${header}`, '');
+  if (header) lines.push('¬--------------', `¬ ${header}`, '¬--------------', '');
   for (const [key, value] of Object.entries(map || {})) {
     lines.push(...serializeEntryLine(key, value, { inline: true }), '');
   }

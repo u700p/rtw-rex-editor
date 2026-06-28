@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Download, Plus, X, AlertCircle, ChevronDown, ChevronRight, Search } from 'lucide-react';
-import { getStringsBinStore } from '@/lib/stringsBinStore';
+import { getTextLocalizationStore } from '@/lib/textLocalizationStore';
 import RebelFactionRow from './RebelFactionRow';
 import { useRefData } from '../edb/RefDataContext';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
@@ -94,7 +94,7 @@ export default function RebelFactionsTab() {
     } catch {}
     // Auto-load text localization for rebel faction display names
     try {
-      const store = getStringsBinStore();
+      const store = getTextLocalizationStore();
       const rebelBinEntry = Object.entries(store).find(([k]) => {
         const lk = k.toLowerCase();
         return lk.includes('rebel_faction') || lk.includes('rebel_fac');

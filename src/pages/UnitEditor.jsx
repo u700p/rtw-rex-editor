@@ -10,10 +10,9 @@ import { parseDescrModelBattle, serializeDescrModelBattle, syncDescrModelBattleE
 import { modeldbStore } from '../lib/modeldbStore';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
+import { EDU_FILE_NAME_KEY, getEduFilename, getEduRawText, loadEduRawText, setEduRawText } from '@/lib/eduStorage';
 
 const STORAGE_KEY = 'm2tw_edu_units';
-const EDU_FILE_KEY = 'm2tw_units_file';
-const EDU_FILE_NAME_KEY = 'm2tw_edu_file_name';
 const EXPORT_UNITS_KEY = 'm2tw_export_units_file';
 const UNIT_IMAGES_KEY = 'm2tw_unit_images';
 const MAX_PERSISTED_UNIT_IMAGES = 80;
@@ -30,18 +29,7 @@ function saveUnits(units) {
 }
 
 function saveEduRaw(text, filename = '') {
-  try { localStorage.setItem(EDU_FILE_KEY, text); } catch {}
-  try { sessionStorage.setItem('m2tw_edu_raw', text); } catch {}
-  if (filename) {
-    try { localStorage.setItem(EDU_FILE_NAME_KEY, filename); } catch {}
-  }
-  const unitNames = [...new Set(String(text || '').split('\n')
-    .map(line => line.replace(/;.*$/, '').trim().match(/^type\s+(.+)/i)?.[1]?.trim())
-    .filter(Boolean))]
-    .sort();
-  if (unitNames.length) {
-    try { localStorage.setItem('m2tw_edu_units_list', JSON.stringify(unitNames)); } catch {}
-  }
+  setEduRawText(text, filename);
 }
 
 async function mapWithLimit(items, limit, mapper) {
@@ -219,8 +207,8 @@ export default function UnitEditorPage() {
 
   const restoreUnitsFromStorage = useCallback((resetSelection = false) => {
     try {
-      const eduContent = localStorage.getItem(EDU_FILE_KEY);
-      const eduName = localStorage.getItem(EDU_FILE_NAME_KEY);
+      const eduContent = getEduRawText();
+      const eduName = getEduFilename();
       if (!eduContent) return false;
       const parsed = parseEDU(eduContent);
       if (parsed.length > 0) {
@@ -236,7 +224,20 @@ export default function UnitEditorPage() {
 
   // Auto-load from cached EDU file on mount (always prefer the raw file over stale parsed cache)
   useEffect(() => {
-    restoreUnitsFromStorage(true);
+    let cancelled = false;
+    const restored = restoreUnitsFromStorage(true);
+    if (!restored) {
+      loadEduRawText().then(({ text, filename: storedName }) => {
+        if (cancelled || !text) return;
+        const parsed = parseEDU(text);
+        if (!parsed.length) return;
+        setUnits(parsed);
+        saveUnits(parsed);
+        setActiveIndex(0);
+        if (storedName) setFilename(storedName);
+      });
+    }
+    return () => { cancelled = true; };
   }, [restoreUnitsFromStorage]);
 
   // Keep this page in sync when Home loads/replaces export_descr_unit.txt.

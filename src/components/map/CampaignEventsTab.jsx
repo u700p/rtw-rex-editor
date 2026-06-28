@@ -4,7 +4,7 @@ import { EVENT_TYPES, serializeCampaignEvents } from './campaignEventsParser';
 import { downloadBlob, exportTGA } from './tgaExporter';
 import PositionPickerButton from './PositionPickerButton';
 import ImageCropModal from '../edb/ImageCropModal';
-import { getStringsBinStore } from '../../lib/stringsBinStore';
+import { getTextLocalizationStore } from '../../lib/textLocalizationStore';
 import { serializeTextLocFile } from '../../lib/textLocParser';
 
 const toCRLF = (text) => text.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
@@ -17,7 +17,7 @@ const EVENT_ICONS = {
 // Read historic_events.txt from the shared localization store
 function getHistoricEventStrings() {
   try {
-    const store = getStringsBinStore();
+    const store = getTextLocalizationStore();
     for (const [fname, binData] of Object.entries(store)) {
       if (fname.toLowerCase().includes('historic_events')) {
         const map = {};

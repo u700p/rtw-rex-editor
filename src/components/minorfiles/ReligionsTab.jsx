@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Download, Plus, X, AlertCircle } from 'lucide-react';
-import { getStringsBinStore } from '@/lib/stringsBinStore';
+import { getTextLocalizationStore } from '@/lib/textLocalizationStore';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 
@@ -59,7 +59,7 @@ export default function ReligionsTab() {
     } catch {}
     // Auto-load text localization for religion display names
     try {
-      const store = getStringsBinStore();
+      const store = getTextLocalizationStore();
       const relBinEntry = Object.entries(store).find(([k]) => k.toLowerCase().includes('religion'));
       if (relBinEntry?.[1]) {
         const map = {};

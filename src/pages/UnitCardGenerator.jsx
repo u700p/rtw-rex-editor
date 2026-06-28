@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 import { Download, Plus, Trash2, ExternalLink, Search, Info, RefreshCw, X, Image, ChevronDown, ChevronRight, CheckSquare, Square, Zap, FileText, AlertCircle } from 'lucide-react';
 import { parseEDU } from '../components/units/EDUParser';
-import { textBlob } from '@/lib/lineEndings';
+import { textBlob, toCRLF } from '@/lib/lineEndings';
+import { getEduRawText } from '@/lib/eduStorage';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -67,8 +69,10 @@ function smartPose(unit) {
 /** First valid faction from ownership list, falling back to DEFAULT_FACTIONS[0]. */
 function smartFaction(unit) {
   if (!unit) return DEFAULT_FACTIONS[0];
-  const own = (unit.ownership || []).map(f => f.toLowerCase()).filter(f => f !== 'slave' && f !== 'all_factions');
-  return own[0] || DEFAULT_FACTIONS[0];
+  const own = (unit.ownership || [])
+    .map(f => String(f || '').trim().toLowerCase())
+    .filter(Boolean);
+  return own.find(f => f !== 'all' && f !== 'all_factions') || own[0] || DEFAULT_FACTIONS[0];
 }
 
 /** Derive model file stem from soldier_model field (M2TW convention is soldier_model = lod0 base). */
@@ -89,9 +93,27 @@ function smartMountModel(unit) {
   return `mount_${m}`;
 }
 
+function sanitizeFactionFolder(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_/-]/g, '_')
+    .replace(/^\/+|\/+$/g, '') || DEFAULT_FACTIONS[0];
+}
+
+function sanitizeCardName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_.-]/g, '_') || 'unit_card';
+}
+
 /** Build a card entry with smart defaults from a full EDU unit. */
 function entryFromUnit(unit) {
   const faction    = smartFaction(unit);
+  const folder     = sanitizeFactionFolder(faction);
   const poseId     = smartPose(unit);
   const modelFile  = smartModelFile(unit);
   const isCavalry  = poseId >= 200 && poseId < 600;
@@ -111,7 +133,7 @@ function entryFromUnit(unit) {
     mainTexturePbr: `${factionAbbr}_${modelFile}_normal`,
     attachTextureAlb: '',
     attachTexturePbr: '',
-    outputDir: faction,
+    outputDir: folder,
     visibleModels: '',
     // Store EDU metadata for display in the panel
     _eduCategory: unit.category || '',
@@ -135,7 +157,7 @@ function parseFactionList() {
 
 function loadEduUnits() {
   try {
-    const raw = localStorage.getItem('m2tw_units_file');
+    const raw = getEduRawText();
     if (!raw) return [];
     return parseEDU(raw);
   } catch { return []; }
@@ -152,7 +174,7 @@ function newEntry() {
     additionalObject: '/', additionalObjectTexture: '/',
     modelFile: '', mainTextureAlb: '', mainTexturePbr: '',
     attachTextureAlb: '', attachTexturePbr: '',
-    outputDir: '', visibleModels: '',
+    outputDir: 'england', visibleModels: '',
   };
 }
 
@@ -171,7 +193,7 @@ function serializeInputFile(entries) {
       e.mainTexturePbr,
       e.attachTextureAlb,
       e.attachTexturePbr,
-      e.outputDir || e.faction,
+      sanitizeFactionFolder(e.outputDir || e.faction),
     ];
     if (e.visibleModels && e.visibleModels.trim()) {
       cols.push(...e.visibleModels.trim().split(/\s+/));
@@ -180,8 +202,28 @@ function serializeInputFile(entries) {
   }).join('\n');
 }
 
+function buildUiFolderPlan(entries) {
+  const folders = new Set();
+  const rows = [];
+  for (const entry of entries) {
+    const faction = sanitizeFactionFolder(entry.outputDir || entry.faction);
+    const card = sanitizeCardName(entry.portraitFilename);
+    folders.add(faction);
+    rows.push({
+      faction,
+      unitCard: `data/ui/units/${faction}/${card}.tga`,
+      infoCard: `data/ui/unit_info/${faction}/${card}_info.tga`,
+    });
+  }
+  return { folders: [...folders].sort(), rows };
+}
+
 function downloadText(content, filename) {
   const blob = textBlob(content);
+  downloadBlob(blob, filename);
+}
+
+function downloadBlob(blob, filename) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
@@ -198,7 +240,9 @@ function EntryForm({ entry, factions, onSave, onCancel }) {
 
   const handleFactionChange = (faction) => {
     set('faction', faction);
-    if (!d.outputDir || d.outputDir === d.faction) set('outputDir', faction);
+    if (!d.outputDir || d.outputDir === sanitizeFactionFolder(d.faction)) {
+      set('outputDir', sanitizeFactionFolder(faction));
+    }
   };
 
   return (
@@ -551,6 +595,29 @@ export default function UnitCardGenerator() {
     downloadText(serializeInputFile(entries), 'inputfile.txt');
   }, [entries]);
 
+  const exportUiFolders = useCallback(async () => {
+    if (!entries.length) return;
+    const zip = new JSZip();
+    const input = toCRLF(serializeInputFile(entries));
+    const plan = buildUiFolderPlan(entries);
+    zip.file('inputfile.txt', input);
+    for (const faction of plan.folders) {
+      zip.folder(`data/ui/units/${faction}`).file('.keep', '');
+      zip.folder(`data/ui/unit_info/${faction}`).file('.keep', '');
+    }
+    zip.file('ui_card_folder_plan.txt', toCRLF([
+      'Copy the generated portrait TGAs into these RTW folders:',
+      '',
+      ...plan.rows.flatMap(row => [
+        row.unitCard,
+        row.infoCard,
+        '',
+      ]),
+    ].join('\n')));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, 'rtw_unit_card_ui_folders.zip');
+  }, [entries]);
+
   const filtered = useMemo(() =>
     entries.filter(e => !search ||
       e.portraitFilename.toLowerCase().includes(search.toLowerCase()) ||
@@ -633,6 +700,13 @@ export default function UnitCardGenerator() {
               ? 'bg-green-600/20 hover:bg-green-600/40 border-green-500/40 text-green-400'
               : 'border-slate-700/30 text-slate-600 cursor-not-allowed opacity-40'}`}>
           <Download className="w-3 h-3" /> Export inputfile.txt
+        </button>
+        <button onClick={exportUiFolders} disabled={entries.length === 0}
+          className={`flex items-center gap-1 px-3 py-1 text-[10px] rounded font-semibold border transition-colors ${
+            entries.length > 0
+              ? 'bg-amber-600/20 hover:bg-amber-600/40 border-amber-500/40 text-amber-300'
+              : 'border-slate-700/30 text-slate-600 cursor-not-allowed opacity-40'}`}>
+          <Download className="w-3 h-3" /> Export UI folders
         </button>
       </div>
 

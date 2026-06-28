@@ -6,8 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { createPageUrl } from '@/utils';
 import { Link } from 'react-router-dom';
-import { setStringsBinStore, getStringsBinStore, clearStringsBinStore } from '@/lib/stringsBinStore';
+import { setTextLocalizationStore, getTextLocalizationStore, clearTextLocalizationStore } from '@/lib/textLocalizationStore';
 import { parseTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
+import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
+import { saveLargeText } from '@/lib/largeTextStore';
 import DataFolderPicker from '../components/home/DataFolderPicker';
 import romeHero from '../assets/rome/rome-hero.jpg';
 import romeLogo from '../assets/rome/rome-logo.png';
@@ -237,14 +239,14 @@ export default function Home() {
   const [fileStatus, setFileStatus] = useState(() => {
     // Show 'ok' for files already cached in localStorage from a previous session
     const ls = (k) => {try {return !!localStorage.getItem(k);} catch {return false;}};
-    const stringsStore = getStringsBinStore();
+    const stringsStore = getTextLocalizationStore();
     const stringsCount = Object.keys(stringsStore).length;
     return {
       edb: ls('m2tw_edb_file') ? 'ok' : 'idle',
       fac: ls('m2tw_factions_file') ? 'ok' : 'idle',
       res: ls('m2tw_resources_file') ? 'ok' : 'idle',
       ev: ls('m2tw_events_file') ? 'ok' : 'idle',
-      unit: ls('m2tw_units_file') ? 'ok' : 'idle',
+      unit: getEduRawText() ? 'ok' : 'idle',
       txt: ls('m2tw_edb_txt_file') ? 'ok' : 'idle',
       traits: ls('m2tw_traits_file') ? 'ok' : 'idle',
       anc: ls('m2tw_anc_file') ? 'ok' : 'idle',
@@ -267,7 +269,7 @@ export default function Home() {
   const [modName, setModName] = useState(() => {
     try {return localStorage.getItem('m2tw_mod_name') || 'my_mod';} catch {return 'my_mod';}
   });
-  const [textLocCount, setTextLocCount] = useState(() => Object.keys(getStringsBinStore()).length);
+  const [textLocCount, setTextLocCount] = useState(() => Object.keys(getTextLocalizationStore()).length);
   const [ancImgCount, setAncImgCount] = useState(0);
   const [mapFileCount, setMapFileCount] = useState(0);
   const [unitImgCount, setUnitImgCount] = useState(0);
@@ -382,18 +384,20 @@ export default function Home() {
       let textOverride = null;
       const isTextLocalizationFile = name.endsWith('.txt') && (pathFramed.includes('/text/') || TEXT_LOCALIZATION_FILENAMES.has(name));
       if (isTextLocalizationFile) {
+        await yieldToBrowser();
         textOverride = await readText(file);
         const locMap = parseTextLocFile(textOverride);
         const entries = textLocMapToEntries(locMap);
+        await yieldToBrowser();
         if (entries.length > 0) {
           const storeName = name === 'expanded.txt' ? 'expanded_bi.txt' : file.name;
-          textLocFiles[storeName] = { entries, sourceFormat: 'txt' };
+          textLocFiles[storeName] = { entries, rawText: textOverride, sourceFormat: 'txt' };
           const normalizedEntries = entries.map((entry) => ({
             key: String(entry.key || '').trim().replace(/^\{/, '').replace(/\}$/, ''),
             value: entry.value ?? ''
           }));
           if (/^expanded(?:_bi|_bi_wip)?\.txt$/i.test(name)) {
-            try { localStorage.setItem('rtw_expanded_text_global', JSON.stringify({ entries: normalizedEntries })); } catch {}
+            try { localStorage.setItem('rtw_expanded_text_global', JSON.stringify({ entries: normalizedEntries, rawText: textOverride })); } catch {}
           } else if (name === 'menu_english.txt' || name === 'menu.txt') {
             try { localStorage.setItem('rtw_menu_text_global', JSON.stringify({ entries: normalizedEntries })); } catch {}
             window.dispatchEvent(new CustomEvent('menu-strings-updated'));
@@ -574,11 +578,12 @@ export default function Home() {
             window.dispatchEvent(new CustomEvent('load-anctxt', { detail: { content: text, filename: file.name } }));
           }
           if (key === 'modeldb') {
-            localStorage.setItem('m2tw_modeldb_file_name', file.name);
             if (name === 'descr_model_battle.txt') {
-              localStorage.setItem('m2tw_descr_model_battle_file', text);
-              localStorage.setItem('m2tw_descr_model_battle_name', file.name);
+              try { localStorage.setItem('m2tw_descr_model_battle_file', text); } catch {}
+              try { localStorage.setItem('m2tw_descr_model_battle_name', file.name); } catch {}
+              saveLargeText('m2tw_descr_model_battle_file', text, { filename: file.name }).catch(() => {});
             }
+            try { localStorage.setItem('m2tw_modeldb_file_name', file.name); } catch {}
             window.dispatchEvent(new CustomEvent('modeldb-file-loaded', { detail: { text, filename: file.name } }));
           }
           if (key === 'cultures') window.dispatchEvent(new CustomEvent('cultures-file-loaded', { detail: { text, filename: file.name } }));
@@ -605,13 +610,7 @@ export default function Home() {
         }
         // Store EDU in localStorage for campaign map editor
         if (key === 'unit') {
-          try {
-            const units = [...new Set(text.split('\n').map(line => line.replace(/;.*$/, '').trim().match(/^type\s+(.+)/i)?.[1]?.trim()).filter(Boolean))].sort();
-            localStorage.setItem('m2tw_units_file', text);
-            localStorage.setItem('m2tw_edu_file_name', file.name);
-            if (units.length) localStorage.setItem('m2tw_edu_units_list', JSON.stringify(units));
-            sessionStorage.setItem('m2tw_edu_raw', text);
-          } catch {}
+          setEduRawText(text, file.name);
           window.dispatchEvent(new CustomEvent('edu-file-loaded'));
         }
       }
@@ -622,9 +621,9 @@ export default function Home() {
     const localizationFiles = { ...textLocFiles };
     if (Object.keys(localizationFiles).length > 0) {
       setFileStatus((prev) => ({ ...prev, text_loc: 'loading' }));
-      const existing = getStringsBinStore();
+      const existing = getTextLocalizationStore();
       const merged = { ...existing, ...localizationFiles };
-      setStringsBinStore(merged);
+      setTextLocalizationStore(merged);
       // Dispatch specific events for vnvs/ancillaries text files so contexts pick them up directly
       for (const [filename, binData] of Object.entries(localizationFiles)) {
         const lname = filename.toLowerCase();
@@ -642,7 +641,7 @@ export default function Home() {
           setFileStatus((prev) => ({ ...prev, txt: 'ok' }));
         }
       }
-      window.dispatchEvent(new CustomEvent('strings-bin-updated', { detail: { bulk: true } }));
+      window.dispatchEvent(new CustomEvent('text-localization-updated', { detail: { bulk: true } }));
       setTextLocCount(Object.keys(merged).length);
       setFileStatus((prev) => ({ ...prev, text_loc: 'ok' }));
     }
@@ -895,18 +894,20 @@ export default function Home() {
 
       const isTextLocalizationFile = name.endsWith('.txt') && (pathFramed.includes('/text/') || TEXT_LOCALIZATION_FILENAMES.has(name));
       if (isTextLocalizationFile) {
+        await yieldToBrowser();
         const text = await readText(file);
         const locMap = parseTextLocFile(text);
         const entries = textLocMapToEntries(locMap);
+        await yieldToBrowser();
         if (entries.length > 0) {
           const storeName = name === 'expanded.txt' ? 'expanded_bi.txt' : file.name;
-          textLocFiles[storeName] = { entries, sourceFormat: 'txt' };
+          textLocFiles[storeName] = { entries, rawText: text, sourceFormat: 'txt' };
           const normalizedEntries = entries.map((entry) => ({
             key: String(entry.key || '').trim().replace(/^\{/, '').replace(/\}$/, ''),
             value: entry.value ?? ''
           }));
           if (/^expanded(?:_bi|_bi_wip)?\.txt$/i.test(name)) {
-            try { localStorage.setItem('rtw_expanded_text_global', JSON.stringify({ entries: normalizedEntries })); } catch {}
+            try { localStorage.setItem('rtw_expanded_text_global', JSON.stringify({ entries: normalizedEntries, rawText: text })); } catch {}
           } else if (name === 'menu_english.txt' || name === 'menu.txt') {
             try { localStorage.setItem('rtw_menu_text_global', JSON.stringify({ entries: normalizedEntries })); } catch {}
             window.dispatchEvent(new CustomEvent('menu-strings-updated'));
@@ -968,11 +969,11 @@ export default function Home() {
     // Flush text localization files into shared store
     const localizationFiles = { ...textLocFiles };
     if (Object.keys(localizationFiles).length > 0) {
-      const { getStringsBinStore, setStringsBinStore } = await import('@/lib/stringsBinStore');
-      const existing = getStringsBinStore();
+      const { getTextLocalizationStore, setTextLocalizationStore } = await import('@/lib/textLocalizationStore');
+      const existing = getTextLocalizationStore();
       const merged = { ...existing, ...localizationFiles };
-      setStringsBinStore(merged);
-      window.dispatchEvent(new CustomEvent('strings-bin-updated', { detail: { bulk: true } }));
+      setTextLocalizationStore(merged);
+      window.dispatchEvent(new CustomEvent('text-localization-updated', { detail: { bulk: true } }));
       setTextLocCount(Object.keys(merged).length);
       setFileStatus((prev) => ({ ...prev, text_loc: 'ok' }));
     }
@@ -1000,7 +1001,7 @@ export default function Home() {
       // Nuke everything — localStorage, sessionStorage, and window globals
       localStorage.clear();
       sessionStorage.clear();
-      clearStringsBinStore();
+      clearTextLocalizationStore();
       window._m2tw_resource_icons = {};
       window._m2tw_map_files = [];
       window._m2tw_unit_images = {};

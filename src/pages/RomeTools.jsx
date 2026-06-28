@@ -6,6 +6,9 @@ import { parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { parseDescrSmFactions, serializeDescrSmFactions } from '@/lib/descrSmFactionsCodec';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
+import { getEduRawText } from '@/lib/eduStorage';
+import { loadLargeText, saveLargeText } from '@/lib/largeTextStore';
+import { patchDmbSlaveTextures } from '@/lib/dmbSlaveTextures';
 import romeUi from '@/assets/rome/rome-ui.jpg';
 
 function downloadBlob(blob, filename) {
@@ -34,6 +37,23 @@ function makeUniqueName(base, taken) {
 
 function readFileText(file) {
   return file ? file.text() : Promise.resolve('');
+}
+
+async function getLoadedDmbText() {
+  try {
+    const direct = localStorage.getItem('m2tw_descr_model_battle_file');
+    if (direct) return direct;
+    const name = localStorage.getItem('m2tw_modeldb_file_name') || '';
+    if (name.toLowerCase() === 'descr_model_battle.txt') {
+      const shared = localStorage.getItem('m2tw_modeldb_file');
+      if (shared) return shared;
+    }
+  } catch {}
+  try {
+    const record = await loadLargeText('m2tw_descr_model_battle_file');
+    if (record?.text) return record.text;
+  } catch {}
+  return '';
 }
 
 function parseDependencyReport(unit, modelText) {
@@ -87,7 +107,7 @@ function UnitImporterTab() {
 
   const loadLocalTarget = () => {
     try {
-      const raw = localStorage.getItem('m2tw_units_file');
+      const raw = getEduRawText();
       if (raw) setTargetEdu(raw);
       const loc = localStorage.getItem('m2tw_export_units_file');
       if (loc) setTargetText(loc);
@@ -210,6 +230,97 @@ function UnitImporterTab() {
   );
 }
 
+function DmbSlaveTextureTab() {
+  const [dmbText, setDmbText] = useState('');
+  const [eduText, setEduText] = useState('');
+  const [targets, setTargets] = useState('cisra_01, itanos_01, massilia_01, thamud_01, kos_01');
+  const [patchedText, setPatchedText] = useState('');
+  const [log, setLog] = useState('');
+  const [message, setMessage] = useState('');
+
+  const useLoadedFiles = async () => {
+    const loadedEdu = getEduRawText();
+    const loadedDmb = await getLoadedDmbText();
+    setEduText(loadedEdu);
+    setDmbText(loadedDmb);
+    setMessage(`${loadedDmb ? 'Loaded DMB' : 'No loaded DMB found'}; ${loadedEdu ? 'loaded EDU' : 'no loaded EDU found'}.`);
+  };
+
+  const runPatch = () => {
+    if (!dmbText.trim() || !eduText.trim() || !targets.trim()) {
+      setMessage('Load descr_model_battle.txt, export_descr_unit.txt, and at least one target faction.');
+      return;
+    }
+    const result = patchDmbSlaveTextures(dmbText, eduText, targets);
+    setPatchedText(result.text);
+    setLog(result.log);
+    setMessage(`Patched ${result.changes.length} DMB blocks. Missing type refs: ${result.missingTypes.length}.`);
+    try { localStorage.setItem('rtw_tools_last_output', result.log); } catch {}
+  };
+
+  const downloadPatch = async () => {
+    if (!patchedText) return;
+    const zip = new JSZip();
+    zip.file('descr_model_battle.txt', toCRLF(patchedText));
+    zip.file('descr_model_battle_slave_texture_patch.log.txt', toCRLF(log));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, 'dmb_slave_texture_patch.zip');
+  };
+
+  const applyPatch = () => {
+    if (!patchedText) return;
+    try {
+      localStorage.setItem('m2tw_descr_model_battle_file', patchedText);
+      localStorage.setItem('m2tw_descr_model_battle_name', 'descr_model_battle.txt');
+      localStorage.setItem('m2tw_modeldb_file_name', 'descr_model_battle.txt');
+    } catch {}
+    saveLargeText('m2tw_descr_model_battle_file', patchedText, { filename: 'descr_model_battle.txt' }).catch(() => {});
+    window.dispatchEvent(new CustomEvent('modeldb-file-loaded', {
+      detail: { text: patchedText, filename: 'descr_model_battle.txt' },
+    }));
+    setMessage('Applied patched DMB to the loaded Battle Models data.');
+  };
+
+  return (
+    <div className="grid grid-cols-[340px_1fr_320px] gap-3 min-h-0">
+      <div className="space-y-3">
+        <FileInput label="descr_model_battle.txt" accept=".txt" onText={setDmbText} />
+        <FileInput label="export_descr_unit.txt" accept=".txt" onText={setEduText} />
+        <TextField label="Target factions" value={targets} onChange={setTargets} />
+        <Button variant="outline" className="w-full h-8 text-xs" onClick={useLoadedFiles}>Use loaded files</Button>
+        <Button className="w-full h-8 text-xs gap-1.5" onClick={runPatch}>
+          <Wand2 className="w-3.5 h-3.5" />
+          Patch from slave textures
+        </Button>
+        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" disabled={!patchedText} onClick={applyPatch}>
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Apply to loaded DMB
+        </Button>
+        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" disabled={!patchedText} onClick={downloadPatch}>
+          <Download className="w-3.5 h-3.5" />
+          Download patched zip
+        </Button>
+        <p className="text-xs text-amber-300">{message}</p>
+        <div className="rounded border border-slate-700 bg-slate-900/60 p-3 text-[11px] text-slate-400">
+          Copies each matching DMB block's <span className="font-mono text-slate-200">texture slave, ...</span> path
+          to missing target factions used by EDU soldier, officer, and mount refs.
+        </div>
+      </div>
+
+      <textarea
+        value={patchedText || dmbText}
+        onChange={e => setPatchedText(e.target.value)}
+        className="min-h-[560px] rounded border border-slate-700 bg-black/30 p-3 text-[11px] font-mono text-slate-200"
+        placeholder="Patched descr_model_battle.txt appears here."
+      />
+
+      <pre className="min-h-[560px] overflow-auto rounded border border-slate-700 bg-black/30 p-3 text-[10px] text-slate-300 whitespace-pre-wrap">
+        {log || 'Patch log appears here.'}
+      </pre>
+    </div>
+  );
+}
+
 function FileInput({ label, accept, onText, onBuffer }) {
   const handle = async (e) => {
     const file = e.target.files?.[0];
@@ -312,14 +423,22 @@ function colorDistance(a, b) {
   return Math.sqrt(dr * dr + dg * dg + db * db);
 }
 
-function isProtectedMaterial(pixel, hsl, settings) {
+function materialProtectionType(pixel, hsl, settings) {
   if (!settings.protectMaterials) return false;
   const { r, g, b } = pixel;
-  const skinLike = hsl.h >= 12 && hsl.h <= 48 && hsl.s >= 0.14 && hsl.s <= 0.72 && hsl.l >= 0.22 && hsl.l <= 0.84 && r >= g * 0.88 && g >= b * 0.72;
-  const leatherOrHair = hsl.h >= 12 && hsl.h <= 55 && hsl.s >= 0.08 && hsl.l >= 0.06 && hsl.l <= 0.52;
-  const steelOrIron = hsl.s <= 0.18 && hsl.l >= 0.12 && hsl.l <= 0.88;
-  const bronzeOrGold = hsl.h >= 34 && hsl.h <= 62 && hsl.s >= 0.16 && hsl.l >= 0.22 && hsl.l <= 0.78;
-  return skinLike || leatherOrHair || steelOrIron || bronzeOrGold;
+  const spread = Math.max(r, g, b) - Math.min(r, g, b);
+  const skinLike = hsl.h >= 4 && hsl.h <= 52 && hsl.s >= 0.12 && hsl.s <= 0.78 &&
+    hsl.l >= 0.20 && hsl.l <= 0.86 && r >= g * 0.78 && r > b * 1.12 && g > b * 0.70;
+  const darkHairLeather = hsl.h >= 10 && hsl.h <= 48 && hsl.s >= 0.10 &&
+    hsl.l >= 0.035 && hsl.l <= 0.46 && r >= g * 0.68 && g >= b * 0.45;
+  const steelOrIron = (hsl.s <= 0.16 || spread <= 30) && hsl.l >= 0.10 && hsl.l <= 0.92;
+  const bronzeOrGold = hsl.h >= 30 && hsl.h <= 62 && hsl.s >= 0.18 && hsl.s <= 0.82 &&
+    hsl.l >= 0.18 && hsl.l <= 0.80 && r > b * 1.24 && g > b * 0.94;
+  if (skinLike) return 'skin';
+  if (steelOrIron) return 'metal';
+  if (darkHairLeather) return 'leather';
+  if (bronzeOrGold) return 'bronze';
+  return false;
 }
 
 function recolorPasses(settings) {
@@ -353,7 +472,6 @@ function recolorImageData(imageData, settings) {
     if (a < 8) continue;
     const pixel = { r: d[i], g: d[i + 1], b: d[i + 2] };
     const hsl = rgbToHsl(pixel.r, pixel.g, pixel.b);
-    if (isProtectedMaterial(pixel, hsl, settings)) continue;
     if (!settings.recolorNeutrals && hsl.s < minSat) continue;
     let best = null;
     for (const pass of passes) {
@@ -362,12 +480,18 @@ function recolorImageData(imageData, settings) {
       const score = Math.sqrt(hueMask * rgbMask);
       if (!best || score > best.score) best = { ...pass, score };
     }
+    const protectedType = materialProtectionType(pixel, hsl, settings);
+    if (protectedType === 'skin' || protectedType === 'metal') continue;
+    if (protectedType && (best?.score || 0) < 0.84) continue;
     const satMask = hsl.s >= minSat ? 1 : 0.38;
     const detailMask = settings.protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;
-    const mask = smoothMask((best?.score || 0) * satMask * detailMask) * strength;
+    const materialMask = protectedType ? 0.25 : 1;
+    const mask = smoothMask((best?.score || 0) * satMask * detailMask * materialMask) * strength;
     if (mask <= 0) continue;
-    const targetSat = clamp01(hsl.s * 0.7 + best.tgt.s * 0.3);
-    const targetLight = settings.preserveLight ? hsl.l : clamp01(hsl.l * 0.82 + best.tgt.l * 0.18);
+    const exactMix = settings.exactTarget ? 0.88 : 0.42;
+    const targetSat = clamp01(hsl.s * (1 - exactMix) + best.tgt.s * exactMix);
+    const baseLight = settings.preserveLight ? hsl.l : clamp01(hsl.l * 0.64 + best.tgt.l * 0.36);
+    const targetLight = clamp01(baseLight + Number(settings.lightnessShift || 0) / 100);
     const recolored = hslToRgb(best.tgt.h, targetSat, targetLight);
     d[i] = Math.round(d[i] * (1 - mask) + recolored.r * mask);
     d[i + 1] = Math.round(d[i + 1] * (1 - mask) + recolored.g * mask);
@@ -583,9 +707,10 @@ function TextureRecolorTab() {
     source: '#9e1a1a', target: '#2f6fc0', tolerance: 38, rgbTolerance: 190, strength: 88, minSat: 18,
     secondarySource: '#d7c04a', secondaryTarget: '#e4e4e4',
     tertiarySource: '#2d6d37', tertiaryTarget: '#8c2f2f',
+    lightnessShift: 0,
     suffix: '_recolor', outputFormat: 'both',
     useSource: true, preserveLight: true, recolorNeutrals: false, protectExtremes: true,
-    protectMaterials: true, secondaryEnabled: false, tertiaryEnabled: false,
+    protectMaterials: true, exactTarget: true, secondaryEnabled: false, tertiaryEnabled: false,
   });
   const [preview, setPreview] = useState(null);
   const [status, setStatus] = useState('');
@@ -671,26 +796,23 @@ function TextureRecolorTab() {
           <input type="checkbox" checked={settings.secondaryEnabled} onChange={e => update('secondaryEnabled', e.target.checked)} className="accent-amber-500" />
           Secondary color pass
         </label>
-        {settings.secondaryEnabled && (
-          <div className="grid grid-cols-2 gap-2">
-            <Swatch label="Secondary source" value={settings.secondarySource} onChange={v => update('secondarySource', v)} />
-            <Swatch label="Secondary target" value={settings.secondaryTarget} onChange={v => update('secondaryTarget', v)} />
-          </div>
-        )}
+        <div className={`grid grid-cols-2 gap-2 rounded border border-slate-800/70 p-2 ${settings.secondaryEnabled ? 'bg-slate-900/50' : 'bg-slate-950/40 opacity-70'}`}>
+          <Swatch label="Secondary source" value={settings.secondarySource} onChange={v => update('secondarySource', v)} />
+          <Swatch label="Secondary target" value={settings.secondaryTarget} onChange={v => update('secondaryTarget', v)} />
+        </div>
         <label className="flex items-center gap-2 text-xs text-slate-300">
           <input type="checkbox" checked={settings.tertiaryEnabled} onChange={e => update('tertiaryEnabled', e.target.checked)} className="accent-amber-500" />
           Tertiary color pass
         </label>
-        {settings.tertiaryEnabled && (
-          <div className="grid grid-cols-2 gap-2">
-            <Swatch label="Tertiary source" value={settings.tertiarySource} onChange={v => update('tertiarySource', v)} />
-            <Swatch label="Tertiary target" value={settings.tertiaryTarget} onChange={v => update('tertiaryTarget', v)} />
-          </div>
-        )}
+        <div className={`grid grid-cols-2 gap-2 rounded border border-slate-800/70 p-2 ${settings.tertiaryEnabled ? 'bg-slate-900/50' : 'bg-slate-950/40 opacity-70'}`}>
+          <Swatch label="Tertiary source" value={settings.tertiarySource} onChange={v => update('tertiarySource', v)} />
+          <Swatch label="Tertiary target" value={settings.tertiaryTarget} onChange={v => update('tertiaryTarget', v)} />
+        </div>
         <Range label="Hue tolerance" value={settings.tolerance} min={1} max={180} onChange={v => update('tolerance', v)} />
         <Range label="RGB tolerance" value={settings.rgbTolerance} min={24} max={360} onChange={v => update('rgbTolerance', v)} />
         <Range label="Strength" value={settings.strength} min={1} max={100} onChange={v => update('strength', v)} />
         <Range label="Minimum saturation" value={settings.minSat} min={0} max={100} onChange={v => update('minSat', v)} />
+        <Range label="Lightness shift" value={settings.lightnessShift} min={-35} max={35} onChange={v => update('lightnessShift', v)} />
         <label className="block">
           <span className="text-[10px] uppercase text-slate-500">Batch suffix</span>
           <input
@@ -713,6 +835,7 @@ function TextureRecolorTab() {
         </label>
         {[
           ['useSource', 'Match source hue'],
+          ['exactTarget', 'Use exact target color'],
           ['preserveLight', 'Preserve shadows/highlights'],
           ['recolorNeutrals', 'Allow low-saturation pixels'],
           ['protectExtremes', 'Protect black/white detail'],
@@ -965,6 +1088,7 @@ export default function RomeTools() {
   const tabs = [
     ['importer', 'Unit Importer', FileText],
     ['recolor', 'Texture Recolorizer', Wand2],
+    ['dmb-slave', 'DMB Textures', FileText],
     ['duplicate', 'Duplicators', Copy],
   ];
 
@@ -992,6 +1116,7 @@ export default function RomeTools() {
       <div className="flex-1 min-h-0 p-3 overflow-auto">
         {tab === 'importer' && <UnitImporterTab />}
         {tab === 'recolor' && <TextureRecolorTab />}
+        {tab === 'dmb-slave' && <DmbSlaveTextureTab />}
         {tab === 'duplicate' && <DuplicatorsTab />}
       </div>
       <div className="h-8 border-t border-slate-800 px-3 flex items-center gap-2 text-[10px] text-slate-500">

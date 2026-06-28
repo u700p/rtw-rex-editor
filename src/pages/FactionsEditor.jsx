@@ -14,10 +14,13 @@ import FactionSymbolsTab from '@/components/factions/FactionSymbolsTab';
 import { textBlob } from '@/lib/lineEndings';
 import { parseTextLocFile, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { ensureRtwFactionLocEntries } from '@/lib/factionLoc';
+import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
+import { getTextLocalizationStore, hydrateTextLocalizationStore, updateTextLocalizationFile } from '@/lib/textLocalizationStore';
 
 const LS_OFFMAP = 'm2tw_offmap_models';
 const LS_GLOBAL_STRINGS = 'rtw_expanded_text_global';
 const LS_MENU_STRINGS = 'rtw_menu_text_global';
+const EXPANDED_BI_FILE = 'expanded_bi.txt';
 
 function normalizeLocKey(key) {
   return String(key || '').trim().replace(/^\{/, '').replace(/\}$/, '');
@@ -30,6 +33,48 @@ function entriesToText(entries) {
     if (key) map[key] = entry.value ?? '';
   }
   return serializeTextLocFile(map);
+}
+
+function getExpandedStringsData() {
+  const store = getTextLocalizationStore();
+  const expanded = store[EXPANDED_BI_FILE] || store['expanded.txt'];
+  if (expanded?.entries?.length) {
+    return {
+      entries: expanded.entries.map((entry) => ({
+        key: normalizeLocKey(entry.key),
+        value: entry.value ?? '',
+      })),
+      rawText: expanded.rawText || '',
+    };
+  }
+
+  try {
+    const raw = localStorage.getItem(LS_GLOBAL_STRINGS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        entries: (parsed.entries || parsed || []).map((entry) => ({
+          key: normalizeLocKey(entry.key),
+          value: entry.value ?? '',
+        })),
+        rawText: parsed.rawText || '',
+      };
+    }
+  } catch {}
+
+  return { entries: [], rawText: '' };
+}
+
+function persistExpandedStrings(entries, rawText = '') {
+  const normalizedEntries = (entries || [])
+    .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }))
+    .filter((entry) => entry.key);
+  updateTextLocalizationFile(EXPANDED_BI_FILE, {
+    entries: normalizedEntries,
+    rawText,
+    sourceFormat: 'txt',
+  });
+  try { localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries: normalizedEntries, rawText })); } catch {}
 }
 
 /** Inject {UI_FACTION_X} and {UI_FACTION_X_DESCRIPTION} into menu strings if missing */
@@ -69,6 +114,58 @@ function autoInsertNavyEntry(name) {
   } catch {}
 }
 
+function copyEduOwnershipFromFaction(sourceFaction, targetFaction) {
+  const src = String(sourceFaction || '').trim();
+  const dst = String(targetFaction || '').trim();
+  if (!src || !dst || src.toLowerCase() === dst.toLowerCase()) return false;
+
+  const raw = getEduRawText();
+  if (!raw) return false;
+
+  const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  let changed = false;
+  let unitHasSource = false;
+
+  const flushUnit = (block) => {
+    if (!unitHasSource) return block;
+    unitHasSource = false;
+    return block.map((line) => {
+      const match = line.match(/^(\s*ownership\s+)([^;]*)(.*)$/i);
+      if (!match) return line;
+      const owners = match[2].split(',').map(part => part.trim()).filter(Boolean);
+      const lowerOwners = owners.map(owner => owner.toLowerCase());
+      if (lowerOwners.includes('all') || lowerOwners.includes(dst.toLowerCase())) return line;
+      if (!lowerOwners.includes(src.toLowerCase())) return line;
+      changed = true;
+      return `${match[1]}${[...owners, dst].join(', ')}${match[3] || ''}`;
+    });
+  };
+
+  const out = [];
+  let block = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const startsUnit = /^type\s+/i.test(trimmed) && !/^voice_type\s+/i.test(trimmed);
+    if (startsUnit && block.length) {
+      out.push(...flushUnit(block));
+      block = [];
+      unitHasSource = false;
+    }
+    block.push(line);
+    const ownership = line.match(/^\s*ownership\s+([^;]*)/i);
+    if (ownership) {
+      const owners = ownership[1].split(',').map(part => part.trim().toLowerCase()).filter(Boolean);
+      if (owners.includes(src.toLowerCase())) unitHasSource = true;
+    }
+  }
+  if (block.length) out.push(...flushUnit(block));
+
+  if (!changed) return false;
+  setEduRawText(out.join('\n'), 'export_descr_unit.txt');
+  window.dispatchEvent(new CustomEvent('edu-file-loaded'));
+  return true;
+}
+
 const VANILLA_FACTION_LIMIT = 31;
 const LS_KEY = 'm2tw_sm_factions_raw';
 const LS_CULT = 'm2tw_cultures_list';
@@ -88,11 +185,7 @@ function saveFactionsRaw(text, filename = '') {
 function saveEduRaw(text, filename = '') {
   const list = parseEduUnits(text);
   try { localStorage.setItem(LS_UNITS, JSON.stringify(list)); } catch {}
-  try { localStorage.setItem('m2tw_units_file', text); } catch {}
-  try { sessionStorage.setItem('m2tw_edu_raw', text); } catch {}
-  if (filename) {
-    try { localStorage.setItem('m2tw_edu_file_name', filename); } catch {}
-  }
+  setEduRawText(text, filename);
 }
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
@@ -664,7 +757,7 @@ export default function FactionsEditor() {
       } catch {}
       try {
         const raw = localStorage.getItem(LS_UNITS);
-        const fallback = localStorage.getItem('m2tw_units_file') || sessionStorage.getItem('m2tw_edu_raw');
+        const fallback = getEduRawText();
         if (raw) setEduUnits(JSON.parse(raw));
         else if (fallback) {
           const list = parseEduUnits(fallback);
@@ -673,11 +766,12 @@ export default function FactionsEditor() {
         }
       } catch {}
       try {if (localStorage.getItem(BANNERS_GLOBAL_KEY)) setBannersLoaded(true);} catch {}
-      try {if (localStorage.getItem(LS_GLOBAL_STRINGS)) setStringsLoaded(true);} catch {}
+      setStringsLoaded(getExpandedStringsData().entries.length > 0);
       try {if (localStorage.getItem(LS_MENU_STRINGS)) setMenuStringsLoaded(true);} catch {}
     };
     loadCached();
-    const events = ['factions-file-loaded', 'edu-file-loaded', 'cultures-file-loaded', 'religions-file-loaded', 'storage'];
+    hydrateTextLocalizationStore().then(loadCached);
+    const events = ['factions-file-loaded', 'edu-file-loaded', 'cultures-file-loaded', 'religions-file-loaded', 'text-localization-updated', 'storage'];
     events.forEach(event => window.addEventListener(event, loadCached));
     return () => events.forEach(event => window.removeEventListener(event, loadCached));
   }, []);
@@ -738,9 +832,8 @@ export default function FactionsEditor() {
     const entries = textLocMapToEntries(parseTextLocFile(text))
       .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value }));
     if (entries.length) {
-      localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries }));
+      persistExpandedStrings(entries, text);
       setStringsLoaded(true);
-      window.dispatchEvent(new CustomEvent('strings-bin-updated'));
     }
     e.target.value = '';
   }, []);
@@ -964,20 +1057,7 @@ export default function FactionsEditor() {
     
     // Duplicate localization entries from source faction
     try {
-      const storedData = localStorage.getItem(LS_GLOBAL_STRINGS);
-      let storedEntries = [];
-      
-      if (storedData) {
-        try {
-          const parsed = JSON.parse(storedData);
-          storedEntries = (parsed.entries || parsed).map((entry) => ({
-            key: normalizeLocKey(entry.key),
-            value: entry.value ?? ''
-          }));
-        } catch {
-          storedEntries = [];
-        }
-      }
+      const { entries: storedEntries, rawText } = getExpandedStringsData();
       
       const srcNameUpper = src.name.toUpperCase();
       const srcNameLower = src.name.toLowerCase();
@@ -1063,12 +1143,13 @@ export default function FactionsEditor() {
       
       // Add the duplicated entries and save with proper structure
       const updated = [...filtered, ...newEntries];
-      localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries: updated }));
-      window.dispatchEvent(new CustomEvent('strings-bin-updated'));
+      persistExpandedStrings(updated, rawText);
+      setStringsLoaded(true);
     } catch (err) {
       console.error('Failed to duplicate strings:', err);
     }
     
+    copyEduOwnershipFromFaction(src.name, newFactionName);
     autoInsertNavyEntry(newFactionName);
     injectMenuStringsForFaction(newFactionName, duplicateStrings.displayName || newFactionName);
     setDuplicateModalOpen(false);
