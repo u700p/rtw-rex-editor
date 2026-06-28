@@ -293,10 +293,8 @@ export default function Home() {
     conditionalRemove('m2tw_edb_file',          fileNames.has('export_descr_buildings.txt'));
     conditionalRemove('m2tw_edb_file_name',      fileNames.has('export_descr_buildings.txt'));
     conditionalRemove('m2tw_edb_txt_file',       fileNames.has('export_buildings.txt'));
-    conditionalRemove('m2tw_factions_file',      fileNames.has('descr_sm_factions.txt'));
     conditionalRemove('m2tw_resources_file',     fileNames.has('descr_sm_resources.txt'));
     conditionalRemove('m2tw_events_file',        fileNames.has('descr_events.txt'));
-    conditionalRemove('m2tw_units_file',         fileNames.has('export_descr_unit.txt'));
     conditionalRemove('m2tw_traits_file',        fileNames.has('export_descr_character_traits.txt'));
     conditionalRemove('m2tw_anc_file',           fileNames.has('export_descr_ancillaries.txt'));
     conditionalRemove('m2tw_export_units_file',  fileNames.has('export_units.txt'));

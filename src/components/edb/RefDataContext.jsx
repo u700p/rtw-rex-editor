@@ -74,20 +74,28 @@ function parseUnitTypeList(text) {
   return [...new Set(values)].sort();
 }
 
+function setLocal(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+
+function setSession(key, value) {
+  try { sessionStorage.setItem(key, value); } catch {}
+}
+
 function saveFactionsText(text, filename) {
-  localStorage.setItem(LS_KEYS.factions, text);
-  localStorage.setItem('m2tw_sm_factions_raw', text);
-  localStorage.setItem('m2tw_factions_raw', text);
-  sessionStorage.setItem('m2tw_factions_raw', text);
-  if (filename) localStorage.setItem('m2tw_factions_file_name', filename);
+  setLocal(LS_KEYS.factions, text);
+  setLocal('m2tw_sm_factions_raw', text);
+  setLocal('m2tw_factions_raw', text);
+  setSession('m2tw_factions_raw', text);
+  if (filename) setLocal('m2tw_factions_file_name', filename);
 }
 
 function saveUnitsText(text, filename) {
-  localStorage.setItem(LS_KEYS.units, text);
-  sessionStorage.setItem('m2tw_edu_raw', text);
-  if (filename) localStorage.setItem('m2tw_edu_file_name', filename);
+  setLocal(LS_KEYS.units, text);
+  setSession('m2tw_edu_raw', text);
+  if (filename) setLocal('m2tw_edu_file_name', filename);
   const units = parseUnitTypeList(text);
-  if (units.length) localStorage.setItem('m2tw_edu_units_list', JSON.stringify(units));
+  if (units.length) setLocal('m2tw_edu_units_list', JSON.stringify(units));
 }
 
 export function RefDataProvider({ children }) {
@@ -173,10 +181,8 @@ export function RefDataProvider({ children }) {
     const result = parseFactionsFile(text);
     if (result.factions) setFactions(result.factions);
     if (result.cultures) setCultures(result.cultures);
-    try {
-      saveFactionsText(text, filename);
-      window.dispatchEvent(new CustomEvent('factions-file-loaded'));
-    } catch {}
+    saveFactionsText(text, filename);
+    window.dispatchEvent(new CustomEvent('factions-file-loaded'));
   }, []);
 
   const loadResourcesFile = useCallback((text) => {
@@ -209,10 +215,8 @@ export function RefDataProvider({ children }) {
   const loadUnitsFile = useCallback((text, filename = '') => {
     const u = parseUnitsFile(text);
     if (u.length) setUnits(u);
-    try {
-      saveUnitsText(text, filename);
-      window.dispatchEvent(new CustomEvent('edu-file-loaded'));
-    } catch {}
+    saveUnitsText(text, filename);
+    window.dispatchEvent(new CustomEvent('edu-file-loaded'));
   }, []);
 
   const loadSkeletonFile = useCallback((text) => {

@@ -29,16 +29,18 @@ function saveUnits(units) {
 }
 
 function saveEduRaw(text, filename = '') {
-  try {
-    localStorage.setItem(EDU_FILE_KEY, text);
-    sessionStorage.setItem('m2tw_edu_raw', text);
-    if (filename) localStorage.setItem(EDU_FILE_NAME_KEY, filename);
-    const unitNames = [...new Set(String(text || '').split('\n')
-      .map(line => line.replace(/;.*$/, '').trim().match(/^type\s+(.+)/i)?.[1]?.trim())
-      .filter(Boolean))]
-      .sort();
-    if (unitNames.length) localStorage.setItem('m2tw_edu_units_list', JSON.stringify(unitNames));
-  } catch {}
+  try { localStorage.setItem(EDU_FILE_KEY, text); } catch {}
+  try { sessionStorage.setItem('m2tw_edu_raw', text); } catch {}
+  if (filename) {
+    try { localStorage.setItem(EDU_FILE_NAME_KEY, filename); } catch {}
+  }
+  const unitNames = [...new Set(String(text || '').split('\n')
+    .map(line => line.replace(/;.*$/, '').trim().match(/^type\s+(.+)/i)?.[1]?.trim())
+    .filter(Boolean))]
+    .sort();
+  if (unitNames.length) {
+    try { localStorage.setItem('m2tw_edu_units_list', JSON.stringify(unitNames)); } catch {}
+  }
 }
 
 function makeUniqueUnitValue(base, units, field) {

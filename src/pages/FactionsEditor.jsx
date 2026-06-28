@@ -75,23 +75,23 @@ const LS_REL = 'm2tw_religions_list';
 const LS_UNITS = 'm2tw_edu_units_list';
 
 function saveFactionsRaw(text, filename = '') {
-  try {
-    localStorage.setItem(LS_KEY, text);
-    localStorage.setItem('m2tw_factions_file', text);
-    localStorage.setItem('m2tw_factions_raw', text);
-    sessionStorage.setItem('m2tw_factions_raw', text);
-    if (filename) localStorage.setItem('m2tw_factions_file_name', filename);
-  } catch {}
+  try { localStorage.setItem(LS_KEY, text); } catch {}
+  try { localStorage.setItem('m2tw_factions_file', text); } catch {}
+  try { localStorage.setItem('m2tw_factions_raw', text); } catch {}
+  try { sessionStorage.setItem('m2tw_factions_raw', text); } catch {}
+  if (filename) {
+    try { localStorage.setItem('m2tw_factions_file_name', filename); } catch {}
+  }
 }
 
 function saveEduRaw(text, filename = '') {
-  try {
-    const list = parseEduUnits(text);
-    localStorage.setItem(LS_UNITS, JSON.stringify(list));
-    localStorage.setItem('m2tw_units_file', text);
-    sessionStorage.setItem('m2tw_edu_raw', text);
-    if (filename) localStorage.setItem('m2tw_edu_file_name', filename);
-  } catch {}
+  const list = parseEduUnits(text);
+  try { localStorage.setItem(LS_UNITS, JSON.stringify(list)); } catch {}
+  try { localStorage.setItem('m2tw_units_file', text); } catch {}
+  try { sessionStorage.setItem('m2tw_edu_raw', text); } catch {}
+  if (filename) {
+    try { localStorage.setItem('m2tw_edu_file_name', filename); } catch {}
+  }
 }
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
