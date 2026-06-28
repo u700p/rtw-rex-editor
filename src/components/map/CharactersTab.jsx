@@ -69,7 +69,7 @@ function getSurnames(descrNames, faction) {
   return descrNames._surnames?.[faction.toLowerCase()] || descrNames._surnames?.[faction] || [];
 }
 
-// Get display name from namesDisplayMap (parsed from names.strings.bin)
+// Get display name from namesDisplayMap (parsed from names.txt)
 function getDisplayName(namesDisplayMap, internalName) {
   if (!namesDisplayMap || !internalName) return '';
   return namesDisplayMap[internalName] || namesDisplayMap[internalName.toLowerCase()] || '';

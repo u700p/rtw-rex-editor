@@ -11,8 +11,7 @@ export const TEXT_LOC_META = Symbol.for('rtw-editor.textLocMeta');
  *   {unit_key_descr}
  *   Longer text...
  *
- * M2TW often compiles these files into .strings.bin, but the plain text shape
- * is still useful for Rome and for mod source files.
+ * The editor keeps these files in Rome-style plain text for import/export.
  */
 
 function stripBom(text) {

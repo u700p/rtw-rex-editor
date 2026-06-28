@@ -2,7 +2,7 @@
  * Shared store for Total War localization files.
  * Uses an in-memory store as primary (survives localStorage quota failures).
  * Also persists to localStorage when possible.
- * Shape: { [filename]: { entries: [{key, value}], sourceFormat: 'txt'|'strings.bin', magic1?, magic2? } }
+ * Shape: { [filename]: { entries: [{key, value}], sourceFormat: 'txt' } }
  */
 
 const STORE_KEY = 'm2tw_strings_bin_files';

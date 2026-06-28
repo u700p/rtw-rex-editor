@@ -21,7 +21,7 @@ const inputCls = 'h-8 text-xs font-mono mt-1 text-white bg-background';
 const selectCls = 'w-full h-8 mt-1 text-xs bg-card border border-border rounded px-2 text-white';
 const textareaCls = 'w-full mt-1 text-xs bg-background border border-border rounded px-2 py-1.5 text-white resize-y focus:outline-none focus:ring-1 focus:ring-primary';
 
-// \n\n is M2TW strings.bin line break
+// \n\n is used as an in-game text line break
 function PreviewText({ text }) {
   if (!text) return null;
   const parts = text.split('\\n\\n');
