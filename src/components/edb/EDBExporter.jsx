@@ -27,8 +27,11 @@ const IMAGE_SLOT_DEFS = [
 function encodeTGA(canvas, tw, th) {
   const off = document.createElement('canvas');
   off.width = tw; off.height = th;
-  off.getContext('2d').drawImage(canvas, 0, 0, tw, th);
-  const d = off.getContext('2d').getImageData(0, 0, tw, th).data;
+  const ctx = off.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(canvas, 0, 0, tw, th);
+  const d = ctx.getImageData(0, 0, tw, th).data;
   const hdr = new Uint8Array(18);
   hdr[2] = 2; hdr[12] = tw & 0xff; hdr[13] = tw >> 8;
   hdr[14] = th & 0xff; hdr[15] = th >> 8; hdr[16] = 32; hdr[17] = 0x28;
@@ -46,7 +49,10 @@ function dataUrlToCanvas(dataUrl) {
     img.onload = () => {
       const c = document.createElement('canvas');
       c.width = img.width; c.height = img.height;
-      c.getContext('2d').drawImage(img, 0, 0);
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0);
       resolve(c);
     };
     img.src = dataUrl;

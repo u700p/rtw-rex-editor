@@ -43,7 +43,7 @@ function useLoadedPages() {
     check();
     window.addEventListener('storage', check);
     // Also re-check when custom load events fire
-    const events = ['load-traits','load-ancillaries','load-export-units','edu-file-loaded','factions-file-loaded','strings-bin-updated','modeldb-file-loaded'];
+    const events = ['load-traits','load-ancillaries','load-export-units','edu-file-loaded','factions-file-loaded','resources-file-loaded','events-file-loaded','cultures-file-loaded','religions-file-loaded','strings-bin-updated','modeldb-file-loaded','m2tw-map-folder-loaded'];
     events.forEach(e => window.addEventListener(e, check));
     return () => {
       window.removeEventListener('storage', check);

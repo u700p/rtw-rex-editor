@@ -150,6 +150,28 @@ function FileStatus({ label, hint, status }) {
 
 }
 
+function fileIdentity(file) {
+  return (file?.webkitRelativePath || file?.name || '').toLowerCase().replace(/\\/g, '/');
+}
+
+function mergeFilesByPath(existing = [], incoming = []) {
+  const byPath = new Map();
+  for (const file of existing) byPath.set(fileIdentity(file), file);
+  for (const file of incoming) byPath.set(fileIdentity(file), file);
+  return Array.from(byPath.values());
+}
+
+function detectCampaignFolderName(files) {
+  const samplePath = fileIdentity(files[0] || {});
+  const framed = `/${samplePath}`;
+  const customMatch = framed.match(/\/maps\/campaign\/custom\/([^/]+)\//);
+  if (customMatch) return customMatch[1];
+  const directMatch = framed.match(/\/maps\/campaign\/([^/]+)\//);
+  if (directMatch) return directMatch[1];
+  const parts = samplePath.split('/').filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 2] : 'imperial_campaign';
+}
+
 export default function Home() {
   const { loadEDB, edbData, fileName, loadTextFile, loadBuildingTgaImages } = useEDB();
   const { loadFactionsFile, loadResourcesFile, loadEventsFile, loadUnitsFile, loadSkeletonFile, loadMountFile, loadCampaignScript, loadGuildsFile } = useRefData();
@@ -477,6 +499,8 @@ export default function Home() {
             }
             window.dispatchEvent(new CustomEvent('modeldb-file-loaded', { detail: { text, filename: file.name } }));
           }
+          if (key === 'cultures') window.dispatchEvent(new CustomEvent('cultures-file-loaded', { detail: { text, filename: file.name } }));
+          if (key === 'religions') window.dispatchEvent(new CustomEvent('religions-file-loaded', { detail: { text, filename: file.name } }));
         } catch {}
       } else {
         loaderMap[key]?.(text);
@@ -484,6 +508,8 @@ export default function Home() {
         if (key === 'fac') {
           try {
             sessionStorage.setItem('m2tw_factions_raw', text);
+            localStorage.setItem('m2tw_sm_factions_raw', text);
+            localStorage.setItem('m2tw_factions_file', text);
             localStorage.setItem('m2tw_factions_file_name', file.name);
           } catch {}
           window.dispatchEvent(new CustomEvent('factions-file-loaded'));
@@ -607,9 +633,10 @@ export default function Home() {
 
     // Auto-load base map files
     if (baseMapFiles.length > 0) {
-      window._m2tw_map_files = (window._m2tw_map_files || []).concat(baseMapFiles);
-      window.dispatchEvent(new CustomEvent('m2tw-map-folder-loaded', { detail: { files: baseMapFiles, source: 'base' } }));
-      setMapFileCount((prev) => prev + baseMapFiles.length);
+      const mergedFiles = mergeFilesByPath(window._m2tw_map_files || [], baseMapFiles);
+      window._m2tw_map_files = mergedFiles;
+      window.dispatchEvent(new CustomEvent('m2tw-map-folder-loaded', { detail: { files: mergedFiles, source: 'base' } }));
+      setMapFileCount(mergedFiles.length);
       setFileStatus((prev) => ({ ...prev, base_map: 'ok' }));
     }
 
@@ -863,16 +890,13 @@ export default function Home() {
     });
     // Merge with existing base map files so campaign overrides base
     const existing = window._m2tw_map_files || [];
-    const existingNames = new Set(relevant.map((f) => f.name.toLowerCase()));
-    const mergedFiles = existing.filter((f) => !existingNames.has(f.name.toLowerCase())).concat(relevant);
+    const existingNames = new Set(relevant.map(fileIdentity));
+    const mergedFiles = existing.filter((f) => !existingNames.has(fileIdentity(f))).concat(relevant);
     window._m2tw_map_files = mergedFiles;
-    window.dispatchEvent(new CustomEvent('m2tw-map-folder-loaded', { detail: { files: relevant, source: 'campaign' } }));
+    window.dispatchEvent(new CustomEvent('m2tw-map-folder-loaded', { detail: { files: mergedFiles, source: 'campaign' } }));
     setMapFileCount(mergedFiles.length);
     // Detect campaign name from path
-    const samplePath = files[0]?.webkitRelativePath || '';
-    const parts = samplePath.split('/');
-    const folderName = parts.length >= 2 ? parts[parts.length - 2] : 'imperial_campaign';
-    setCampaignName(folderName);
+    setCampaignName(detectCampaignFolderName(files));
     setFileStatus((prev) => ({ ...prev, campaign_folder: 'ok' }));
   };
 
