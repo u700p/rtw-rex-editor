@@ -348,11 +348,6 @@ function recolorImageData(imageData, settings) {
   const rgbTolerance = Number(settings.rgbTolerance);
   const strength = Number(settings.strength) / 100;
   const minSat = Number(settings.minSat) / 100;
-  const targetSatMix = Number(settings.targetSatMix ?? 30) / 100;
-  const saturationAdjust = Number(settings.saturationAdjust ?? 0) / 100;
-  const targetLightMix = Number(settings.targetLightMix ?? 0) / 100;
-  const lightnessShift = Number(settings.lightnessShift ?? 0) / 100;
-  const lightnessContrast = Number(settings.lightnessContrast ?? 0) / 100;
   for (let i = 0; i < d.length; i += 4) {
     const a = d[i + 3];
     if (a < 8) continue;
@@ -371,17 +366,9 @@ function recolorImageData(imageData, settings) {
     const detailMask = settings.protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;
     const mask = smoothMask((best?.score || 0) * satMask * detailMask) * strength;
     if (mask <= 0) continue;
-    let recolored;
-    if (settings.exactTargetColor) {
-      recolored = best.tgtRgb;
-    } else {
-      const targetSat = clamp01(hsl.s * (1 - targetSatMix) + best.tgt.s * targetSatMix + saturationAdjust);
-      const baseLight = settings.preserveLight ? hsl.l : clamp01(hsl.l * 0.82 + best.tgt.l * 0.18);
-      const mixedLight = clamp01(baseLight * (1 - targetLightMix) + best.tgt.l * targetLightMix);
-      const contrastedLight = clamp01((mixedLight - 0.5) * (1 + lightnessContrast) + 0.5);
-      const targetLight = clamp01(contrastedLight + lightnessShift);
-      recolored = hslToRgb(best.tgt.h, targetSat, targetLight);
-    }
+    const targetSat = clamp01(hsl.s * 0.7 + best.tgt.s * 0.3);
+    const targetLight = settings.preserveLight ? hsl.l : clamp01(hsl.l * 0.82 + best.tgt.l * 0.18);
+    const recolored = hslToRgb(best.tgt.h, targetSat, targetLight);
     d[i] = Math.round(d[i] * (1 - mask) + recolored.r * mask);
     d[i + 1] = Math.round(d[i + 1] * (1 - mask) + recolored.g * mask);
     d[i + 2] = Math.round(d[i + 2] * (1 - mask) + recolored.b * mask);
@@ -594,11 +581,10 @@ function TextureRecolorTab() {
   const [files, setFiles] = useState([]);
   const [settings, setSettings] = useState({
     source: '#9e1a1a', target: '#2f6fc0', tolerance: 38, rgbTolerance: 190, strength: 88, minSat: 18,
-    targetSatMix: 30, saturationAdjust: 0, targetLightMix: 0, lightnessShift: 0, lightnessContrast: 0,
     secondarySource: '#d7c04a', secondaryTarget: '#e4e4e4',
     tertiarySource: '#2d6d37', tertiaryTarget: '#8c2f2f',
     suffix: '_recolor', outputFormat: 'both',
-    useSource: true, preserveLight: true, exactTargetColor: false, recolorNeutrals: false, protectExtremes: true,
+    useSource: true, preserveLight: true, recolorNeutrals: false, protectExtremes: true,
     protectMaterials: true, secondaryEnabled: false, tertiaryEnabled: false,
   });
   const [preview, setPreview] = useState(null);
@@ -705,11 +691,6 @@ function TextureRecolorTab() {
         <Range label="RGB tolerance" value={settings.rgbTolerance} min={24} max={360} onChange={v => update('rgbTolerance', v)} />
         <Range label="Strength" value={settings.strength} min={1} max={100} onChange={v => update('strength', v)} />
         <Range label="Minimum saturation" value={settings.minSat} min={0} max={100} onChange={v => update('minSat', v)} />
-        <Range label="Target saturation mix" value={settings.targetSatMix} min={0} max={100} onChange={v => update('targetSatMix', v)} />
-        <Range label="Saturation adjust" value={settings.saturationAdjust} min={-50} max={50} onChange={v => update('saturationAdjust', v)} />
-        <Range label="Target lightness mix" value={settings.targetLightMix} min={0} max={100} onChange={v => update('targetLightMix', v)} />
-        <Range label="Lightness shift" value={settings.lightnessShift} min={-50} max={50} onChange={v => update('lightnessShift', v)} />
-        <Range label="Lightness contrast" value={settings.lightnessContrast} min={-50} max={50} onChange={v => update('lightnessContrast', v)} />
         <label className="block">
           <span className="text-[10px] uppercase text-slate-500">Batch suffix</span>
           <input
@@ -733,7 +714,6 @@ function TextureRecolorTab() {
         {[
           ['useSource', 'Match source hue'],
           ['preserveLight', 'Preserve shadows/highlights'],
-          ['exactTargetColor', 'Exact target RGB'],
           ['recolorNeutrals', 'Allow low-saturation pixels'],
           ['protectExtremes', 'Protect black/white detail'],
           ['protectMaterials', 'Protect skin/hair/leather/armor'],
