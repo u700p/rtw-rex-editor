@@ -178,7 +178,7 @@ export default function EDBExporter() {
 
   return (
     <div className="flex items-center gap-1">
-      {/* Optional: load existing .strings.bin to merge into */}
+      {/* Optional: load existing text localization to merge into */}
       <input ref={textRef} type="file" className="hidden" accept=".txt,text/plain" onChange={handleTextLoad} />
       <button
         onClick={() => textRef.current?.click()}
