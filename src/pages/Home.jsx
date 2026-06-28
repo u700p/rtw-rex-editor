@@ -782,8 +782,9 @@ export default function Home() {
     for (const file of files) {
       const name = file.name.toLowerCase();
       const pathLower = (file.webkitRelativePath || file.name).toLowerCase().replace(/\\/g, '/');
+      const pathFramed = `/${pathLower}`;
 
-      if (pathLower.includes('/text/') && name.endsWith('.txt')) {
+      if (pathFramed.includes('/text/') && name.endsWith('.txt')) {
         const text = await readText(file);
         const locMap = parseTextLocFile(text);
         const entries = textLocMapToEntries(locMap);
