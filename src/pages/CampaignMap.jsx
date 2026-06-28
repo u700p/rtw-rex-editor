@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Map, CheckSquare, Globe, FolderOpen, Box } from 'lucide-react';
+import { Map, CheckSquare, Globe, FolderOpen, Box, Layers } from 'lucide-react';
+import OsmBackground from '../components/map/OsmBackground';
 import Map3DPreview from '../components/map/Map3DPreview';
 import MapCanvas, { floodFillRGB } from '../components/map/MapCanvas';
 import MapPaintToolbar from '../components/map/MapPaintToolbar';
@@ -137,6 +138,8 @@ export default function CampaignMap() {
   const [pendingRelocate, setPendingRelocate] = useState(null); // { type: 'city'|'port', regionInfo, settlement }
   const [stratPanelOpenItemId, setStratPanelOpenItemId] = useState(null); // double-click to open char
   const [pendingCoordPick, setPendingCoordPick] = useState(null); // callback(x, y) waiting for map click
+  const [osmBbox, setOsmBbox] = useState(null); // { north, south, east, west } from bbox_coords.txt
+  const [osmOpacity, setOsmOpacity] = useState(0.5);
 
   // ── Extra data sources for region editor ──────────────────────────────────
   const [rebelFactions, setRebelFactions] = useState(() => { try { const r = sessionStorage.getItem('m2tw_rebel_factions_raw'); return r ? parseDescrRebelFactions(r) : []; } catch { return []; } });
@@ -459,6 +462,20 @@ export default function CampaignMap() {
         // Also mirror win conditions to localStorage so StratPanel can read it on fresh navigation
         if (name === 'descr_win_conditions.txt') {
           try { localStorage.setItem('m2tw_campaign_win_conditions', text); } catch {}
+        }
+      }
+      // Parse bbox_coords.txt from New Map Editor
+      if (name === 'bbox_coords.txt') {
+        const text = await file.text();
+        const parsedBbox = {};
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+          const [k, v] = trimmed.split('=');
+          parsedBbox[k.trim()] = parseFloat(v.trim());
+        }
+        if (parsedBbox.north && parsedBbox.south && parsedBbox.east && parsedBbox.west) {
+          setOsmBbox({ north: parsedBbox.north, south: parsedBbox.south, east: parsedBbox.east, west: parsedBbox.west });
         }
       }
       // Parse descr_faction_movies.xml
@@ -978,6 +995,37 @@ export default function CampaignMap() {
           <input ref={folderInputRef} type="file" className="hidden" webkitdirectory="" directory="" multiple onChange={handleFolderImport} />
         </label>
 
+        {/* OSM bbox import */}
+        <label className="cursor-pointer flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors" title="Import bbox_coords.txt to show OSM map background">
+          <Layers className="w-3 h-3" />
+          {osmBbox ? 'OSM ✓' : 'OSM bbox'}
+          <input type="file" className="hidden" accept=".txt" onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const text = await file.text();
+            const parsedBbox = {};
+            for (const line of text.split('\n')) {
+              const trimmed = line.trim();
+              if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+              const [k, v] = trimmed.split('=');
+              parsedBbox[k.trim()] = parseFloat(v.trim());
+            }
+            if (parsedBbox.north && parsedBbox.south && parsedBbox.east && parsedBbox.west) {
+              setOsmBbox({ north: parsedBbox.north, south: parsedBbox.south, east: parsedBbox.east, west: parsedBbox.west });
+            }
+            e.target.value = '';
+          }} />
+        </label>
+        {osmBbox && (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-slate-500">OSM</span>
+            <input type="range" min={0} max={1} step={0.05} value={osmOpacity}
+              onChange={e => setOsmOpacity(parseFloat(e.target.value))}
+              className="w-16 accent-blue-400 h-1" title={`OSM opacity: ${Math.round(osmOpacity * 100)}%`} />
+            <button onClick={() => setOsmBbox(null)} className="text-[10px] text-slate-600 hover:text-red-400" title="Remove OSM background">✕</button>
+          </div>
+        )}
+
         {/* Pixel grid toggle */}
         <button
           onClick={() => setShowPixelGrid(v => !v)}
@@ -1067,6 +1115,15 @@ export default function CampaignMap() {
       <div className="flex-1 flex min-h-0">
         {/* Canvas */}
         <div className="flex-1 relative min-w-0">
+          {osmBbox && mapW2 > 0 && (
+            <OsmBackground
+              bbox={osmBbox}
+              mapW={mapW2}
+              mapH={mapH}
+              transform={transform}
+              opacity={osmOpacity}
+            />
+          )}
           <MapCanvas
             layers={layers}
             regionsMode={regionsMode}
