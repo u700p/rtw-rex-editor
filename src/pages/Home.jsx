@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { createPageUrl } from '@/utils';
 import { Link } from 'react-router-dom';
-import { parseStringsBin } from '@/components/strings/stringsBinCodec';
 import { setStringsBinStore, getStringsBinStore, clearStringsBinStore } from '@/lib/stringsBinStore';
 import { parseTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import DataFolderPicker from '../components/home/DataFolderPicker';
@@ -102,7 +101,6 @@ const DATA_FILE_MAP = {
   'descr_sm_resources.txt': 'res',
   'export_descr_unit.txt': 'unit',
   'descr_events.txt': 'ev',
-  'export_buildings.txt.strings.bin': 'txt_bin',
   'export_buildings.txt': 'txt',
   'export_descr_character_traits.txt': 'traits',
   'export_descr_ancillaries.txt': 'anc',
@@ -175,7 +173,7 @@ export default function Home() {
       anctxt: ls('m2tw_anctxt_file') ? 'ok' : 'idle',
       expunits: ls('m2tw_export_units_file') ? 'ok' : 'idle',
       aerial_ground_types: ls('m2tw_aerial_ground_types') ? 'ok' : 'idle',
-      strings_bin: stringsCount > 0 ? 'ok' : 'idle',
+      text_loc: stringsCount > 0 ? 'ok' : 'idle',
       anc_images: 'idle',
       unit_images: 'idle',
       cultures: ls('m2tw_cultures_file') ? 'ok' : 'idle',
@@ -189,7 +187,7 @@ export default function Home() {
   const [modName, setModName] = useState(() => {
     try {return localStorage.getItem('m2tw_mod_name') || 'my_mod';} catch {return 'my_mod';}
   });
-  const [stringsBinCount, setStringsBinCount] = useState(() => Object.keys(getStringsBinStore()).length);
+  const [textLocCount, setTextLocCount] = useState(() => Object.keys(getStringsBinStore()).length);
   const [ancImgCount, setAncImgCount] = useState(0);
   const [mapFileCount, setMapFileCount] = useState(0);
   const [unitImgCount, setUnitImgCount] = useState(0);
@@ -233,7 +231,7 @@ export default function Home() {
     const conditionalRemove = (key, condition) => { try { if (condition) localStorage.removeItem(key); } catch {} };
     conditionalRemove('m2tw_edb_file',          fileNames.has('export_descr_buildings.txt'));
     conditionalRemove('m2tw_edb_file_name',      fileNames.has('export_descr_buildings.txt'));
-    conditionalRemove('m2tw_edb_txt_file',       fileNames.has('export_buildings.txt') || fileNames.has('export_buildings.txt.strings.bin'));
+    conditionalRemove('m2tw_edb_txt_file',       fileNames.has('export_buildings.txt'));
     conditionalRemove('m2tw_factions_file',      fileNames.has('descr_sm_factions.txt'));
     conditionalRemove('m2tw_resources_file',     fileNames.has('descr_sm_resources.txt'));
     conditionalRemove('m2tw_events_file',        fileNames.has('descr_events.txt'));
@@ -254,7 +252,6 @@ export default function Home() {
       mount: loadMountFile,
       guilds: loadGuildsFile,
       txt: loadTextFile,
-      txt_bin: (text) => {}, // handled below as binary
       cultures: null,
       names: null,
       rebel_fac: null,
@@ -295,24 +292,11 @@ export default function Home() {
     const resourceTgaFiles = [];
     const religionPipFiles = [];
     const eventPicFiles = [];
-    const stringsBinFiles = {};
     const textLocFiles = {};
 
     for (const file of files) {
       const name = file.name.toLowerCase();
       const pathLower = (file.webkitRelativePath || file.name).toLowerCase().replace(/\\/g, '/');
-
-      // Route .strings.bin files from text\ folder into shared store
-      if (name.endsWith('.strings.bin') || name.endsWith('.bin')) {
-        if (pathLower.includes('/text/')) {
-          const buf = await file.arrayBuffer();
-          const parsed = parseStringsBin(buf);
-          if (parsed) {
-            stringsBinFiles[file.name] = { entries: parsed.entries, magic1: parsed.magic1, magic2: parsed.magic2, sourceFormat: 'strings.bin' };
-          }
-          continue;
-        }
-      }
 
       let textOverride = null;
       if (pathLower.includes('/text/') && name.endsWith('.txt')) {
@@ -445,22 +429,6 @@ export default function Home() {
 
       setFileStatus((prev) => ({ ...prev, [key]: 'loading' }));
 
-      // .strings.bin: parse as binary, convert to text map, load as text file
-      if (key === 'txt_bin') {
-        const buf = await file.arrayBuffer();
-        const parsed = parseStringsBin(buf);
-        if (parsed) {
-          // Convert entries to plain text format {key}value\n
-          const textContent = parsed.entries.map((e) => `{${e.key}}${e.value}`).join('\n');
-          loadTextFile(textContent);
-          // Store original binary for export
-          try {localStorage.setItem('m2tw_edb_txt_bin_magic1', String(parsed.magic1));} catch {}
-          try {localStorage.setItem('m2tw_edb_txt_bin_magic2', String(parsed.magic2));} catch {}
-          setFileStatus((prev) => ({ ...prev, txt_bin: 'ok', txt: 'ok' }));
-        }
-        continue;
-      }
-
       const text = textOverride ?? await readText(file);
       if (key === 'aerial_ground_types') {
         const parsed = parseDescrAerialGroundTypes(text);
@@ -538,45 +506,33 @@ export default function Home() {
       setFileStatus((prev) => ({ ...prev, [key]: 'ok' }));
     }
 
-    // Flush text localization files into the shared store (plain .txt for Rome, .strings.bin when present).
-    const localizationFiles = { ...stringsBinFiles, ...textLocFiles };
+    // Flush Rome text localization files into the shared store.
+    const localizationFiles = { ...textLocFiles };
     if (Object.keys(localizationFiles).length > 0) {
-      setFileStatus((prev) => ({ ...prev, strings_bin: 'loading' }));
+      setFileStatus((prev) => ({ ...prev, text_loc: 'loading' }));
       const existing = getStringsBinStore();
       const merged = { ...existing, ...localizationFiles };
       setStringsBinStore(merged);
-      // Dispatch specific events for vnvs/ancillaries text bins so contexts pick them up directly
+      // Dispatch specific events for vnvs/ancillaries text files so contexts pick them up directly
       for (const [filename, binData] of Object.entries(localizationFiles)) {
         const lname = filename.toLowerCase();
         const map = {};
         for (const e of binData.entries) map[e.key] = e.value;
-        const binMeta = binData.sourceFormat === 'txt'
-          ? null
-          : { magic1: binData.magic1 ?? 2, magic2: binData.magic2 ?? 2048 };
         if (lname.includes('vnv')) {
-          window.dispatchEvent(new CustomEvent('load-vnvs', { detail: { content: map, filename, binMeta } }));
+          window.dispatchEvent(new CustomEvent('load-vnvs', { detail: { content: map, filename } }));
         } else if (lname.includes('ancillar')) {
-          window.dispatchEvent(new CustomEvent('load-anctxt', { detail: { content: map, filename, binMeta } }));
+          window.dispatchEvent(new CustomEvent('load-anctxt', { detail: { content: map, filename } }));
         }
-        // Load export_buildings.txt.strings.bin into the EDB text context
+        // Load export_buildings.txt into the EDB text context
         if (lname.includes('export_buildings')) {
           const textContent = binData.entries.map((e) => `{${e.key}}${e.value}`).join('\n');
           loadTextFile(textContent);
-          if (binData.sourceFormat === 'txt') {
-            try {
-              localStorage.removeItem('m2tw_edb_txt_bin_magic1');
-              localStorage.removeItem('m2tw_edb_txt_bin_magic2');
-            } catch {}
-          } else {
-            try {localStorage.setItem('m2tw_edb_txt_bin_magic1', String(binData.magic1 ?? 2));} catch {}
-            try {localStorage.setItem('m2tw_edb_txt_bin_magic2', String(binData.magic2 ?? 2048));} catch {}
-          }
           setFileStatus((prev) => ({ ...prev, txt: 'ok' }));
         }
       }
       window.dispatchEvent(new CustomEvent('strings-bin-updated', { detail: { bulk: true } }));
-      setStringsBinCount(Object.keys(merged).length);
-      setFileStatus((prev) => ({ ...prev, strings_bin: 'ok' }));
+      setTextLocCount(Object.keys(merged).length);
+      setFileStatus((prev) => ({ ...prev, text_loc: 'ok' }));
     }
 
     // Auto-load ancillary images
@@ -820,23 +776,11 @@ export default function Home() {
       'export_descr_buildings.txt': 'm2tw_edb_file'
     };
 
-    const stringsBinFiles = {};
     const textLocFiles = {};
 
     for (const file of files) {
       const name = file.name.toLowerCase();
       const pathLower = (file.webkitRelativePath || file.name).toLowerCase().replace(/\\/g, '/');
-
-      // .strings.bin files (e.g. imperial_campaign_regions_and_settlement_names.txt.strings.bin from data\text\)
-      if (name.endsWith('.strings.bin') || name.endsWith('.bin')) {
-        const buf = await file.arrayBuffer();
-        const { parseStringsBin } = await import('@/components/strings/stringsBinCodec');
-        const parsed = parseStringsBin(buf);
-        if (parsed) {
-          stringsBinFiles[file.name] = { entries: parsed.entries, magic1: parsed.magic1, magic2: parsed.magic2, sourceFormat: 'strings.bin' };
-        }
-        continue;
-      }
 
       if (pathLower.includes('/text/') && name.endsWith('.txt')) {
         const text = await readText(file);
@@ -899,15 +843,15 @@ export default function Home() {
     }
 
     // Flush text localization files into shared store
-    const localizationFiles = { ...stringsBinFiles, ...textLocFiles };
+    const localizationFiles = { ...textLocFiles };
     if (Object.keys(localizationFiles).length > 0) {
       const { getStringsBinStore, setStringsBinStore } = await import('@/lib/stringsBinStore');
       const existing = getStringsBinStore();
       const merged = { ...existing, ...localizationFiles };
       setStringsBinStore(merged);
       window.dispatchEvent(new CustomEvent('strings-bin-updated', { detail: { bulk: true } }));
-      setStringsBinCount(Object.keys(merged).length);
-      setFileStatus((prev) => ({ ...prev, strings_bin: 'ok' }));
+      setTextLocCount(Object.keys(merged).length);
+      setFileStatus((prev) => ({ ...prev, text_loc: 'ok' }));
     }
 
     const relevant = files.filter((f) => {
@@ -1016,7 +960,7 @@ export default function Home() {
               <FileStatus label="Religions" hint="descr_religions.txt" status={fileStatus.religions} />
               <FileStatus label="Guilds" hint="export_descr_guilds.txt" status={fileStatus.guilds} />
               <FileStatus label="Battle Models" hint="battle_models.modeldb / descr_model_battle.txt" status={fileStatus.modeldb} />
-              <FileStatus label="Text Localization" hint={fileStatus.strings_bin === 'ok' ? `${stringsBinCount} files loaded (plain text or binary)` : 'text\\*.txt'} status={fileStatus.strings_bin} />
+              <FileStatus label="Text Localization" hint={fileStatus.text_loc === 'ok' ? `${textLocCount} text files loaded` : 'text\\*.txt'} status={fileStatus.text_loc} />
             </div>
           </div>
 

@@ -1,47 +1,54 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Upload, Download, Copy, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { parseStringsBin, encodeStringsBin } from '@/components/strings/stringsBinCodec';
+import { parseTextLocFile, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
+import { textBlob } from '@/lib/lineEndings';
 
-const GLOBAL_STRINGS_KEY = 'm2tw_strings_bin_global';
+const GLOBAL_STRINGS_KEY = 'rtw_expanded_text_global';
+
+function normalizeLocKey(key) {
+  return String(key || '').trim().replace(/^\{/, '').replace(/\}$/, '');
+}
+
+function entriesToMap(entries) {
+  const map = {};
+  for (const entry of entries || []) {
+    const key = normalizeLocKey(entry.key);
+    if (key) map[key] = entry.value ?? '';
+  }
+  return map;
+}
 
 export default function DescriptionsTab({ factionName }) {
-  const [stringsBinEntries, setStringsBinEntries] = useState([]);
+  const [localizationEntries, setLocalizationEntries] = useState([]);
   const [allEntries, setAllEntries] = useState([]);
-  const [magicValues, setMagicValues] = useState({ magic1: 2, magic2: 2048 });
-  const stringsBinRef = useRef();
+  const localizationRef = useRef();
 
-  const loadStringsBin = useCallback(async (e) => {
+  const loadLocalizationText = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const arrayBuffer = await file.arrayBuffer();
-    const parsed = parseStringsBin(arrayBuffer);
-    if (parsed && parsed.entries) {
-      // Store all entries globally
-      setAllEntries(parsed.entries);
-      setMagicValues({ magic1: parsed.magic1, magic2: parsed.magic2 });
-      localStorage.setItem(GLOBAL_STRINGS_KEY, JSON.stringify({
-        entries: parsed.entries,
-        magic1: parsed.magic1,
-        magic2: parsed.magic2
-      }));
+    const text = await file.text();
+    const entries = textLocMapToEntries(parseTextLocFile(text))
+      .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value }));
+    if (entries.length) {
+      setAllEntries(entries);
+      localStorage.setItem(GLOBAL_STRINGS_KEY, JSON.stringify({ entries }));
     }
     e.target.value = '';
   }, []);
 
-  const exportStringsBin = () => {
+  const exportLocalizationText = () => {
     if (allEntries.length === 0) return;
-    const buffer = encodeStringsBin(allEntries, magicValues.magic1, magicValues.magic2);
-    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const blob = textBlob(serializeTextLocFile(entriesToMap(allEntries)));
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'expanded.txt.strings.bin';
+    a.download = 'expanded.txt';
     a.click();
   };
 
   const updateStringValue = (key, newValue) => {
     // Update the filtered entry
-    setStringsBinEntries((prev) =>
+    setLocalizationEntries((prev) =>
     prev.map((entry) => entry.key === key ? { ...entry, value: newValue } : entry)
     );
     // Also update the full stored data
@@ -49,28 +56,23 @@ export default function DescriptionsTab({ factionName }) {
     entry.key === key ? { ...entry, value: newValue } : entry
     );
     setAllEntries(updatedEntries);
-    localStorage.setItem(GLOBAL_STRINGS_KEY, JSON.stringify({
-      entries: updatedEntries,
-      magic1: magicValues.magic1,
-      magic2: magicValues.magic2
-    }));
+    localStorage.setItem(GLOBAL_STRINGS_KEY, JSON.stringify({ entries: updatedEntries }));
   };
 
   useEffect(() => {
-    // Load global strings.bin data
+    // Load global text localization data
     const loadStrings = () => {
       try {
         const stored = localStorage.getItem(GLOBAL_STRINGS_KEY);
         if (stored) {
-          const { entries, magic1, magic2 } = JSON.parse(stored);
+          const { entries } = JSON.parse(stored);
           setAllEntries(entries);
-          setMagicValues({ magic1, magic2 });
           // Filter entries for current faction
           const factionUpper = factionName.toUpperCase();
           const filtered = entries.filter((entry) =>
           entry.key && entry.key.toUpperCase().includes(factionUpper)
           );
-          setStringsBinEntries(filtered);
+          setLocalizationEntries(filtered);
         }
       } catch {}
     };
@@ -126,14 +128,14 @@ export default function DescriptionsTab({ factionName }) {
           .replace(new RegExp(copySource.toLowerCase(), 'gi'), displayName.toLowerCase());
       }
 
-      if (newKey === `{${dstUpper}}` && displayName.trim()) newValue = displayName.trim();
-      else if (newKey === `{EMT_${dstUpper}_FACTION_LEADER_TITLE}` && leaderTitle.trim()) newValue = leaderTitle.trim();
-      else if (newKey === `{EMT_${dstUpper}_FACTION_HEIR_TITLE}` && heirTitle.trim()) newValue = heirTitle.trim();
-      else if (newKey === `{EMT_${dstUpper}_FACTION_LEADER_NAME}` && leaderTitle.trim()) newValue = `${leaderTitle.trim()} %S`;
-      else if (newKey === `{EMT_${dstUpper}_FACTION_HEIR_NAME}` && heirTitle.trim()) newValue = `${heirTitle.trim()} %S`;
-      else if (newKey === `{${dstUpper}_STRENGTH}` && strengths.trim()) newValue = strengths.trim();
-      else if (newKey === `{${dstUpper}_WEAKNESS}` && weaknesses.trim()) newValue = weaknesses.trim();
-      else if (newKey === `{${dstUpper}_UNIT}` && customUnit.trim()) newValue = customUnit.trim();
+      if (newKey === dstUpper && displayName.trim()) newValue = displayName.trim();
+      else if (newKey === `EMT_${dstUpper}_FACTION_LEADER_TITLE` && leaderTitle.trim()) newValue = leaderTitle.trim();
+      else if (newKey === `EMT_${dstUpper}_FACTION_HEIR_TITLE` && heirTitle.trim()) newValue = heirTitle.trim();
+      else if (newKey === `EMT_${dstUpper}_FACTION_LEADER_NAME` && leaderTitle.trim()) newValue = `${leaderTitle.trim()} %S`;
+      else if (newKey === `EMT_${dstUpper}_FACTION_HEIR_NAME` && heirTitle.trim()) newValue = `${heirTitle.trim()} %S`;
+      else if (newKey === `${dstUpper}_STRENGTH` && strengths.trim()) newValue = strengths.trim();
+      else if (newKey === `${dstUpper}_WEAKNESS` && weaknesses.trim()) newValue = weaknesses.trim();
+      else if (newKey === `${dstUpper}_UNIT` && customUnit.trim()) newValue = customUnit.trim();
 
       return { key: newKey, value: newValue };
     });
@@ -141,10 +143,8 @@ export default function DescriptionsTab({ factionName }) {
     const filtered = allEntries.filter(e => !e.key?.toUpperCase().includes(dstUpper));
     const updated = [...filtered, ...newEntries];
     setAllEntries(updated);
-    setStringsBinEntries(newEntries);
-    localStorage.setItem(GLOBAL_STRINGS_KEY, JSON.stringify({
-      entries: updated, magic1: magicValues.magic1, magic2: magicValues.magic2
-    }));
+    setLocalizationEntries(newEntries);
+    localStorage.setItem(GLOBAL_STRINGS_KEY, JSON.stringify({ entries: updated }));
     window.dispatchEvent(new CustomEvent('strings-bin-updated'));
     setShowCopyModal(false);
   };
@@ -152,19 +152,19 @@ export default function DescriptionsTab({ factionName }) {
   return (
     <div className="space-y-4">
       <div className="border-b border-slate-600 pb-2">
-        <p className="text-sm font-semibold text-slate-200">expanded.txt.strings.bin Editor</p>
-        <p className="text-xs text-slate-400">Edit strings.bin entries for {factionName}</p>
+        <p className="text-sm font-semibold text-slate-200">expanded.txt Editor</p>
+        <p className="text-xs text-slate-400">Edit RTW text localization entries for {factionName}</p>
       </div>
 
       <div className="flex items-center justify-between">
-        <label className="text-[10px] text-slate-300">strings.bin file</label>
+        <label className="text-[10px] text-slate-300">expanded.txt file</label>
         <div className="flex gap-2">
-          <input ref={stringsBinRef} type="file" accept=".bin" className="hidden" onChange={loadStringsBin} />
-          <Button variant="outline" size="sm" className="text-[10px]" onClick={() => stringsBinRef.current?.click()}>
+          <input ref={localizationRef} type="file" accept=".txt,text/plain" className="hidden" onChange={loadLocalizationText} />
+          <Button variant="outline" size="sm" className="text-[10px]" onClick={() => localizationRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" /> Load
           </Button>
           {allEntries.length > 0 &&
-          <Button variant="outline" size="sm" className="text-[10px]" onClick={exportStringsBin}>
+          <Button variant="outline" size="sm" className="text-[10px]" onClick={exportLocalizationText}>
               <Download className="w-3 h-3 mr-1" /> Export
             </Button>
           }
@@ -194,7 +194,7 @@ export default function DescriptionsTab({ factionName }) {
                   {sourceFactions.map(f => <option key={f} value={f}>{f}</option>)}
                 </select>
               ) : (
-                <p className="text-[10px] text-slate-500 italic">No other factions found in strings.bin.</p>
+                <p className="text-[10px] text-slate-500 italic">No other factions found in text localization.</p>
               )}
             </div>
 
@@ -285,9 +285,9 @@ export default function DescriptionsTab({ factionName }) {
         </div>
       )}
 
-      {stringsBinEntries.length > 0 ?
+      {localizationEntries.length > 0 ?
       <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-          {stringsBinEntries.map((entry, idx) =>
+          {localizationEntries.map((entry, idx) =>
         <div key={idx} className="bg-slate-800 border border-slate-600 rounded p-3">
               <div className="text-[9px] font-mono text-slate-500 mb-2 select-all">
                 {'{'}{entry.key}{'}'}
@@ -302,7 +302,7 @@ export default function DescriptionsTab({ factionName }) {
         </div> :
 
       <div className="flex flex-col items-center gap-3 py-8 text-slate-500 border border-dashed border-slate-700 rounded">
-          <p className="text-xs">No entries for <span className="font-mono text-amber-400">{factionName}</span> in the loaded strings.bin.</p>
+          <p className="text-xs">No entries for <span className="font-mono text-amber-400">{factionName}</span> in the loaded text file.</p>
           {allEntries.length > 0 && (
             <Button variant="outline" size="sm" className="text-[10px] text-blue-300 border-blue-600 hover:bg-blue-900/30"
               onClick={openCopyModal}>
@@ -310,7 +310,7 @@ export default function DescriptionsTab({ factionName }) {
             </Button>
           )}
           {allEntries.length === 0 && (
-            <p className="text-[10px]">Load a strings.bin file first.</p>
+            <p className="text-[10px]">Load expanded.txt first.</p>
           )}
         </div>
       }

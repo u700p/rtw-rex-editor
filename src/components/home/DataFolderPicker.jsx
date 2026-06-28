@@ -8,7 +8,7 @@ const CATEGORY_LABELS = {
   images_ui:      { label: 'UI Images (data/ui/)',     defaultOn: false, icon: Image },
   images_terrain: { label: 'Terrain Textures',         defaultOn: false, icon: Image },
   campaign:       { label: 'Campaign Map Files',       defaultOn: true,  icon: FileText },
-  strings_bin:    { label: 'Text Loc / Strings',       defaultOn: true,  icon: FileText },
+  text_loc:       { label: 'Text Localization',         defaultOn: true,  icon: FileText },
 };
 
 const TEXT_FILENAMES = new Set([
@@ -29,8 +29,7 @@ function categorizeFile(file) {
   const name = file.name.toLowerCase();
   const path = (file.webkitRelativePath || file.name).toLowerCase().replace(/\\/g, '/');
 
-  if (name.endsWith('.strings.bin') || (name.endsWith('.bin') && path.includes('/text/'))) return 'strings_bin';
-  if (path.includes('/text/') && name.endsWith('.txt')) return 'strings_bin';
+  if (path.includes('/text/') && name.endsWith('.txt')) return 'text_loc';
   if (path.includes('/maps/campaign/') || path.includes('/maps/base/')) {
     if (name.endsWith('.tga') || name.endsWith('.txt')) return 'campaign';
     return null;
@@ -92,7 +91,7 @@ function detectRootFolder(files) {
 }
 
 // Categories that support individual file selection
-const INDIVIDUAL_SELECT_CATS = new Set(['text', 'strings_bin', 'images_terrain']);
+const INDIVIDUAL_SELECT_CATS = new Set(['text', 'text_loc', 'images_terrain']);
 
 export default function DataFolderPicker({ onLoad, loading }) {
   const inputRef = useRef();

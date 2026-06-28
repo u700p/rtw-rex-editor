@@ -21,7 +21,7 @@ export default function StringsTab({ factionName, onStringsUpdate }) {
     const blob = new Blob([stringsData], { type: 'text/plain' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'expanded.txt.strings.bin';
+    a.download = 'expanded.txt';
     a.click();
   };
 
@@ -113,11 +113,11 @@ export default function StringsTab({ factionName, onStringsUpdate }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between border-b border-slate-600 pb-2">
         <div>
-          <p className="text-sm font-semibold text-slate-200">Strings.bin Entries</p>
-          <p className="text-xs text-slate-400">Manage expanded.txt.strings.bin entries for {factionName}</p>
+          <p className="text-sm font-semibold text-slate-200">Text Localization Entries</p>
+          <p className="text-xs text-slate-400">Manage expanded.txt entries for {factionName}</p>
         </div>
         <div className="flex gap-2">
-          <input ref={fileRef} type="file" accept=".bin,.txt" className="hidden" onChange={loadStrings} />
+          <input ref={fileRef} type="file" accept=".txt,text/plain" className="hidden" onChange={loadStrings} />
           <Button variant="outline" size="sm" className="text-[10px]" onClick={() => fileRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" /> Load
           </Button>
@@ -157,7 +157,7 @@ export default function StringsTab({ factionName, onStringsUpdate }) {
         <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-700 rounded-lg">
           <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No strings file loaded</p>
-          <p className="text-xs mt-1">Load expanded.txt.strings.bin or generate entries during duplication</p>
+          <p className="text-xs mt-1">Load expanded.txt or generate entries during duplication</p>
         </div>
       )}
     </div>

@@ -8,14 +8,28 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import BannersTab, { BANNERS_GLOBAL_KEY } from '@/components/factions/BannersTab';
 import { parseBannersXml, serialiseBannersXml } from '@/components/minorfiles/banners/bannersParser';
-import { parseStringsBin, encodeStringsBin } from '@/components/strings/stringsBinCodec';
 import DescriptionsTab from '@/components/factions/DescriptionsTab';
 import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/components/factions/MiscTab';
 import FactionSymbolsTab from '@/components/factions/FactionSymbolsTab';
 import { textBlob } from '@/lib/lineEndings';
+import { parseTextLocFile, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 
 const LS_OFFMAP = 'm2tw_offmap_models';
-const LS_MENU_STRINGS = 'm2tw_menu_strings_bin';
+const LS_GLOBAL_STRINGS = 'rtw_expanded_text_global';
+const LS_MENU_STRINGS = 'rtw_menu_text_global';
+
+function normalizeLocKey(key) {
+  return String(key || '').trim().replace(/^\{/, '').replace(/\}$/, '');
+}
+
+function entriesToText(entries) {
+  const map = {};
+  for (const entry of entries || []) {
+    const key = normalizeLocKey(entry.key);
+    if (key) map[key] = entry.value ?? '';
+  }
+  return serializeTextLocFile(map);
+}
 
 /** Inject {UI_FACTION_X} and {UI_FACTION_X_DESCRIPTION} into menu strings if missing */
 function injectMenuStringsForFaction(factionName, displayName) {
@@ -613,7 +627,7 @@ export default function FactionsEditor() {
     try {const r = localStorage.getItem(LS_REL);if (r) setReligions(JSON.parse(r));} catch {}
     try {const r = localStorage.getItem(LS_UNITS);if (r) setEduUnits(JSON.parse(r));} catch {}
     try {if (localStorage.getItem(BANNERS_GLOBAL_KEY)) setBannersLoaded(true);} catch {}
-    try {if (localStorage.getItem('m2tw_strings_bin_global')) setStringsLoaded(true);} catch {}
+    try {if (localStorage.getItem(LS_GLOBAL_STRINGS)) setStringsLoaded(true);} catch {}
     try {if (localStorage.getItem(LS_MENU_STRINGS)) setMenuStringsLoaded(true);} catch {}
   }, []);
 
@@ -667,14 +681,13 @@ export default function FactionsEditor() {
     e.target.value = '';
   }, []);
 
-  const loadStringsBinGlobal = useCallback(async (e) => {
+  const loadExpandedText = useCallback(async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const buf = await file.arrayBuffer();
-    const parsed = parseStringsBin(buf);
-    if (parsed?.entries) {
-      localStorage.setItem('m2tw_strings_bin_global', JSON.stringify({
-        entries: parsed.entries, magic1: parsed.magic1, magic2: parsed.magic2
-      }));
+    const text = await file.text();
+    const entries = textLocMapToEntries(parseTextLocFile(text))
+      .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value }));
+    if (entries.length) {
+      localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries }));
       setStringsLoaded(true);
       window.dispatchEvent(new CustomEvent('strings-bin-updated'));
     }
@@ -683,12 +696,11 @@ export default function FactionsEditor() {
 
   const loadMenuStrings = useCallback(async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const buf = await file.arrayBuffer();
-    const parsed = parseStringsBin(buf);
-    if (parsed?.entries) {
-      localStorage.setItem(LS_MENU_STRINGS, JSON.stringify({
-        entries: parsed.entries, magic1: parsed.magic1, magic2: parsed.magic2
-      }));
+    const text = await file.text();
+    const entries = textLocMapToEntries(parseTextLocFile(text))
+      .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value }));
+    if (entries.length) {
+      localStorage.setItem(LS_MENU_STRINGS, JSON.stringify({ entries }));
       setMenuStringsLoaded(true);
       window.dispatchEvent(new CustomEvent('menu-strings-updated'));
     }
@@ -899,19 +911,18 @@ export default function FactionsEditor() {
       console.error('Failed to copy banners:', err);
     }
     
-    // Duplicate strings.bin entries from source faction
+    // Duplicate localization entries from source faction
     try {
-      const storedData = localStorage.getItem('m2tw_strings_bin_global');
+      const storedData = localStorage.getItem(LS_GLOBAL_STRINGS);
       let storedEntries = [];
-      let magic1 = 2;
-      let magic2 = 2048;
       
       if (storedData) {
         try {
           const parsed = JSON.parse(storedData);
-          storedEntries = parsed.entries || parsed;
-          magic1 = parsed.magic1 || 2;
-          magic2 = parsed.magic2 || 2048;
+          storedEntries = (parsed.entries || parsed).map((entry) => ({
+            key: normalizeLocKey(entry.key),
+            value: entry.value ?? ''
+          }));
         } catch {
           storedEntries = [];
         }
@@ -950,30 +961,30 @@ export default function FactionsEditor() {
         }
         
         // Apply user's custom edits for specific fields - these override any previous replacements
-        if (newKey === `{${nameUpper}}` && displayName.trim()) {
+        if (newKey === nameUpper && displayName.trim()) {
           newValue = displayName.trim();
         }
-        else if (newKey === `{EMT_${nameUpper}_FACTION_LEADER_TITLE}` && leaderTitle.trim()) {
+        else if (newKey === `EMT_${nameUpper}_FACTION_LEADER_TITLE` && leaderTitle.trim()) {
           newValue = leaderTitle.trim();
         }
-        else if (newKey === `{EMT_${nameUpper}_FACTION_HEIR_TITLE}` && heirTitle.trim()) {
+        else if (newKey === `EMT_${nameUpper}_FACTION_HEIR_TITLE` && heirTitle.trim()) {
           newValue = heirTitle.trim();
         }
-        else if (newKey === `{EMT_${nameUpper}_FACTION_LEADER_NAME}` && leaderTitle.trim()) {
+        else if (newKey === `EMT_${nameUpper}_FACTION_LEADER_NAME` && leaderTitle.trim()) {
           newValue = `${leaderTitle.trim()} %S`;
         }
-        else if (newKey === `{EMT_${nameUpper}_FACTION_HEIR_NAME}` && heirTitle.trim()) {
+        else if (newKey === `EMT_${nameUpper}_FACTION_HEIR_NAME` && heirTitle.trim()) {
           newValue = `${heirTitle.trim()} %S`;
         }
-        else if (newKey === `{${nameUpper}_STRENGTH}`) {
+        else if (newKey === `${nameUpper}_STRENGTH`) {
           // Use custom strengths text if provided, otherwise keep the replaced value
           newValue = strengths.trim() || newValue;
         }
-        else if (newKey === `{${nameUpper}_WEAKNESS}`) {
+        else if (newKey === `${nameUpper}_WEAKNESS`) {
           // Use custom weaknesses text if provided, otherwise keep the replaced value
           newValue = weaknesses.trim() || newValue;
         }
-        else if (newKey === `{${nameUpper}_UNIT}`) {
+        else if (newKey === `${nameUpper}_UNIT`) {
           // Use custom unit text if provided, otherwise keep the replaced value
           newValue = customUnit.trim() || newValue;
         }
@@ -989,11 +1000,7 @@ export default function FactionsEditor() {
       
       // Add the duplicated entries and save with proper structure
       const updated = [...filtered, ...newEntries];
-      localStorage.setItem('m2tw_strings_bin_global', JSON.stringify({
-        entries: updated,
-        magic1,
-        magic2
-      }));
+      localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries: updated }));
       window.dispatchEvent(new CustomEvent('strings-bin-updated'));
     } catch (err) {
       console.error('Failed to duplicate strings:', err);
@@ -1078,16 +1085,16 @@ export default function FactionsEditor() {
             {bannersLoaded ? 'Banners ✓' : 'descr_banners_new.xml'}
           </Button>
 
-          <input ref={stringsRef} type="file" accept=".bin" className="hidden" onChange={loadStringsBinGlobal} />
+          <input ref={stringsRef} type="file" accept=".txt,text/plain" className="hidden" onChange={loadExpandedText} />
           <Button variant="outline" size="sm" className={`text-[10px] h-7 ${stringsLoaded ? 'text-green-300 border-green-700' : ''}`} onClick={() => stringsRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" />
-            {stringsLoaded ? 'Strings ✓' : 'expanded.txt.strings.bin'}
+            {stringsLoaded ? 'Strings ✓' : 'expanded.txt'}
           </Button>
 
-          <input ref={menuStringsRef} type="file" accept=".bin" className="hidden" onChange={loadMenuStrings} />
+          <input ref={menuStringsRef} type="file" accept=".txt,text/plain" className="hidden" onChange={loadMenuStrings} />
           <Button variant="outline" size="sm" className={`text-[10px] h-7 ${menuStringsLoaded ? 'text-green-300 border-green-700' : ''}`} onClick={() => menuStringsRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" />
-            {menuStringsLoaded ? 'Menu Strings ✓' : 'menu_english.txt.strings.bin'}
+            {menuStringsLoaded ? 'Menu Strings ✓' : 'menu_english.txt'}
           </Button>
 
           <div className="w-px h-5 bg-border mx-1" />
@@ -1117,10 +1124,9 @@ export default function FactionsEditor() {
               try {
                 const raw = localStorage.getItem(LS_MENU_STRINGS);
                 if (!raw) return;
-                const { entries, magic1, magic2 } = JSON.parse(raw);
-                const buf = encodeStringsBin(entries, magic1, magic2);
-                const blob = new Blob([buf], { type: 'application/octet-stream' });
-                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'menu_english.txt.strings.bin'; a.click();
+                const { entries } = JSON.parse(raw);
+                const blob = textBlob(entriesToText(entries));
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'menu_english.txt'; a.click();
               } catch {}
             }}>
               <Download className="w-3 h-3 mr-1" /> Export menu strings
@@ -1235,7 +1241,7 @@ export default function FactionsEditor() {
             </div>
             
             <div className="border-t border-slate-700 pt-3">
-              <p className="text-[10px] text-slate-400 mb-3">String Entries (for .strings.bin)</p>
+              <p className="text-[10px] text-slate-400 mb-3">Text Localization Entries</p>
               
               <div className="grid grid-cols-2 gap-3">
                 <div>

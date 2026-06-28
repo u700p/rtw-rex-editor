@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Upload, Download, Plus, X, Search, Copy } from 'lucide-react';
-import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
 import { useModData } from '@/components/shared/ModDataContext';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
+import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 
 // ─── descr_names.txt parser ─────────────────────────────────────────────────
 // Grammar:
@@ -106,7 +106,6 @@ function NameRow({ internalName, displayName, onDisplayChange, onRemoveInternal,
 export default function CharacterNamesTab() {
   const [descrNames, setDescrNames] = useState({});
   const [displayNames, setDisplayNames] = useState({});
-  const [binMeta, setBinMeta] = useState(null);
 
   const [selectedFaction, setSelectedFaction] = useState('');
   const [activeSection, setActiveSection] = useState('characters');
@@ -126,32 +125,24 @@ export default function CharacterNamesTab() {
     setSelectedFaction(factions[0]);
   };
 
-  const applyNamesBin = (buf) => {
-    const decoded = parseStringsBin(buf);
-    if (decoded?.entries) {
-      const map = {};
-      for (const { key, value } of decoded.entries) if (key) map[key] = value;
-      setDisplayNames(map);
-      setBinMeta({ magic1: decoded.magic1 ?? 2, magic2: decoded.magic2 ?? 2048 });
-      try {
-        localStorage.setItem('m2tw_names_bin_entries', JSON.stringify(map));
-        localStorage.setItem('m2tw_names_bin_meta', JSON.stringify({ magic1: decoded.magic1 ?? 2, magic2: decoded.magic2 ?? 2048 }));
-      } catch {}
-    }
-  };
-
-  const applyNamesBinEntries = (entries, meta) => {
-    const map = {};
-    for (const { key, value } of entries) if (key) map[key] = value;
+  const applyNamesText = (raw) => {
+    const map = parseTextLocFile(raw);
     setDisplayNames(map);
-    setBinMeta(meta || null);
     try {
-      localStorage.setItem('m2tw_names_bin_entries', JSON.stringify(map));
-      localStorage.setItem('m2tw_names_bin_meta', JSON.stringify(meta));
+      localStorage.setItem('rtw_names_text_entries', JSON.stringify(map));
     } catch {}
   };
 
-  // Auto-restore from localStorage / stringsBinStore on mount
+  const applyNamesTextEntries = (entries) => {
+    const map = {};
+    for (const { key, value } of entries) if (key) map[key] = value;
+    setDisplayNames(map);
+    try {
+      localStorage.setItem('rtw_names_text_entries', JSON.stringify(map));
+    } catch {}
+  };
+
+  // Auto-restore from localStorage / localization store on mount
   useEffect(() => {
     try {
       const raw = localStorage.getItem('m2tw_names_file');
@@ -162,32 +153,30 @@ export default function CharacterNamesTab() {
       const store = getStringsBinStore();
       const entry = Object.entries(store).find(([k]) => k.toLowerCase().includes('names'));
       if (entry?.[1]) {
-        applyNamesBinEntries(entry[1].entries, entry[1].sourceFormat === 'txt' ? null : { magic1: entry[1].magic1 ?? 2, magic2: entry[1].magic2 ?? 2048 });
+        applyNamesTextEntries(entry[1].entries);
       }
     } catch {}
 
     try {
-      const raw = localStorage.getItem('m2tw_names_bin_entries');
+      const raw = localStorage.getItem('rtw_names_text_entries');
       if (raw) {
         setDisplayNames(JSON.parse(raw));
-        const meta = localStorage.getItem('m2tw_names_bin_meta');
-        if (meta) setBinMeta(JSON.parse(meta));
       }
     } catch {}
 
     const onNamesLoaded = (e) => { if (e.detail?.raw) applyDescrNames(e.detail.raw); };
-    const onStringsBinUpdated = () => {
+    const onTextLocalizationUpdated = () => {
       try {
         const store = getStringsBinStore();
         const entry = Object.entries(store).find(([k]) => k.toLowerCase().includes('names'));
-        if (entry?.[1]) applyNamesBinEntries(entry[1].entries, entry[1].sourceFormat === 'txt' ? null : { magic1: entry[1].magic1 ?? 2, magic2: entry[1].magic2 ?? 2048 });
+        if (entry?.[1]) applyNamesTextEntries(entry[1].entries);
       } catch {}
     };
     window.addEventListener('load-character-names', onNamesLoaded);
-    window.addEventListener('strings-bin-updated', onStringsBinUpdated);
+    window.addEventListener('strings-bin-updated', onTextLocalizationUpdated);
     return () => {
       window.removeEventListener('load-character-names', onNamesLoaded);
-      window.removeEventListener('strings-bin-updated', onStringsBinUpdated);
+      window.removeEventListener('strings-bin-updated', onTextLocalizationUpdated);
     };
   }, []);
 
@@ -221,11 +210,9 @@ export default function CharacterNamesTab() {
       const text = ev.target.result;
       // Clear stale cache before applying fresh file
       try {
-        localStorage.removeItem('m2tw_names_bin_entries');
-        localStorage.removeItem('m2tw_names_bin_meta');
+        localStorage.removeItem('rtw_names_text_entries');
       } catch {}
       setDisplayNames({});
-      setBinMeta(null);
       applyDescrNames(text);
       try { localStorage.setItem('m2tw_names_file', text); } catch {}
     };
@@ -233,12 +220,12 @@ export default function CharacterNamesTab() {
     e.target.value = '';
   };
 
-  const handleLoadBin = (e) => {
+  const handleLoadNamesText = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => { applyNamesBin(ev.target.result); };
-    reader.readAsArrayBuffer(file);
+    reader.onload = (ev) => { applyNamesText(ev.target.result); };
+    reader.readAsText(file, 'utf-8');
     e.target.value = '';
   };
 
@@ -247,10 +234,8 @@ export default function CharacterNamesTab() {
     downloadBlob(textBlob(text), 'descr_names.txt');
   };
 
-  const handleExportBin = () => {
-    const entries = Object.entries(displayNames).map(([key, value]) => ({ key, value }));
-    const buf = encodeStringsBin(entries, binMeta?.magic1, binMeta?.magic2);
-    downloadBlob(new Blob([new Uint8Array(buf)]), 'names.txt.bin');
+  const handleExportNamesText = () => {
+    downloadBlob(textBlob(serializeTextLocFile(displayNames)), 'names.txt');
   };
 
   const updateSection = (newList) => {
@@ -287,7 +272,7 @@ export default function CharacterNamesTab() {
   const setDisplay = (internalName, value) => {
     setDisplayNames(prev => {
       const next = { ...prev, [internalName]: value };
-      try { localStorage.setItem('m2tw_names_bin_entries', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('rtw_names_text_entries', JSON.stringify(next)); } catch {}
       return next;
     });
   };
@@ -342,16 +327,16 @@ export default function CharacterNamesTab() {
           <input type="file" accept=".txt,text/plain" className="hidden" onChange={handleLoadDescr} />
         </label>
         <label className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
-          <Upload className="w-3 h-3" /> Load names.txt.bin
-          <input type="file" accept=".bin,.strings.bin" className="hidden" onChange={handleLoadBin} />
+          <Upload className="w-3 h-3" /> Load names.txt
+          <input type="file" accept=".txt,text/plain" className="hidden" onChange={handleLoadNamesText} />
         </label>
         <button onClick={handleExportDescr} disabled={noneLoaded}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
           <Download className="w-3 h-3" /> Export descr_names.txt
         </button>
-        <button onClick={handleExportBin} disabled={!Object.keys(displayNames).length}
+        <button onClick={handleExportNamesText} disabled={!Object.keys(displayNames).length}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
-          <Download className="w-3 h-3" /> Export names.txt.bin
+          <Download className="w-3 h-3" /> Export names.txt
         </button>
       </div>
 
@@ -361,7 +346,7 @@ export default function CharacterNamesTab() {
 
       {noneLoaded ? (
         <p className="text-[10px] text-slate-600 text-center py-6">
-          Load <span className="font-mono text-slate-500">descr_names.txt</span> and/or <span className="font-mono text-slate-500">names.txt.bin</span> to start editing.
+          Load <span className="font-mono text-slate-500">descr_names.txt</span> and/or <span className="font-mono text-slate-500">names.txt</span> to start editing.
         </p>
       ) : (
         <div className="flex gap-3">
@@ -484,7 +469,7 @@ export default function CharacterNamesTab() {
               <div className="flex items-center gap-3 text-[9px] text-slate-600">
                 <span className="font-mono w-36">internal_name</span>
                 <span>→</span>
-                <span>Display Name (names.txt.bin)</span>
+                <span>Display Name (names.txt)</span>
               </div>
 
               {/* Search + Add + Sort row */}

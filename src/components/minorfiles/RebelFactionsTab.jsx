@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Download, Plus, X, AlertCircle, ChevronDown, ChevronRight, Search } from 'lucide-react';
-import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
 import RebelFactionRow from './RebelFactionRow';
 import { useRefData } from '../edb/RefDataContext';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
+import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 
 // ─── Parser ──────────────────────────────────────────────────────────────────
 // Format (M2TW descr_rebel_factions.txt):
@@ -74,11 +74,10 @@ const CATEGORIES = ['gladiator_revolt', 'brigands', 'pirates', 'peasant_revolt']
 export default function RebelFactionsTab() {
   const [factions, setFactions] = useState([]);
   const [names, setNames] = useState({});
-  const [binMeta, setBinMeta] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState('');
   const txtInputRef = useRef(null);
-  const binInputRef = useRef(null);
+  const namesInputRef = useRef(null);
 
   const { units: refUnits } = useRefData();
   // Live unit type names from the loaded/modified EDU, always up-to-date
@@ -93,7 +92,7 @@ export default function RebelFactionsTab() {
         setLoaded(true);
       }
     } catch {}
-    // Auto-load strings.bin for rebel faction display names
+    // Auto-load text localization for rebel faction display names
     try {
       const store = getStringsBinStore();
       const rebelBinEntry = Object.entries(store).find(([k]) => {
@@ -104,7 +103,6 @@ export default function RebelFactionsTab() {
         const map = {};
         for (const e of rebelBinEntry[1].entries) if (e.key) map[e.key] = e.value;
         setNames(map);
-        setBinMeta(rebelBinEntry[1].sourceFormat === 'txt' ? null : { magic1: rebelBinEntry[1].magic1 ?? 2, magic2: rebelBinEntry[1].magic2 ?? 2048 });
       }
     } catch {}
   }, []);
@@ -123,16 +121,10 @@ export default function RebelFactionsTab() {
     e.target.value = '';
   };
 
-  const handleLoadBin = async (e) => {
+  const handleLoadNamesText = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const buf = await file.arrayBuffer();
-    const decoded = parseStringsBin(buf);
-    if (decoded?.entries) {
-      const map = {};
-      for (const { key, value } of decoded.entries) if (key) map[key] = value;
-      setNames(map);
-      setBinMeta({ magic1: decoded.magic1, magic2: decoded.magic2 });
-    }
+    const text = await file.text();
+    setNames(parseTextLocFile(text));
     e.target.value = '';
   };
 
@@ -141,10 +133,8 @@ export default function RebelFactionsTab() {
     downloadBlob(textBlob(text), 'descr_rebel_factions.txt');
   };
 
-  const handleExportBin = () => {
-    const entries = Object.entries(names).map(([key, value]) => ({ key, value }));
-    const buf = encodeStringsBin(entries, binMeta?.magic1, binMeta?.magic2);
-    downloadBlob(new Blob([new Uint8Array(buf)]), 'rebel_faction_descr.txt.strings.bin');
+  const handleExportNamesText = () => {
+    downloadBlob(textBlob(serializeTextLocFile(names)), 'rebel_faction_descr.txt');
   };
 
   const addFaction = () => {
@@ -182,7 +172,7 @@ export default function RebelFactionsTab() {
     <div className="space-y-3">
       {/* Hidden file inputs */}
       <input ref={txtInputRef} type="file" accept=".txt" className="hidden" onChange={handleLoadTxt} />
-      <input ref={binInputRef} type="file" accept=".bin,.strings.bin" className="hidden" onChange={handleLoadBin} />
+      <input ref={namesInputRef} type="file" accept=".txt,text/plain" className="hidden" onChange={handleLoadNamesText} />
 
       {/* Load / Export */}
       <div className="flex flex-wrap gap-2">
@@ -190,17 +180,17 @@ export default function RebelFactionsTab() {
           className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-700 border border-slate-500 text-slate-200 hover:bg-slate-600 transition-colors">
           <Upload className="w-3 h-3" /> Load .txt
         </button>
-        <button onClick={() => binInputRef.current?.click()}
+        <button onClick={() => namesInputRef.current?.click()}
           className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-700 border border-slate-500 text-slate-200 hover:bg-slate-600 transition-colors">
-          <Upload className="w-3 h-3" /> Load .strings.bin
+          <Upload className="w-3 h-3" /> Load rebel_faction_descr.txt
         </button>
         <button onClick={handleExportTxt} disabled={!factions.length}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/30 border border-amber-500/50 text-amber-300 hover:bg-amber-600/50 disabled:opacity-40 transition-colors">
           <Download className="w-3 h-3" /> Export .txt
         </button>
-        <button onClick={handleExportBin} disabled={!Object.keys(names).length}
+        <button onClick={handleExportNamesText} disabled={!Object.keys(names).length}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/30 border border-amber-500/50 text-amber-300 hover:bg-amber-600/50 disabled:opacity-40 transition-colors">
-          <Download className="w-3 h-3" /> Export .strings.bin
+          <Download className="w-3 h-3" /> Export rebel_faction_descr.txt
         </button>
       </div>
 

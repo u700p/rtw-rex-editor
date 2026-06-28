@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Download, Plus, X, AlertCircle } from 'lucide-react';
-import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
+import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 
 function parseReligionsFull(text) {
   const religions = [];
@@ -43,11 +43,10 @@ function downloadBlob(blob, name) {
 
 export default function ReligionsTab() {
   const [religions, setReligions] = useState([]);
-  const [names, setNames] = useState({}); // internal→display from strings.bin
-  const [binMeta, setBinMeta] = useState(null);
+  const [names, setNames] = useState({}); // internal -> display text
   const [loaded, setLoaded] = useState(false);
   const txtInputRef = useRef(null);
-  const binInputRef = useRef(null);
+  const namesInputRef = useRef(null);
 
   // Auto-load from localStorage on mount
   useEffect(() => {
@@ -58,7 +57,7 @@ export default function ReligionsTab() {
         setLoaded(true);
       }
     } catch {}
-    // Auto-load strings.bin for religion display names
+    // Auto-load text localization for religion display names
     try {
       const store = getStringsBinStore();
       const relBinEntry = Object.entries(store).find(([k]) => k.toLowerCase().includes('religion'));
@@ -66,7 +65,6 @@ export default function ReligionsTab() {
         const map = {};
         for (const e of relBinEntry[1].entries) if (e.key) map[e.key] = e.value;
         setNames(map);
-        setBinMeta(relBinEntry[1].sourceFormat === 'txt' ? null : { magic1: relBinEntry[1].magic1 ?? 2, magic2: relBinEntry[1].magic2 ?? 2048 });
       }
     } catch {}
   }, []);
@@ -83,16 +81,10 @@ export default function ReligionsTab() {
     e.target.value = '';
   };
 
-  const handleLoadBin = async (e) => {
+  const handleLoadNamesText = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const buf = await file.arrayBuffer();
-    const decoded = parseStringsBin(buf);
-    if (decoded?.entries) {
-      const map = {};
-      for (const { key, value } of decoded.entries) if (key) map[key] = value;
-      setNames(map);
-      setBinMeta({ magic1: decoded.magic1, magic2: decoded.magic2 });
-    }
+    const text = await file.text();
+    setNames(parseTextLocFile(text));
     e.target.value = '';
   };
 
@@ -106,10 +98,8 @@ export default function ReligionsTab() {
     downloadBlob(textBlob(text), 'descr_religions_lookup.txt');
   };
 
-  const handleExportBin = () => {
-    const entries = Object.entries(names).map(([key, value]) => ({ key, value }));
-    const buf = encodeStringsBin(entries, binMeta?.magic1, binMeta?.magic2);
-    downloadBlob(new Blob([new Uint8Array(buf)]), 'descr_religions.txt.strings.bin');
+  const handleExportNamesText = () => {
+    downloadBlob(textBlob(serializeTextLocFile(names)), 'religions.txt');
   };
 
   const addReligion = () => {
@@ -138,16 +128,16 @@ export default function ReligionsTab() {
   return (
     <div className="space-y-3">
       <input ref={txtInputRef} type="file" accept=".txt" className="hidden" onChange={handleLoadTxt} />
-      <input ref={binInputRef} type="file" accept=".bin,.strings.bin" className="hidden" onChange={handleLoadBin} />
+      <input ref={namesInputRef} type="file" accept=".txt,text/plain" className="hidden" onChange={handleLoadNamesText} />
 
       <div className="flex flex-wrap gap-2">
         <button onClick={() => txtInputRef.current?.click()}
           className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
           <Upload className="w-3 h-3" /> Load descr_religions.txt
         </button>
-        <button onClick={() => binInputRef.current?.click()}
+        <button onClick={() => namesInputRef.current?.click()}
           className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
-          <Upload className="w-3 h-3" /> Load .strings.bin
+          <Upload className="w-3 h-3" /> Load religions.txt
         </button>
         <button onClick={handleExportTxt} disabled={!religions.length}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
@@ -157,9 +147,9 @@ export default function ReligionsTab() {
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/40 disabled:opacity-40 transition-colors">
           <Download className="w-3 h-3" /> Export lookup
         </button>
-        <button onClick={handleExportBin} disabled={!Object.keys(names).length}
+        <button onClick={handleExportNamesText} disabled={!Object.keys(names).length}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
-          <Download className="w-3 h-3" /> Export .strings.bin
+          <Download className="w-3 h-3" /> Export religions.txt
         </button>
       </div>
 
