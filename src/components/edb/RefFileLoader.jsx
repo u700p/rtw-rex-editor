@@ -16,7 +16,7 @@ function FileBtn({ label, hint, onLoad, loaded }) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => onLoad(ev.target.result);
+    reader.onload = (ev) => onLoad(ev.target.result, file.name);
     reader.readAsText(file);
     e.target.value = '';
   };
@@ -30,7 +30,7 @@ export default function RefFileLoader() {
   const folderRef = useRef();
   const [loaded, setLoaded] = useState({});
 
-  const load = (key, fn) => (text) => {fn(text);setLoaded((p) => ({ ...p, [key]: true }));};
+  const load = (key, fn) => (text, filename) => {fn(text, filename);setLoaded((p) => ({ ...p, [key]: true }));};
 
   const loaderMap = {
     fac: load('fac', loadFactionsFile),
@@ -47,7 +47,7 @@ export default function RefFileLoader() {
       const key = REF_FILE_MAP[name];
       if (key) {
         const reader = new FileReader();
-        reader.onload = (ev) => loaderMap[key](ev.target.result);
+        reader.onload = (ev) => loaderMap[key](ev.target.result, file.name);
         reader.readAsText(file);
       }
       if (name === 'export_descr_buildings.txt') edbFile = file;
