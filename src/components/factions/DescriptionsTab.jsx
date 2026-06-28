@@ -42,7 +42,7 @@ export default function DescriptionsTab({ factionName }) {
     const blob = textBlob(serializeTextLocFile(entriesToMap(allEntries)));
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'expanded.txt';
+    a.download = 'expanded_bi.txt';
     a.click();
   };
 
@@ -152,12 +152,12 @@ export default function DescriptionsTab({ factionName }) {
   return (
     <div className="space-y-4">
       <div className="border-b border-slate-600 pb-2">
-        <p className="text-sm font-semibold text-slate-200">expanded.txt Editor</p>
-        <p className="text-xs text-slate-400">Edit RTW text localization entries for {factionName}</p>
+        <p className="text-sm font-semibold text-slate-200">expanded_bi.txt Editor</p>
+        <p className="text-xs text-slate-400">Edit RTW BI text localization entries for {factionName}</p>
       </div>
 
       <div className="flex items-center justify-between">
-        <label className="text-[10px] text-slate-300">expanded.txt file</label>
+        <label className="text-[10px] text-slate-300">expanded_bi.txt file</label>
         <div className="flex gap-2">
           <input ref={localizationRef} type="file" accept=".txt,text/plain" className="hidden" onChange={loadLocalizationText} />
           <Button variant="outline" size="sm" className="text-[10px]" onClick={() => localizationRef.current?.click()}>
@@ -310,7 +310,7 @@ export default function DescriptionsTab({ factionName }) {
             </Button>
           )}
           {allEntries.length === 0 && (
-            <p className="text-[10px]">Load expanded.txt first.</p>
+            <p className="text-[10px]">Load expanded_bi.txt first.</p>
           )}
         </div>
       }

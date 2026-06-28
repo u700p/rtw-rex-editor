@@ -1126,7 +1126,7 @@ export default function FactionsEditor() {
           <input ref={stringsRef} type="file" accept=".txt,text/plain" className="hidden" onChange={loadExpandedText} />
           <Button variant="outline" size="sm" className={`text-[10px] h-7 ${stringsLoaded ? 'text-green-300 border-green-700' : ''}`} onClick={() => stringsRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" />
-            {stringsLoaded ? 'Strings ✓' : 'expanded.txt'}
+            {stringsLoaded ? 'Strings OK' : 'expanded_bi.txt'}
           </Button>
 
           <input ref={menuStringsRef} type="file" accept=".txt,text/plain" className="hidden" onChange={loadMenuStrings} />
