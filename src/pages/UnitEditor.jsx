@@ -28,6 +28,19 @@ function saveUnits(units) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(units)); } catch {}
 }
 
+function saveEduRaw(text, filename = '') {
+  try {
+    localStorage.setItem(EDU_FILE_KEY, text);
+    sessionStorage.setItem('m2tw_edu_raw', text);
+    if (filename) localStorage.setItem(EDU_FILE_NAME_KEY, filename);
+    const unitNames = [...new Set(String(text || '').split('\n')
+      .map(line => line.replace(/;.*$/, '').trim().match(/^type\s+(.+)/i)?.[1]?.trim())
+      .filter(Boolean))]
+      .sort();
+    if (unitNames.length) localStorage.setItem('m2tw_edu_units_list', JSON.stringify(unitNames));
+  } catch {}
+}
+
 function makeUniqueUnitValue(base, units, field) {
   const existing = new Set(units.map(u => String(u?.[field] || '').toLowerCase()));
   const prefix = `${base || 'unit'}_copy`;
@@ -308,7 +321,7 @@ export default function UnitEditorPage() {
   const update = (units) => {
     setUnits(units);
     saveUnits(units);
-    try { localStorage.setItem(EDU_FILE_KEY, serializeEDU(units)); } catch {}
+    saveEduRaw(serializeEDU(units), filename);
     window.dispatchEvent(new CustomEvent('edu-file-loaded', { detail: { source: 'unit-editor' } }));
   };
 
@@ -333,7 +346,7 @@ export default function UnitEditorPage() {
       saveUnits(parsed);
       setActiveIndex(0);
       // Persist so Unit Card Generator (and other tools) can read it
-      try { localStorage.setItem(EDU_FILE_KEY, text); } catch {}
+      saveEduRaw(text, file.name);
       // Notify same-tab listeners (UnitCardGenerator etc.)
       window.dispatchEvent(new CustomEvent('edu-file-loaded', { detail: { source: 'unit-editor' } }));
     };
@@ -404,9 +417,13 @@ export default function UnitEditorPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await file.text();
-    loadFactionsFile(text); // saves to 'm2tw_factions_file' via RefDataContext
+    loadFactionsFile(text, file.name); // saves shared faction keys via RefDataContext
     // Also sync to FactionsEditor key so both editors share the same data
-    try { localStorage.setItem('m2tw_sm_factions_raw', text); } catch {}
+    try {
+      localStorage.setItem('m2tw_sm_factions_raw', text);
+      localStorage.setItem('m2tw_factions_raw', text);
+      sessionStorage.setItem('m2tw_factions_raw', text);
+    } catch {}
     e.target.value = '';
   };
 

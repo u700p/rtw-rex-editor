@@ -74,6 +74,26 @@ const LS_CULT = 'm2tw_cultures_list';
 const LS_REL = 'm2tw_religions_list';
 const LS_UNITS = 'm2tw_edu_units_list';
 
+function saveFactionsRaw(text, filename = '') {
+  try {
+    localStorage.setItem(LS_KEY, text);
+    localStorage.setItem('m2tw_factions_file', text);
+    localStorage.setItem('m2tw_factions_raw', text);
+    sessionStorage.setItem('m2tw_factions_raw', text);
+    if (filename) localStorage.setItem('m2tw_factions_file_name', filename);
+  } catch {}
+}
+
+function saveEduRaw(text, filename = '') {
+  try {
+    const list = parseEduUnits(text);
+    localStorage.setItem(LS_UNITS, JSON.stringify(list));
+    localStorage.setItem('m2tw_units_file', text);
+    sessionStorage.setItem('m2tw_edu_raw', text);
+    if (filename) localStorage.setItem('m2tw_edu_file_name', filename);
+  } catch {}
+}
+
 // ── Colour helpers ────────────────────────────────────────────────────────────
 const rgbToHex = ({ r, g, b }) => '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
 const hexToRgb = (hex) => {
@@ -618,8 +638,7 @@ export default function FactionsEditor() {
         const r = localStorage.getItem(LS_KEY) || localStorage.getItem('m2tw_factions_file') || sessionStorage.getItem('m2tw_factions_raw');
         if (r) {
           setFactions(parseDescrSmFactions(r));
-          localStorage.setItem(LS_KEY, r);
-          localStorage.setItem('m2tw_factions_file', r);
+          saveFactionsRaw(r);
         }
       } catch {}
       try {
@@ -665,11 +684,7 @@ export default function FactionsEditor() {
   const loadFactions = useCallback(async (e) => {
     const file = e.target.files?.[0];if (!file) return;
     const text = await file.text();
-    try {
-      localStorage.setItem(LS_KEY, text);
-      // Also sync to RefDataContext key so Unit Editor / ModelDB factions stay up-to-date
-      localStorage.setItem('m2tw_factions_file', text);
-    } catch {}
+    saveFactionsRaw(text, file.name);
     const parsed = parseDescrSmFactions(text);
     setFactions(parsed);
     setSelectedIdx(parsed.length > 0 ? 0 : null);
@@ -702,10 +717,7 @@ export default function FactionsEditor() {
     const text = await file.text();
     const list = parseEduUnits(text);
     setEduUnits(list);
-    try {
-      localStorage.setItem(LS_UNITS, JSON.stringify(list));
-      localStorage.setItem('m2tw_units_file', text);
-    } catch {}
+    saveEduRaw(text, file.name);
     window.dispatchEvent(new CustomEvent('edu-file-loaded'));
     e.target.value = '';
   }, []);
