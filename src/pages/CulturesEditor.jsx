@@ -5,13 +5,13 @@ import { Button } from '@/components/ui/button';
 import { parseDescrCulturesFull, serializeDescrCulturesFull, SETTLEMENT_TYPES, AGENT_TYPES } from '../components/cultures/culturesParser';
 import { textBlob } from '@/lib/lineEndings';
 
-// Automatically add/update the expanded.txt display entry for a culture.
+// Automatically add/update the expanded_bi.txt display entry for a culture.
 function upsertCultureStrings(cultureName) {
   const key = cultureName.toUpperCase();
   const display = cultureName.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   const newEntries = [{ key, value: display }];
   const store = getStringsBinStore();
-  const BIN_NAME = 'expanded.txt';
+  const BIN_NAME = 'expanded_bi.txt';
   const existing = store[BIN_NAME] || { entries: [], sourceFormat: 'txt' };
   // Replace or append each key
   const entryMap = {};
@@ -291,15 +291,15 @@ function ExtrasTab({ culture, onChange }) {
   const settlementText = generateOffmapSettlement(culture);
   const portText = generateOffmapPort(culture);
 
-  const handleDownloadText = () => downloadText(expandedText + '\n', `${culture.name}_expanded.txt`);
+  const handleDownloadText = () => downloadText(expandedText + '\n', `${culture.name}_expanded_bi.txt`);
 
   return (
     <div className="space-y-4">
-      {/* expanded.txt */}
+      {/* expanded_bi.txt */}
       <div className="rounded border border-slate-700/40 bg-slate-900/30 p-2.5 space-y-2">
-        <p className="text-[10px] font-semibold text-amber-400">1. expanded.txt string entries</p>
-        <p className="text-[9px] text-slate-500">Add this to <code className="font-mono text-[9px] bg-slate-800 px-1 rounded">data/text/expanded.txt</code>. Without it the game can crash when clicking a settlement.</p>
-        <CopyBlock label="expanded.txt" text={expandedText} onDownload={handleDownloadText} />
+        <p className="text-[10px] font-semibold text-amber-400">1. expanded_bi.txt string entries</p>
+        <p className="text-[9px] text-slate-500">Add this to <code className="font-mono text-[9px] bg-slate-800 px-1 rounded">data/text/expanded_bi.txt</code>. Without it the game can crash when clicking a settlement.</p>
+        <CopyBlock label="expanded_bi.txt" text={expandedText} onDownload={handleDownloadText} />
       </div>
 
       {/* descr_offmap_models — settlement */}
@@ -396,7 +396,7 @@ export default function CulturesEditor() {
     const updated = [...cultures, base];
     setCultures(updated);
     setSelectedIdx(updated.length - 1);
-    // Automatically add string entries to expanded.txt.
+    // Automatically add string entries to expanded_bi.txt.
     upsertCultureStrings(base.name);
   };
 
@@ -512,7 +512,7 @@ export default function CulturesEditor() {
                   </div>
                   <div className="rounded border border-amber-500/20 bg-amber-900/10 p-2.5 text-[10px] text-amber-300/80 leading-relaxed space-y-1">
                     <p className="font-semibold">After adding a new culture:</p>
-                    <p>• Add <code className="font-mono text-[9px] bg-amber-900/30 px-1 rounded">{'{'}{selected.name.toUpperCase()}{'}'}</code> to <code className="font-mono text-[9px]">data/text/expanded.txt</code> with the display name.</p>
+                    <p>• Add <code className="font-mono text-[9px] bg-amber-900/30 px-1 rounded">{'{'}{selected.name.toUpperCase()}{'}'}</code> to <code className="font-mono text-[9px]">data/text/expanded_bi.txt</code> with the display name.</p>
                     <p>• Assign the culture to factions in <code className="font-mono text-[9px]">descr_sm_factions.txt</code>.</p>
                     <p>• Game supports max 1 new culture added (beyond vanilla 7).</p>
                   </div>
