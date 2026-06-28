@@ -10,10 +10,10 @@ import BannersTab from '../components/minorfiles/banners/BannersTab';
 import StratMapCharTab from '../components/minorfiles/stratmap/StratMapCharTab';
 
 const TABS = [
-  { id: 'rebels', label: 'Rebel Factions', Icon: Shield, description: 'descr_rebel_factions.txt + rebel_faction_descr.txt.strings.bin' },
-  { id: 'religions', label: 'Religions', Icon: Sparkles, description: 'descr_religions.txt + lookup + .strings.bin' },
-  { id: 'resources', label: 'Resources', Icon: Gem, description: 'descr_sm_resources.txt + strat.txt.strings.bin' },
-  { id: 'names', label: 'Faction Names', Icon: Users, description: 'descr_names.txt + names.txt.bin' },
+  { id: 'rebels', label: 'Rebel Factions', Icon: Shield, description: 'descr_rebel_factions.txt + rebel_faction_descr.txt' },
+  { id: 'religions', label: 'Religions', Icon: Sparkles, description: 'descr_religions.txt + religions.txt' },
+  { id: 'resources', label: 'Resources', Icon: Gem, description: 'descr_sm_resources.txt + strat.txt' },
+  { id: 'names', label: 'Faction Names', Icon: Users, description: 'descr_names.txt + names.txt' },
   { id: 'spritesheets', label: 'UI Sprites', Icon: LayoutTemplate, description: 'strategy.sd.xml / battle.sd.xml / shared.sd.xml — \\data\\ui\\' },
   { id: 'banners', label: 'Banners', Icon: Flag, description: 'descr_banners_new.xml — faction / unit / holy / royal banners' },
   { id: 'stratmap', label: 'Strat Characters', Icon: Users, description: 'descr_character.txt + descr_model_strat.txt — stratmap character types & models' },

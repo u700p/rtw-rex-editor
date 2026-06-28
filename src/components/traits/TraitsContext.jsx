@@ -18,11 +18,7 @@ export function TraitsProvider({ children }) {
   const originalTextData = useRef(null);
 
   const normalizeTextFilename = (filename, fallback = 'export_VnVs.txt') => {
-    const name = filename || fallback;
-    return name
-      .replace(/\.txt\.strings\.bin$/i, '.txt')
-      .replace(/\.strings\.bin$/i, '.txt')
-      .replace(/\.bin$/i, '.txt');
+    return filename || fallback;
   };
 
   // Auto-load from localStorage if Home page cached the files

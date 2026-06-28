@@ -127,10 +127,7 @@ export default function AncillariesFileLoader() {
   };
 
   const downloadFile = (content, filename) => {
-    const safeName = filename
-      .replace(/\.txt\.strings\.bin$/i, '.txt')
-      .replace(/\.strings\.bin$/i, '.txt')
-      .replace(/\.bin$/i, '.txt');
+    const safeName = filename || 'export_ancillaries.txt';
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

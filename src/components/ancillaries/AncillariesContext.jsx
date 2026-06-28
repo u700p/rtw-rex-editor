@@ -20,11 +20,7 @@ export function AncillariesProvider({ children }) {
   const originalTextData = useRef(null);
 
   const normalizeTextFilename = (filename, fallback = 'export_ancillaries.txt') => {
-    const name = filename || fallback;
-    return name
-      .replace(/\.txt\.strings\.bin$/i, '.txt')
-      .replace(/\.strings\.bin$/i, '.txt')
-      .replace(/\.bin$/i, '.txt');
+    return filename || fallback;
   };
 
   // Listen for TGA images broadcast from Home page

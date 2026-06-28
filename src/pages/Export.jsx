@@ -54,11 +54,7 @@ const IMAGE_SLOT_DEFS = [
 ];
 
 function normalizeTextFilename(filename, fallback) {
-  const name = filename || fallback;
-  return name
-    .replace(/\.txt\.strings\.bin$/i, '.txt')
-    .replace(/\.strings\.bin$/i, '.txt')
-    .replace(/\.bin$/i, '.txt');
+  return filename || fallback;
 }
 
 export default function Export() {

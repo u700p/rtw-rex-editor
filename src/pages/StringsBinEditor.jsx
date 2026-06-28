@@ -163,10 +163,7 @@ export default function StringsBinEditor() {
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const outName = currentFile.name
-      .replace(/\.txt\.strings\.bin$/i, '.txt')
-      .replace(/\.strings\.bin$/i, '.txt')
-      .replace(/\.bin$/i, '.txt');
+    const outName = currentFile.name || 'localization.txt';
     a.href = url; a.download = outName; a.click();
     URL.revokeObjectURL(url);
     updateFiles((f) => ({ ...f, dirty: false }));
