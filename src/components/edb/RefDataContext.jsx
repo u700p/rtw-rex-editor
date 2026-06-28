@@ -64,6 +64,32 @@ function parseKeywordList(text, keyword) {
   return [...new Set(values)].sort();
 }
 
+function parseUnitTypeList(text) {
+  const values = [];
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.replace(/;.*$/, '').trim();
+    const m = line.match(/^type\s+(.+)/i);
+    if (m) values.push(m[1].trim());
+  }
+  return [...new Set(values)].sort();
+}
+
+function saveFactionsText(text, filename) {
+  localStorage.setItem(LS_KEYS.factions, text);
+  localStorage.setItem('m2tw_sm_factions_raw', text);
+  localStorage.setItem('m2tw_factions_raw', text);
+  sessionStorage.setItem('m2tw_factions_raw', text);
+  if (filename) localStorage.setItem('m2tw_factions_file_name', filename);
+}
+
+function saveUnitsText(text, filename) {
+  localStorage.setItem(LS_KEYS.units, text);
+  sessionStorage.setItem('m2tw_edu_raw', text);
+  if (filename) localStorage.setItem('m2tw_edu_file_name', filename);
+  const units = parseUnitTypeList(text);
+  if (units.length) localStorage.setItem('m2tw_edu_units_list', JSON.stringify(units));
+}
+
 export function RefDataProvider({ children }) {
   const [factions, setFactions] = useState(DEFAULT_FACTIONS);
   const [cultures, setCultures] = useState(DEFAULT_CULTURES);
@@ -143,12 +169,12 @@ export function RefDataProvider({ children }) {
     };
   }, [restoreCachedRefData]);
 
-  const loadFactionsFile = useCallback((text) => {
+  const loadFactionsFile = useCallback((text, filename = '') => {
     const result = parseFactionsFile(text);
     if (result.factions) setFactions(result.factions);
     if (result.cultures) setCultures(result.cultures);
     try {
-      localStorage.setItem(LS_KEYS.factions, text);
+      saveFactionsText(text, filename);
       window.dispatchEvent(new CustomEvent('factions-file-loaded'));
     } catch {}
   }, []);
@@ -180,11 +206,11 @@ export function RefDataProvider({ children }) {
     try { localStorage.setItem('m2tw_campaign_script', text); } catch {}
   }, []);
 
-  const loadUnitsFile = useCallback((text) => {
+  const loadUnitsFile = useCallback((text, filename = '') => {
     const u = parseUnitsFile(text);
     if (u.length) setUnits(u);
     try {
-      localStorage.setItem(LS_KEYS.units, text);
+      saveUnitsText(text, filename);
       window.dispatchEvent(new CustomEvent('edu-file-loaded'));
     } catch {}
   }, []);

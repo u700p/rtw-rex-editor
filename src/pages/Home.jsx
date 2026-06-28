@@ -566,7 +566,7 @@ export default function Home() {
           if (key === 'religions') window.dispatchEvent(new CustomEvent('religions-file-loaded', { detail: { text, filename: file.name } }));
         } catch {}
       } else {
-        loaderMap[key]?.(text);
+        loaderMap[key]?.(text, file.name);
         // Store factions in sessionStorage for campaign map editor
         if (key === 'fac') {
           try {
