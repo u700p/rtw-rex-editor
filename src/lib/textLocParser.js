@@ -30,11 +30,15 @@ function stripBom(text) {
 
 function isNoteLine(line) {
   const t = line.trim();
-  return !t || t.startsWith(';') || t.startsWith('¬');
+  return t.startsWith(';') || t.startsWith('¬');
+}
+
+function isBlankLine(line) {
+  return !String(line ?? '').trim();
 }
 
 function normalizeValueLine(line) {
-  return line.trim();
+  return String(line ?? '').replace(/[ \t]+$/, '');
 }
 
 export function parseTextLocFile(text) {
@@ -48,13 +52,14 @@ export function parseTextLocFile(text) {
 
   const flush = () => {
     if (!currentEntry) return;
-    const value = valueLines.join('\n').trim();
+    const value = valueLines.join('\n').replace(/^\n+|\n+$/g, '');
     map[currentEntry.key] = value;
     tokens.push({
       type: 'entry',
       key: currentEntry.key,
       inline: currentEntry.inline && !value.includes('\n'),
       multiline: valueLines.length > 1 || (!currentEntry.inline && value.length > 0),
+      notes: currentEntry.notes || [],
     });
     currentEntry = null;
     valueLines = [];
@@ -62,7 +67,17 @@ export function parseTextLocFile(text) {
 
   for (const raw of lines) {
     const trimmed = raw.trim();
+    if (isBlankLine(raw)) {
+      flush();
+      tokens.push({ type: 'raw', raw });
+      continue;
+    }
+
     if (isNoteLine(raw)) {
+      if (currentEntry && valueLines.length === 0) {
+        currentEntry.notes = [...(currentEntry.notes || []), raw];
+        continue;
+      }
       flush();
       tokens.push({ type: 'raw', raw });
       continue;
@@ -71,7 +86,7 @@ export function parseTextLocFile(text) {
     const keyMatch = trimmed.match(/^\{([^}]+)\}(.*)$/);
     if (keyMatch) {
       flush();
-      const inlineValue = keyMatch[2].replace(/^[\t ]+/, '').trim();
+      const inlineValue = keyMatch[2].replace(/^[\t ]+/, '').replace(/[ \t]+$/, '');
       currentEntry = { key: keyMatch[1].trim(), inline: !!inlineValue };
       valueLines = inlineValue ? [inlineValue] : [];
       continue;
@@ -98,10 +113,10 @@ function serializeEntryLine(key, value, token = {}) {
   const strValue = String(value ?? '');
   const valueLines = strValue.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   if (!strValue) return [`{${key}}`];
-  if (token.multiline || strValue.includes('\n') || !token.inline) {
-    return [`{${key}}`, ...valueLines];
+  if (token.multiline || strValue.includes('\n') || !token.inline || token.notes?.length) {
+    return [`{${key}}`, ...(token.notes || []), ...valueLines];
   }
-  return [`{${key}}${strValue}`];
+  return [`{${key}}\t${strValue}`];
 }
 
 export function textLocMapToEntries(map) {

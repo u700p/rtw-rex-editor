@@ -31,9 +31,9 @@ export const OWNERSHIP_FACTIONS = [
 ];
 
 function parseKV(line) {
-  const idx = line.indexOf(' ');
-  if (idx < 0) return { key: line.trim(), value: '' };
-  return { key: line.slice(0, idx).trim(), value: line.slice(idx + 1).trim() };
+  const match = String(line || '').match(/^(\S+)(?:\s+(.*))?$/);
+  if (!match) return { key: '', value: '' };
+  return { key: match[1].trim(), value: (match[2] || '').trim() };
 }
 
 function parseUnit(lines) {
@@ -146,7 +146,7 @@ export function parseEDU(text) {
 
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith('type ') && !trimmed.startsWith('voice_type')) {
+    if (/^type\s+/i.test(trimmed) && !/^voice_type\s+/i.test(trimmed)) {
       if (inUnit && currentLines.length > 0) {
         units.push(parseUnit(currentLines));
       }

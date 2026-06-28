@@ -9,7 +9,7 @@ import { parseModeldb, serializeModeldb } from '../lib/modeldbCodec';
 import { parseDescrModelBattle, serializeDescrModelBattle, syncDescrModelBattleEntryAliases } from '../lib/descrModelBattleCodec';
 import { modeldbStore } from '../lib/modeldbStore';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
-import { parseTextLocFile } from '@/lib/textLocParser';
+import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 
 const STORAGE_KEY = 'm2tw_edu_units';
 const EDU_FILE_KEY = 'm2tw_units_file';
@@ -117,22 +117,17 @@ function parseExportUnits(text) {
 
 // Serialize descriptions map back to export_units.txt text
 function serializeExportUnits(descrMap) {
-  const lines = [];
+  const loc = {};
   for (const [key, val] of Object.entries(descrMap)) {
-    lines.push(`{${key}}\t${val.name || ''}`);
-    lines.push('');
+    loc[key] = val.name || '';
     if (val.long) {
-      lines.push(`{${key}_descr}`);
-      lines.push(val.long);
-      lines.push('');
+      loc[`${key}_descr`] = val.long;
     }
     if (val.short) {
-      lines.push(`{${key}_descr_short}`);
-      lines.push(val.short);
-      lines.push('');
+      loc[`${key}_descr_short`] = val.short;
     }
   }
-  return lines.join('\n');
+  return serializeTextLocFile(loc);
 }
 
 function mergeUnitDescriptions(baseMap, text) {
@@ -202,10 +197,11 @@ export default function UnitEditorPage() {
   });
   const [unitImages, setUnitImages] = useState(() => window._m2tw_unit_images || loadUnitImages());
   const [modeldb, setModeldb] = useState(() => modeldbStore.get());
+  const [undoCount, setUndoCount] = useState(0);
   const { factions: refFactions, loadFactionsFile } = useRefData();
   const fileRef = useRef();
   const modeldbRef = useRef();
-  const stringsBinRef = useRef();
+  const unitTextRef = useRef();
   const unitUiFolderRef = useRef();
   const factionsRef = useRef();
   const undoStackRef = useRef([]);
