@@ -14,7 +14,6 @@ import { parseDescrStrat, parseDescrRegions, parseSettlementNames, parseDescrSmF
 import { parseDescrRebelFactions, parseDescrReligions, parseDescrSmResources, parseDescrMercenaries, parseDescrSoundsMusicTypes, parseDescrCultures, extractHiddenResourcesFromEDB, extractBuildingLevelsFromEDB, parseDescrNames, parseExportDescrTraits, parseExportDescrAncillaries } from '../components/map/additionalParsers';
 import { parseFactionMovies } from '../components/map/factionMoviesParser';
 import { parseEDU } from '../components/units/EDUParser';
-import { parseStringsBin } from '../components/strings/stringsBinCodec';
 import { getStringsBinStore } from '../lib/stringsBinStore';
 import { importCampaignToDatabase } from '../components/map/campaignImporter';
 import { useEDB } from '../components/edb/EDBContext';
@@ -151,7 +150,7 @@ export default function CampaignMap() {
   const [traitsList, setTraitsList] = useState(() => { try { const r = sessionStorage.getItem('m2tw_traits_raw'); return r ? parseExportDescrTraits(r) : []; } catch { return []; } });
   const [ancillariesList, setAncillariesList] = useState(() => { try { const r = sessionStorage.getItem('m2tw_ancillaries_raw'); return r ? parseExportDescrAncillaries(r) : []; } catch { return []; } });
   const [eduUnits, setEduUnits] = useState(() => { try { const r = sessionStorage.getItem('m2tw_edu_raw'); return r ? parseEDU(r) : []; } catch { return []; } });
-  // namesDisplayMap: decoded from names.txt.strings.bin (separate from region settlement names)
+  // namesDisplayMap: loaded from names.txt (separate from region settlement names)
   const [namesDisplayMap, setNamesDisplayMap] = useState(() => { try { const r = sessionStorage.getItem('m2tw_char_names_display'); return r ? JSON.parse(r) : {}; } catch { return {}; } });
 
   // ── Selected region (click on map) ────────────────────────────────────────
@@ -248,7 +247,7 @@ export default function CampaignMap() {
         }
       }
     } catch {}
-    // Auto-restore settlement names from strings bin store if not already loaded
+    // Auto-restore settlement names from text localization store if not already loaded
     try {
       if (!sessionStorage.getItem('m2tw_names_raw')) {
         const store = getStringsBinStore();
@@ -378,22 +377,6 @@ export default function CampaignMap() {
         const text = await file.text();
         try { sessionStorage.setItem('m2tw_names_raw', text); } catch {}
         setSettlementNamesRaw(parseSettlementNames(text));
-      }
-      // Auto-parse .strings.bin files from data/text/ folder
-      if (name.endsWith('.strings.bin') || name.endsWith('_names.bin')) {
-        const buf = await file.arrayBuffer();
-        const decoded = parseStringsBin(buf);
-        if (decoded?.entries?.length) {
-          const namesMap = {};
-          for (const { key, value } of decoded.entries) if (key) namesMap[key] = value;
-          // If it's a character names file, store separately for character display names
-          if (name.toLowerCase().includes('names') && !name.toLowerCase().includes('settlement') && !name.toLowerCase().includes('region')) {
-            setNamesDisplayMap(prev => ({ ...prev, ...namesMap }));
-            try { sessionStorage.setItem('m2tw_char_names_display', JSON.stringify({ ...namesMap })); } catch {}
-          } else {
-            setSettlementNamesRaw(prev => ({ ...(prev || {}), ...namesMap }));
-          }
-        }
       }
       if (name === 'descr_cultures.txt') {
         const text = await file.text();
