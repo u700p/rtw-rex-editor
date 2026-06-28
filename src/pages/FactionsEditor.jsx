@@ -613,22 +613,53 @@ export default function FactionsEditor() {
   const [menuStringsLoaded, setMenuStringsLoaded] = useState(false);
 
   useEffect(() => {
-    try {
-      const r = localStorage.getItem(LS_KEY);
-      if (r) {
-        setFactions(parseDescrSmFactions(r));
-        // Keep RefDataContext key in sync on mount too
-        if (!localStorage.getItem('m2tw_factions_file')) {
-          try { localStorage.setItem('m2tw_factions_file', r); } catch {}
+    const loadCached = () => {
+      try {
+        const r = localStorage.getItem(LS_KEY) || localStorage.getItem('m2tw_factions_file') || sessionStorage.getItem('m2tw_factions_raw');
+        if (r) {
+          setFactions(parseDescrSmFactions(r));
+          localStorage.setItem(LS_KEY, r);
+          localStorage.setItem('m2tw_factions_file', r);
         }
-      }
-    } catch {}
-    try {const r = localStorage.getItem(LS_CULT);if (r) setCultures(JSON.parse(r));} catch {}
-    try {const r = localStorage.getItem(LS_REL);if (r) setReligions(JSON.parse(r));} catch {}
-    try {const r = localStorage.getItem(LS_UNITS);if (r) setEduUnits(JSON.parse(r));} catch {}
-    try {if (localStorage.getItem(BANNERS_GLOBAL_KEY)) setBannersLoaded(true);} catch {}
-    try {if (localStorage.getItem(LS_GLOBAL_STRINGS)) setStringsLoaded(true);} catch {}
-    try {if (localStorage.getItem(LS_MENU_STRINGS)) setMenuStringsLoaded(true);} catch {}
+      } catch {}
+      try {
+        const raw = localStorage.getItem(LS_CULT);
+        const fallback = localStorage.getItem('m2tw_cultures_file') || sessionStorage.getItem('m2tw_cultures_raw');
+        if (raw) setCultures(JSON.parse(raw));
+        else if (fallback) {
+          const list = parseCultures(fallback);
+          setCultures(list);
+          localStorage.setItem(LS_CULT, JSON.stringify(list));
+        }
+      } catch {}
+      try {
+        const raw = localStorage.getItem(LS_REL);
+        const fallback = localStorage.getItem('m2tw_religions_file') || sessionStorage.getItem('m2tw_religions_raw');
+        if (raw) setReligions(JSON.parse(raw));
+        else if (fallback) {
+          const list = parseReligions(fallback);
+          setReligions(list);
+          localStorage.setItem(LS_REL, JSON.stringify(list));
+        }
+      } catch {}
+      try {
+        const raw = localStorage.getItem(LS_UNITS);
+        const fallback = localStorage.getItem('m2tw_units_file') || sessionStorage.getItem('m2tw_edu_raw');
+        if (raw) setEduUnits(JSON.parse(raw));
+        else if (fallback) {
+          const list = parseEduUnits(fallback);
+          setEduUnits(list);
+          localStorage.setItem(LS_UNITS, JSON.stringify(list));
+        }
+      } catch {}
+      try {if (localStorage.getItem(BANNERS_GLOBAL_KEY)) setBannersLoaded(true);} catch {}
+      try {if (localStorage.getItem(LS_GLOBAL_STRINGS)) setStringsLoaded(true);} catch {}
+      try {if (localStorage.getItem(LS_MENU_STRINGS)) setMenuStringsLoaded(true);} catch {}
+    };
+    loadCached();
+    const events = ['factions-file-loaded', 'edu-file-loaded', 'cultures-file-loaded', 'religions-file-loaded', 'storage'];
+    events.forEach(event => window.addEventListener(event, loadCached));
+    return () => events.forEach(event => window.removeEventListener(event, loadCached));
   }, []);
 
   const loadFactions = useCallback(async (e) => {
@@ -642,6 +673,7 @@ export default function FactionsEditor() {
     const parsed = parseDescrSmFactions(text);
     setFactions(parsed);
     setSelectedIdx(parsed.length > 0 ? 0 : null);
+    window.dispatchEvent(new CustomEvent('factions-file-loaded'));
     e.target.value = '';
   }, []);
 
@@ -651,6 +683,7 @@ export default function FactionsEditor() {
     const list = parseCultures(text);
     setCultures(list);
     try {localStorage.setItem(LS_CULT, JSON.stringify(list));} catch {}
+    window.dispatchEvent(new CustomEvent('cultures-file-loaded'));
     e.target.value = '';
   }, []);
 
@@ -660,6 +693,7 @@ export default function FactionsEditor() {
     const list = parseReligions(text);
     setReligions(list);
     try {localStorage.setItem(LS_REL, JSON.stringify(list));} catch {}
+    window.dispatchEvent(new CustomEvent('religions-file-loaded'));
     e.target.value = '';
   }, []);
 
@@ -668,7 +702,11 @@ export default function FactionsEditor() {
     const text = await file.text();
     const list = parseEduUnits(text);
     setEduUnits(list);
-    try {localStorage.setItem(LS_UNITS, JSON.stringify(list));} catch {}
+    try {
+      localStorage.setItem(LS_UNITS, JSON.stringify(list));
+      localStorage.setItem('m2tw_units_file', text);
+    } catch {}
+    window.dispatchEvent(new CustomEvent('edu-file-loaded'));
     e.target.value = '';
   }, []);
 

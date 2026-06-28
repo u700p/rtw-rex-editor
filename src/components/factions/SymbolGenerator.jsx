@@ -36,7 +36,25 @@ function loadImageFromFile(file) {
 // Canvas / pixel helpers
 // ---------------------------------------------------------------------------
 
-/** Draw src image into w×h canvas using the given fit mode, returns ImageData */
+function fittedRect(img, w, h, fitMode) {
+  if (fitMode === 'stretch') return { x: 0, y: 0, w, h };
+  if (fitMode === 'fit-width') {
+    const scale = w / img.width;
+    const dh = img.height * scale;
+    return { x: 0, y: (h - dh) / 2, w, h: dh };
+  }
+  if (fitMode === 'fit-height') {
+    const scale = h / img.height;
+    const dw = img.width * scale;
+    return { x: (w - dw) / 2, y: 0, w: dw, h };
+  }
+  const scale = Math.min(w / img.width, h / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  return { x: (w - dw) / 2, y: (h - dh) / 2, w: dw, h: dh };
+}
+
+/** Draw src image into w×h canvas using supersampled browser resampling, returns ImageData */
 function drawToImageData(img, w, h, fitMode) {
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
@@ -45,23 +63,23 @@ function drawToImageData(img, w, h, fitMode) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  if (fitMode === 'stretch') {
-    ctx.drawImage(img, 0, 0, w, h);
-  } else if (fitMode === 'fit-width') {
-    const scale = w / img.width;
-    const dh = img.height * scale;
-    ctx.drawImage(img, 0, (h - dh) / 2, w, dh);
-  } else if (fitMode === 'fit-height') {
-    const scale = h / img.height;
-    const dw = img.width * scale;
-    ctx.drawImage(img, (w - dw) / 2, 0, dw, h);
-  } else {
-    // contain (keep proportions, fit inside)
-    const scale = Math.min(w / img.width, h / img.height);
-    const dw = img.width * scale;
-    const dh = img.height * scale;
-    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-  }
+  const sampleScale = Math.max(2, Math.min(4, Math.ceil(Math.max(img.width / Math.max(1, w), img.height / Math.max(1, h)) / 2)));
+  const work = document.createElement('canvas');
+  work.width = w * sampleScale;
+  work.height = h * sampleScale;
+  const wctx = work.getContext('2d');
+  wctx.clearRect(0, 0, work.width, work.height);
+  wctx.imageSmoothingEnabled = true;
+  wctx.imageSmoothingQuality = 'high';
+  const rect = fittedRect(img, w, h, fitMode);
+  wctx.drawImage(
+    img,
+    rect.x * sampleScale,
+    rect.y * sampleScale,
+    rect.w * sampleScale,
+    rect.h * sampleScale
+  );
+  ctx.drawImage(work, 0, 0, work.width, work.height, 0, 0, w, h);
   return ctx.getImageData(0, 0, w, h);
 }
 
@@ -74,11 +92,7 @@ function applyFilter(imageData, variant, maskImg, w, h) {
   // Get mask pixels if provided
   let maskData = null;
   if (maskImg) {
-    const mc = document.createElement('canvas');
-    mc.width = w; mc.height = h;
-    const mctx = mc.getContext('2d');
-    mctx.drawImage(maskImg, 0, 0, w, h);
-    maskData = mctx.getImageData(0, 0, w, h).data;
+    maskData = drawToImageData(maskImg, w, h, 'stretch').data;
   }
 
   for (let i = 0; i < src.length; i += 4) {
@@ -88,13 +102,13 @@ function applyFilter(imageData, variant, maskImg, w, h) {
       const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
       r = g = b = lum;
     } else if (variant === 'roll') {
-      r = Math.min(255, Math.round(r * 1.30));
-      g = Math.min(255, Math.round(g * 1.30));
-      b = Math.min(255, Math.round(b * 1.30));
+      r = Math.min(255, Math.round(r * 1.18 + 18));
+      g = Math.min(255, Math.round(g * 1.14 + 12));
+      b = Math.min(255, Math.round(b * 1.06 + 4));
     } else if (variant === 'select') {
-      r = Math.round(r * 0.60 + 60 * 0.40);
-      g = Math.round(g * 0.60 + 80 * 0.40);
-      b = Math.round(b * 0.60 + 160 * 0.40);
+      r = Math.round(r * 0.70 + 196 * 0.30);
+      g = Math.round(g * 0.70 + 142 * 0.30);
+      b = Math.round(b * 0.72 + 42 * 0.28);
     }
 
     // Blend mask on top (screen blend using mask alpha)
@@ -169,7 +183,7 @@ const FIT_MODES = [
 ];
 
 const DEFAULT_SETS = [
-  { key: '80',  minW: 90, minH: 90,  label: 'Symbol 80',  folder: 'data/menu/symbols/fe_buttons_80',  variants: ['standard'] },
+  { key: '80',  minW: 80, minH: 80,  label: 'Symbol 80',  folder: 'data/menu/symbols/fe_symbols_80',  variants: ['standard'] },
   { key: '48',  minW: 59, minH: 59,  label: 'Symbol 48',  folder: 'data/menu/symbols/fe_buttons_48',  variants: ['standard', 'grey', 'roll', 'select'] },
   { key: '24',  minW: 32, minH: 41,  label: 'Symbol 24',  folder: 'data/menu/symbols/fe_buttons_24',  variants: ['standard', 'grey', 'roll', 'select'] },
 ];
@@ -321,33 +335,25 @@ export default function SymbolGenerator({ factionName }) {
   }, [sourceImg, fitMode, setConfigs, rollMask, selectMask]);
 
   const downloadOne = useCallback((set, variant) => {
-    const id = `${set.key}_${variant}`;
+    if (!sourceImg) return;
     const { w, h } = setConfigs[set.key];
-    const img = new window.Image();
-    img.onload = () => {
-      const mask = variant === 'roll' ? rollMask : variant === 'select' ? selectMask : null;
-      const base = drawToImageData(img, w, h, fitMode);
-      const filtered = applyFilter(base, variant, mask, w, h);
-      const blob = encodeRgbaTga(filtered);
-      downloadBlob(blob, tgaFilename(factionName, set.key, variant));
-    };
-    img.src = generated[id];
-  }, [generated, factionName, setConfigs, fitMode, rollMask, selectMask]);
+    const mask = variant === 'roll' ? rollMask : variant === 'select' ? selectMask : null;
+    const base = drawToImageData(sourceImg, w, h, fitMode);
+    const filtered = applyFilter(base, variant, mask, w, h);
+    const blob = encodeRgbaTga(filtered);
+    downloadBlob(blob, tgaFilename(factionName, set.key, variant));
+  }, [sourceImg, factionName, setConfigs, fitMode, rollMask, selectMask]);
 
   const downloadAll = useCallback(async () => {
+    if (!sourceImg) return;
     const zip = new JSZip();
     for (const set of DEFAULT_SETS) {
       const { w, h } = setConfigs[set.key];
       for (const variant of set.variants) {
         const id = `${set.key}_${variant}`;
         if (!generated[id]) continue;
-        const img = await new Promise(res => {
-          const i = new window.Image();
-          i.onload = () => res(i);
-          i.src = generated[id];
-        });
         const mask = variant === 'roll' ? rollMask : variant === 'select' ? selectMask : null;
-        const base = drawToImageData(img, w, h, fitMode);
+        const base = drawToImageData(sourceImg, w, h, fitMode);
         const filtered = applyFilter(base, variant, mask, w, h);
         const buf = tgaArrayBuffer(filtered);
         const fname = tgaFilename(factionName, set.key, variant);
@@ -356,7 +362,7 @@ export default function SymbolGenerator({ factionName }) {
     }
     const blob = await zip.generateAsync({ type: 'blob' });
     downloadBlob(blob, `${factionName}_symbols.zip`);
-  }, [generated, factionName, setConfigs, fitMode, rollMask, selectMask]);
+  }, [generated, sourceImg, factionName, setConfigs, fitMode, rollMask, selectMask]);
 
   const hasGenerated = Object.keys(generated).length > 0;
 
