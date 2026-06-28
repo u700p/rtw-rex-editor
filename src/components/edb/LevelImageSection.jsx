@@ -38,6 +38,8 @@ function encodeTGA(canvas, targetW, targetH) {
   offscreen.width = targetW;
   offscreen.height = targetH;
   const ctx = offscreen.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(canvas, 0, 0, targetW, targetH);
   const imgData = ctx.getImageData(0, 0, targetW, targetH);
   const pixels = imgData.data;
@@ -87,7 +89,10 @@ function ImageSlot({ culture, levelName, slot }) {
       image.onload = () => {
         const canvas = document.createElement('canvas');
         canvas.width = image.width; canvas.height = image.height;
-        canvas.getContext('2d').drawImage(image, 0, 0);
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(image, 0, 0);
         setPreview({ dataUrl, canvas, fileName: file.name });
       };
       image.src = dataUrl;
@@ -105,7 +110,10 @@ function ImageSlot({ culture, levelName, slot }) {
     const [targetW, targetH] = SLOT_SIZES[slot.type];
     const offscreen = document.createElement('canvas');
     offscreen.width = targetW; offscreen.height = targetH;
-    offscreen.getContext('2d').drawImage(preview.canvas, 0, 0, targetW, targetH);
+    const ctx = offscreen.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(preview.canvas, 0, 0, targetW, targetH);
     loadBuildingTgaImages([{
       path: `data/ui/${culture}/buildings/${slot.type === 'icon' ? 'constructed/' : ''}#${culture}_${levelName}${slot.type === 'construction' ? '_constructed' : ''}.tga`,
       name: `#${culture}_${levelName}${slot.type === 'construction' ? '_constructed' : ''}.tga`,
