@@ -1,9 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Download, Plus, X, AlertCircle, ImageIcon } from 'lucide-react';
-import { encodeStringsBin, parseStringsBin } from '../strings/stringsBinCodec';
 import { getStringsBinStore } from '@/lib/stringsBinStore';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
-import { parseTextLocFile } from '@/lib/textLocParser';
+import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
 
 function parseResourcesFull(text) {
@@ -71,10 +70,8 @@ function useResourceIcons() {
 export default function ResourcesTab() {
   const [resources, setResources] = useState([]);
   const [names, setNames] = useState({});
-  const [binMeta, setBinMeta] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const txtInputRef = useRef(null);
-  const binInputRef = useRef(null);
   const stratTxtInputRef = useRef(null);
   const resourceIcons = useResourceIcons();
   // Per-resource upload refs (keyed by index)
@@ -89,13 +86,12 @@ export default function ResourcesTab() {
       const store = getStringsBinStore();
       const stratBinEntry = Object.entries(store).find(([k]) => {
         const lk = k.toLowerCase();
-        return lk === 'strat.txt.strings.bin' || lk === 'strat.txt' || (lk.includes('strat') && (lk.endsWith('.bin') || lk.endsWith('.txt')));
+        return lk === 'strat.txt' || (lk.includes('strat') && lk.endsWith('.txt'));
       });
       if (stratBinEntry?.[1]) {
         const map = {};
         for (const e of stratBinEntry[1].entries) if (e.key) map[e.key] = e.value;
         setNames(map);
-        setBinMeta(stratBinEntry[1].sourceFormat === 'txt' ? null : { magic1: stratBinEntry[1].magic1 ?? 2, magic2: stratBinEntry[1].magic2 ?? 2048 });
       }
     } catch {}
   }, []);
@@ -113,20 +109,6 @@ export default function ResourcesTab() {
     const file = e.target.files?.[0]; if (!file) return;
     const text = await file.text();
     setNames(parseTextLocFile(text));
-    setBinMeta(null);
-    e.target.value = '';
-  };
-
-  const handleLoadBin = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const buf = await file.arrayBuffer();
-    const decoded = parseStringsBin(buf);
-    if (decoded?.entries) {
-      const map = {};
-      for (const { key, value } of decoded.entries) if (key) map[key] = value;
-      setNames(map);
-      setBinMeta({ magic1: decoded.magic1, magic2: decoded.magic2 });
-    }
     e.target.value = '';
   };
 
@@ -164,34 +146,32 @@ export default function ResourcesTab() {
     e.target.value = '';
   };
 
-  const resourceBinKey = (name) => `{SMT_RESOURCE_${name.toUpperCase()}}`;
-  const getDisplayName = (name) => names[resourceBinKey(name)] ?? '';
+  const resourceTextKey = (name) => `SMT_RESOURCE_${name.toUpperCase()}`;
+  const getDisplayName = (name) => names[resourceTextKey(name)] ?? '';
   const setDisplayName = (name, displayName) => {
-    setNames(prev => ({ ...prev, [resourceBinKey(name)]: displayName }));
+    setNames(prev => ({ ...prev, [resourceTextKey(name)]: displayName }));
   };
 
   const handleExportTxt = () => {
     downloadBlob(textBlob(serializeResources(resources)), 'descr_sm_resources.txt');
   };
 
-  const handleExportBin = () => {
-    const entries = Object.entries(names).map(([key, value]) => ({ key, value }));
-    const buf = encodeStringsBin(entries, binMeta?.magic1, binMeta?.magic2);
-    downloadBlob(new Blob([new Uint8Array(buf)]), 'strat.txt.strings.bin');
+  const handleExportNamesText = () => {
+    downloadBlob(textBlob(serializeTextLocFile(names)), 'strat.txt');
   };
 
   const addResource = () => {
     const newName = 'new_resource';
     setResources(prev => [...prev, { name: newName, tradeValue: 0, model: '', icon: '', hasMine: false }]);
-    setNames(prev => ({ ...prev, [resourceBinKey(newName)]: 'New Resource' }));
+    setNames(prev => ({ ...prev, [resourceTextKey(newName)]: 'New Resource' }));
   };
 
   const updateResource = (idx, field, value) => {
     setResources(prev => {
       const old = prev[idx];
       if (field === 'name' && old) {
-        const oldKey = resourceBinKey(old.name);
-        const newKey = resourceBinKey(value);
+        const oldKey = resourceTextKey(old.name);
+        const newKey = resourceTextKey(value);
         if (oldKey !== newKey) {
           setNames(p => {
             const next = { ...p };
@@ -223,7 +203,6 @@ export default function ResourcesTab() {
   return (
     <div className="space-y-3">
       <input ref={txtInputRef} type="file" accept=".txt" className="hidden" onChange={handleLoadTxt} />
-      <input ref={binInputRef} type="file" accept=".bin,.strings.bin" className="hidden" onChange={handleLoadBin} />
       <input ref={stratTxtInputRef} type="file" accept=".txt" className="hidden" onChange={handleLoadStratTxt} />
 
       {/* Top toolbar */}
@@ -240,10 +219,6 @@ export default function ResourcesTab() {
           className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
           <Upload className="w-3 h-3" /> Load resources.txt
         </button>
-        <button onClick={() => binInputRef.current?.click()}
-          className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
-          <Upload className="w-3 h-3" /> Load strat.strings.bin
-        </button>
         <button onClick={() => stratTxtInputRef.current?.click()}
           className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
           <Upload className="w-3 h-3" /> Load strat.txt
@@ -252,14 +227,14 @@ export default function ResourcesTab() {
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
           <Download className="w-3 h-3" /> Export .txt
         </button>
-        <button onClick={handleExportBin} disabled={!Object.keys(names).length}
+        <button onClick={handleExportNamesText} disabled={!Object.keys(names).length}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
-          <Download className="w-3 h-3" /> Export .strings.bin
+          <Download className="w-3 h-3" /> Export strat.txt
         </button>
       </div>
 
       <p className="text-[9px] text-slate-500 italic">
-        Bin keys format: <code className="text-slate-400">{'{SMT_RESOURCE_<NAME>}'}Display Name</code> — e.g. <code className="text-slate-400">{'{SMT_RESOURCE_GOLD}'}Gold</code>.
+        Text key format: <code className="text-slate-400">{'{SMT_RESOURCE_<NAME>}'}Display Name</code> — e.g. <code className="text-slate-400">{'{SMT_RESOURCE_GOLD}'}Gold</code>.
       </p>
 
       {issues.length > 0 && (
@@ -341,8 +316,8 @@ export default function ResourcesTab() {
               {/* Row 3: bin key + display name */}
               <div className="grid grid-cols-2 gap-1.5">
                 <div>
-                  <span className="text-[9px] text-slate-500">Bin Key (auto)</span>
-                  <input value={resourceBinKey(r.name)} readOnly
+                  <span className="text-[9px] text-slate-500">Text Key (auto)</span>
+                  <input value={`{${resourceTextKey(r.name)}}`} readOnly
                     className="w-full h-5 px-1 text-[10px] bg-slate-800/50 border border-slate-700/30 rounded text-slate-500 font-mono cursor-default" />
                 </div>
                 <div>
