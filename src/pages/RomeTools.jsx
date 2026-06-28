@@ -747,6 +747,8 @@ function TextureRecolorTab() {
 function Swatch({ label, value, onChange }) {
   const normalized = normalizeColorInput(value) || '#000000';
   const [draft, setDraft] = useState(value || normalized);
+  const draftColor = normalizeColorInput(draft);
+  const draftIsValid = !!draftColor;
   useEffect(() => {
     setDraft(value || normalized);
   }, [value, normalized]);
@@ -758,17 +760,34 @@ function Swatch({ label, value, onChange }) {
   };
 
   return (
-    <label className="block">
-      <span className="text-[10px] uppercase text-slate-500">{label}</span>
-      <div className="flex items-center gap-2 mt-1">
-        <input type="color" value={normalized} onChange={e => onChange(e.target.value)} className="w-10 h-8 bg-transparent border-0" />
+    <label className="block space-y-1">
+      <span className="flex items-center justify-between gap-2 text-[10px] uppercase text-slate-500">
+        <span className="truncate">{label}</span>
+        <span className="font-mono text-[9px] text-slate-600">{normalized.toUpperCase()}</span>
+      </span>
+      <div className="grid grid-cols-[2rem_1fr] items-center gap-1.5">
+        <span
+          className="relative h-7 rounded border border-slate-600 shadow-inner cursor-crosshair overflow-hidden focus-within:ring-1 focus-within:ring-amber-400"
+          style={{ background: normalized }}
+          title="Pick exact color"
+        >
+          <input
+            type="color"
+            value={normalized}
+            onChange={e => onChange(e.target.value)}
+            className="absolute inset-0 h-full w-full opacity-0 cursor-crosshair"
+            aria-label={`${label} color picker`}
+          />
+          <span className="pointer-events-none absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80 shadow-[0_0_0_1px_rgba(0,0,0,0.8)]" />
+        </span>
         <input
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={e => e.key === 'Enter' && commit()}
           placeholder="#808000 or olive"
-          className="flex-1 h-8 px-2 text-xs font-mono bg-slate-900 border border-slate-700 rounded"
+          spellCheck={false}
+          className={`h-7 min-w-0 px-2 text-[11px] font-mono bg-slate-900 border rounded cursor-text focus:outline-none focus:ring-1 ${draftIsValid ? 'border-slate-700 focus:border-amber-400 focus:ring-amber-400/40' : 'border-red-700/70 text-red-300 focus:border-red-500 focus:ring-red-500/40'}`}
         />
       </div>
     </label>
@@ -779,7 +798,7 @@ function Range({ label, value, min, max, onChange }) {
   return (
     <label className="block">
       <div className="flex justify-between text-[10px] uppercase text-slate-500"><span>{label}</span><span>{value}</span></div>
-      <input type="range" min={min} max={max} value={value} onChange={e => onChange(Number(e.target.value))} className="w-full accent-amber-500" />
+      <input type="range" min={min} max={max} value={value} onChange={e => onChange(Number(e.target.value))} className="w-full accent-amber-500 cursor-pointer" />
     </label>
   );
 }
