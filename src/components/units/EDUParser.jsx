@@ -8,7 +8,7 @@ export const VOICE_TYPES = ['Heavy', 'Light', 'General'];
 export const ACCENTS = ['Roman', 'Barbarian', 'Greek', 'Carthaginian', 'Eastern', 'Egyptian'];
 export const UNIT_ATTRIBUTES = [
   'sea_faring','hide_forest','hide_improved_forest','hide_anywhere','frighten_foot',
-  'frighten_mounted','can_run_amok','general_unit','general_unit_upgrade','cantabrian_circle',
+  'frighten_mounted','can_run_amok','general_unit','cantabrian_circle',
   'no_custom','not_horde','very_hardy','hardy','can_withdraw','can_sap',
   'free_upkeep_unit','is_peasant','slave','power_charge','mercenary_unit',
   'pike','spear','warcry','drilled','legionary_name','screeching_women',
@@ -64,10 +64,8 @@ function parseUnit(lines) {
     stat_charge_dist: 30,
     stat_fire_delay: 0,
     stat_food: '60, 300',
-    // cost: turns, cost, upkeep, upgrade_weapon, upgrade_armour, custom_limit, exp_requirement, move_pts
+    // cost: turns, cost, upkeep, weapon cost, armour cost, custom_limit, exp_requirement, move_pts
     stat_cost: '1, 500, 175, 100, 100, 500, 4, 100',
-    armour_ug_levels: '3',
-    armour_ug_models: '',
     ownership: ['romans_julii'],
     info_pics: '',
     card_pic: '',
@@ -126,8 +124,6 @@ function parseUnit(lines) {
       case 'stat_fire_delay': unit.stat_fire_delay = parseInt(cleanVal) || 0; break;
       case 'stat_food': unit.stat_food = cleanVal; break;
       case 'stat_cost': unit.stat_cost = cleanVal; break;
-      case 'armour_ug_levels': unit.armour_ug_levels = cleanVal; break;
-      case 'armour_ug_models': unit.armour_ug_models = cleanVal; break;
       case 'ownership': unit.ownership = cleanVal.split(',').map(s => s.trim()).filter(Boolean); break;
       case 'info_pic_dir': unit.info_pics = cleanVal; break;
       case 'card_pic_dir': unit.card_pic = cleanVal; break;
@@ -194,8 +190,6 @@ export function serializeUnit(unit) {
   lines.push(`stat_fire_delay  ${unit.stat_fire_delay}`);
   lines.push(`stat_food        ${unit.stat_food}`);
   lines.push(`stat_cost        ${unit.stat_cost}`);
-  lines.push(`armour_ug_levels ${unit.armour_ug_levels}`);
-  lines.push(`armour_ug_models ${unit.armour_ug_models || unit.soldier_model}`);
   lines.push(`ownership        ${unit.ownership.join(', ')}`);
   if (unit.info_pics) lines.push(`info_pic_dir     ${unit.info_pics}`);
   if (unit.card_pic) lines.push(`card_pic_dir     ${unit.card_pic}`);
@@ -231,8 +225,6 @@ export function createDefaultUnit() {
     stat_fire_delay: 0,
     stat_food: '60, 300',
     stat_cost: '1, 500, 175, 100, 100, 500, 4, 100',
-    armour_ug_levels: '3',
-    armour_ug_models: 'New_Unit',
     ownership: ['romans_julii'],
     info_pics: '', card_pic: '', card_info: '',
   };

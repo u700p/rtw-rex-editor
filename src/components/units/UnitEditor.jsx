@@ -266,12 +266,6 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
                   </div>
                 ))}
               </div>
-              <Field label="armour_ug_levels" tooltip="Number of armour upgrade levels">
-                <TextInput value={unit.armour_ug_levels} onChange={v => set('armour_ug_levels', v)} mono />
-              </Field>
-              <Field label="armour_ug_models" tooltip="Model name(s) for armour upgrade visuals">
-                <TextInput value={unit.armour_ug_models} onChange={v => set('armour_ug_models', v)} mono />
-              </Field>
             </Section>
           </>}
 
@@ -350,9 +344,9 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-muted-foreground mt-2">stat_cost: turns, cost, upkeep, upgrade_weapon, upgrade_armour, custom_limit, exp_requirement, move_pts</p>
+              <p className="text-[10px] text-muted-foreground mt-2">stat_cost: turns, cost, upkeep, weapon cost, armour cost, custom_limit, exp_requirement, move_pts</p>
               <div className="grid grid-cols-4 gap-2">
-                {['Turns', 'Cost', 'Upkeep', 'Upg. Weapon', 'Upg. Armour', 'Custom Limit', 'Exp. Req.', 'Move Pts'].map((lbl, i) => (
+                {['Turns', 'Cost', 'Upkeep', 'Weapon Cost', 'Armour Cost', 'Custom Limit', 'Exp. Req.', 'Move Pts'].map((lbl, i) => (
                   <div key={i}>
                     <label className="text-[10px] text-muted-foreground">{lbl}</label>
                     <input value={costParts[i] || ''} onChange={e => { const p = [...costParts]; p[i] = e.target.value; set('stat_cost', joinStat(p)); }}

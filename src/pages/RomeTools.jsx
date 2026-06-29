@@ -465,7 +465,7 @@ function recolorImageData(imageData, settings) {
   const d = out.data;
   const tolerance = Number(settings.tolerance);
   const rgbTolerance = Number(settings.rgbTolerance);
-  const strength = Number(settings.strength) / 100;
+  const strength = Math.max(0, Number(settings.strength) || 0) / 100;
   const minSat = Number(settings.minSat) / 100;
   for (let i = 0; i < d.length; i += 4) {
     const a = d[i + 3];
@@ -486,7 +486,7 @@ function recolorImageData(imageData, settings) {
     const satMask = hsl.s >= minSat ? 1 : 0.38;
     const detailMask = settings.protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;
     const materialMask = protectedType ? 0.25 : 1;
-    const mask = smoothMask((best?.score || 0) * satMask * detailMask * materialMask) * strength;
+    const mask = clamp01(smoothMask((best?.score || 0) * satMask * detailMask * materialMask) * strength);
     if (mask <= 0) continue;
     const exactMix = settings.exactTarget ? 0.88 : 0.42;
     const targetSat = clamp01(hsl.s * (1 - exactMix) + best.tgt.s * exactMix);
@@ -810,7 +810,7 @@ function TextureRecolorTab() {
         </div>
         <Range label="Hue tolerance" value={settings.tolerance} min={1} max={180} onChange={v => update('tolerance', v)} />
         <Range label="RGB tolerance" value={settings.rgbTolerance} min={24} max={360} onChange={v => update('rgbTolerance', v)} />
-        <Range label="Strength" value={settings.strength} min={1} max={100} onChange={v => update('strength', v)} />
+        <Range label="Strength" value={settings.strength} min={1} max={200} onChange={v => update('strength', v)} />
         <Range label="Minimum saturation" value={settings.minSat} min={0} max={100} onChange={v => update('minSat', v)} />
         <Range label="Lightness shift" value={settings.lightnessShift} min={-35} max={35} onChange={v => update('lightnessShift', v)} />
         <label className="block">
@@ -918,10 +918,26 @@ function Swatch({ label, value, onChange }) {
 }
 
 function Range({ label, value, min, max, onChange }) {
+  const commit = (next) => {
+    const numeric = Number(next);
+    if (!Number.isFinite(numeric)) return;
+    onChange(Math.max(min, Math.min(max, numeric)));
+  };
+
   return (
     <label className="block">
-      <div className="flex justify-between text-[10px] uppercase text-slate-500"><span>{label}</span><span>{value}</span></div>
-      <input type="range" min={min} max={max} value={value} onChange={e => onChange(Number(e.target.value))} className="w-full accent-amber-500 cursor-pointer" />
+      <div className="flex items-center justify-between gap-2 text-[10px] uppercase text-slate-500">
+        <span>{label}</span>
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          onChange={e => commit(e.target.value)}
+          className="h-5 w-16 rounded border border-slate-700 bg-slate-900 px-1 text-right text-[10px] text-slate-200"
+        />
+      </div>
+      <input type="range" min={min} max={max} value={value} onChange={e => commit(e.target.value)} className="w-full accent-amber-500 cursor-pointer" />
     </label>
   );
 }
