@@ -1048,7 +1048,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
             className="w-full h-16 bg-slate-700 border border-slate-600 rounded p-2 text-[10px] text-slate-100 resize-none"
           />
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] text-slate-500">Adds exactly 13 slave-owned EDU units when possible and prioritizes a general_unit.</p>
+            <p className="text-[9px] text-slate-500">Adds 13 EDU units when possible, preferring slave units and always pulling a general_unit fallback.</p>
             <button
               type="button"
               onClick={runUnitAssignment}
@@ -1438,7 +1438,7 @@ export default function FactionsEditor() {
       '+ descr_offmap_models.txt navy entry ensured when loaded',
       options.characterCopied ? '+ descr_character.txt faction entries created' : '+ descr_character.txt unchanged unless a source/slave entry was loaded',
       options.eduCopied ? '+ export_descr_unit.txt ownership copied from source faction' : '+ export_descr_unit.txt ownership unchanged unless copied from a source faction',
-      options.unitAssigned ? `+ export_descr_unit.txt assigned ${options.unitAssigned} slave roster units${options.generalAssigned ? ' including a general_unit' : ''}` : '+ export_descr_unit.txt auto roster unchanged unless enabled and slave units were loaded',
+      options.unitAssigned ? `+ export_descr_unit.txt assigned ${options.unitAssigned} EDU units${options.generalAssigned ? ' including a general_unit' : ''}` : '+ export_descr_unit.txt auto roster unchanged unless enabled and EDU units were loaded',
       options.edbCopied ? '+ export_descr_buildings.txt faction requirements copied from source faction/culture' : '+ export_descr_buildings.txt unchanged unless matching source faction/culture requirements were loaded',
       options.bannersCopied ? '+ descr_banners entries copied from source faction' : '+ descr_banners unchanged unless duplicating a source faction',
       'Manual: descr_strat.txt placement/playability, descr_regions.txt ownership/regions, descr_win_conditions.txt, and graphical assets.',
