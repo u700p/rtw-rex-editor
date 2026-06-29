@@ -34,7 +34,7 @@ function chooseBestZoom(bbox, mapW, scale) {
   const screenW = mapW * Math.max(scale, 0.05);
   // Pick the highest zoom where tiles are at least 64px wide (no upper bound).
   // Cap at z=13 to avoid over-fetching tiles.
-  for (let z = 20; z >= 1; z--) {
+  for (let z = 1; z >= 1; z--) {
     const tileCount = lonToTileX(bbox.east, z) - lonToTileX(bbox.west, z);
     const pxPerTile = screenW / tileCount;
     if (pxPerTile >= 200) return z;
