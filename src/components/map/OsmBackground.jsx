@@ -32,12 +32,14 @@ function lonToTileX(lon, zoom) {
 
 function chooseBestZoom(bbox, mapW, scale) {
   const screenW = mapW * Math.max(scale, 0.05);
+  // Pick the highest zoom where tiles aren't absurdly tiny (>=64px wide).
+  // No upper bound — at deep zoom we just use more/larger tiles so OSM stays visible.
   for (let z = 13; z >= 1; z--) {
     const tileCount = lonToTileX(bbox.east, z) - lonToTileX(bbox.west, z);
     const pxPerTile = screenW / tileCount;
-    if (pxPerTile >= 80 && pxPerTile <= 800) return z;
+    if (pxPerTile >= 64) return z;
   }
-  return 5;
+  return 1;
 }
 
 // Global tile image cache: url → HTMLImageElement | Promise<HTMLImageElement|null>
