@@ -541,6 +541,63 @@ export default function CampaignMap() {
     return 0;
   })();
 
+  const handleFixSettlementGroundPixels = useCallback(async () => {
+    const ground = layers.ground;
+    if (!ground?.data || !ground.width || !ground.height) {
+      setGroundFixStatus('Load map_ground_types.tga first.');
+      return;
+    }
+
+    const settlements = (overlayItems || []).filter((item) =>
+      item.category === 'settlement'
+      && Number.isFinite(Number(item.x))
+      && Number.isFinite(Number(item.y))
+    );
+    if (!settlements.length) {
+      setGroundFixStatus('Load descr_strat.txt/descr_regions.txt first so settlement pixels are known.');
+      return;
+    }
+
+    const baseW = layers.regions?.width || mapW2 || ground.width;
+    const baseH = layers.regions?.height || mapH || ground.height;
+    const nextData = new Uint8ClampedArray(ground.data);
+    let checked = 0;
+    let fixed = 0;
+    let outOfBounds = 0;
+
+    for (const settlement of settlements) {
+      const mapX = Math.round(Number(settlement.x));
+      const mapTopY = baseH - 1 - Math.round(Number(settlement.y));
+      const px = Math.max(0, Math.min(ground.width - 1, Math.round(mapX * (ground.width / baseW))));
+      const py = Math.max(0, Math.min(ground.height - 1, Math.round(mapTopY * (ground.height / baseH))));
+      if (mapX < 0 || mapX >= baseW || mapTopY < 0 || mapTopY >= baseH) {
+        outOfBounds++;
+        continue;
+      }
+      const idx = (py * ground.width + px) * 4;
+      checked++;
+      if (!isMountainGroundPixel(nextData, idx)) continue;
+      nextData[idx] = FERTILE_SETTLEMENT_GROUND.r;
+      nextData[idx + 1] = FERTILE_SETTLEMENT_GROUND.g;
+      nextData[idx + 2] = FERTILE_SETTLEMENT_GROUND.b;
+      nextData[idx + 3] = 255;
+      fixed++;
+    }
+
+    if (!fixed) {
+      setGroundFixStatus(`Checked ${checked} settlement pixels; no mountain ground found${outOfBounds ? ` (${outOfBounds} out of bounds)` : ''}.`);
+      return;
+    }
+
+    const bitmap = await createImageBitmap(new ImageData(nextData, ground.width, ground.height));
+    setLayers((prev) => ({
+      ...prev,
+      ground: { ...prev.ground, data: nextData, bitmap },
+    }));
+    setDirtyLayers((prev) => new Set([...prev, 'ground']));
+    setGroundFixStatus(`Fixed ${fixed} settlement ground pixel${fixed === 1 ? '' : 's'} to fertile_medium.`);
+  }, [layers.ground, layers.regions, mapH, mapW2, overlayItems]);
+
   // ── Helper: place a single pixel on the regions layer ────────────────────
   const placePixelOnRegions = useCallback((rx, ry, r, g, b) => {
     setLayers(prev => {
