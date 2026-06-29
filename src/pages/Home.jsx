@@ -11,6 +11,7 @@ import { parseTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
 import { saveLargeText } from '@/lib/largeTextStore';
 import DataFolderPicker from '../components/home/DataFolderPicker';
+import { BANNERS_GLOBAL_KEY } from '@/components/factions/BannersTab';
 import romeHero from '../assets/rome/rome-hero.jpg';
 import romeLogo from '../assets/rome/rome-logo.png';
 import romeUi from '../assets/rome/rome-ui.jpg';
@@ -102,6 +103,16 @@ const DATA_FILE_MAP = {
   'descr_sm_factions.txt': 'fac',
   'descr_sm_resources.txt': 'res',
   'export_descr_unit.txt': 'unit',
+  'descr_banners.txt': 'banners',
+  'descr_banners.xml': 'banners',
+  'descr_banners_new.xml': 'banners',
+  'descr_building_battle.txt': 'building_battle',
+  'descr_character.txt': 'descr_character',
+  'descr_formations_ai.txt': 'formations_ai',
+  'descr_lbc_db.txt': 'lbc_db',
+  'descr_model_strat.txt': 'model_strat',
+  'descr_offmap_models.txt': 'offmap_models',
+  'descr_standards.txt': 'standards',
   'descr_events.txt': 'ev',
   'export_buildings.txt': 'txt',
   'export_descr_character_traits.txt': 'traits',
@@ -262,7 +273,16 @@ export default function Home() {
       names: ls('m2tw_names_file') ? 'ok' : 'idle',
       rebel_fac: ls('m2tw_rebel_factions_file') ? 'ok' : 'idle',
       religions: ls('m2tw_religions_file') ? 'ok' : 'idle',
-      modeldb: ls('m2tw_modeldb_file') ? 'ok' : 'idle'
+      modeldb: ls('m2tw_modeldb_file') ? 'ok' : 'idle',
+      banners: ls(BANNERS_GLOBAL_KEY) || ls('m2tw_descr_banners_file') ? 'ok' : 'idle',
+      building_battle: ls('m2tw_descr_building_battle_file') ? 'ok' : 'idle',
+      descr_character: ls('m2tw_descr_character') ? 'ok' : 'idle',
+      formations_ai: ls('m2tw_descr_formations_ai_file') ? 'ok' : 'idle',
+      lbc_db: ls('m2tw_descr_lbc_db_file') ? 'ok' : 'idle',
+      model_strat: ls('m2tw_descr_model_strat') ? 'ok' : 'idle',
+      offmap_models: ls('m2tw_offmap_models') ? 'ok' : 'idle',
+      standards: ls('m2tw_descr_standards_file') ? 'ok' : 'idle',
+      campaign_world: ls('m2tw_campaign_strat') || ls('m2tw_campaign_regions') || ls('m2tw_campaign_win_conditions') ? 'ok' : 'idle'
     };
   });
 
@@ -321,6 +341,10 @@ export default function Home() {
     conditionalRemove('m2tw_export_units_file',  fileNames.has('export_units.txt'));
     conditionalRemove('m2tw_modeldb_file',       fileNames.has('battle_models.modeldb') || fileNames.has('descr_model_battle.txt'));
     conditionalRemove('m2tw_modeldb_file_name',  fileNames.has('battle_models.modeldb') || fileNames.has('descr_model_battle.txt'));
+    conditionalRemove('m2tw_descr_building_battle_file', fileNames.has('descr_building_battle.txt'));
+    conditionalRemove('m2tw_descr_formations_ai_file', fileNames.has('descr_formations_ai.txt'));
+    conditionalRemove('m2tw_descr_lbc_db_file', fileNames.has('descr_lbc_db.txt'));
+    conditionalRemove('m2tw_descr_standards_file', fileNames.has('descr_standards.txt'));
 
 
     const loaderMap = {
@@ -351,6 +375,17 @@ export default function Home() {
       names: 'm2tw_names_file',
       rebel_fac: 'm2tw_rebel_factions_file',
       religions: 'm2tw_religions_file'
+    };
+
+    const rawStoreKeys = {
+      banners: 'm2tw_descr_banners_file',
+      building_battle: 'm2tw_descr_building_battle_file',
+      descr_character: 'm2tw_descr_character',
+      formations_ai: 'm2tw_descr_formations_ai_file',
+      lbc_db: 'm2tw_descr_lbc_db_file',
+      model_strat: 'm2tw_descr_model_strat',
+      offmap_models: 'm2tw_offmap_models',
+      standards: 'm2tw_descr_standards_file',
     };
 
     // Filename storage keys (for context auto-load)
@@ -445,6 +480,8 @@ export default function Home() {
       }
 
       // Route TGA files by folder path
+      const inBaseWorldPath = pathFramed.includes('/maps/base/') || pathFramed.includes('/world/base/');
+
       if (name.endsWith('.tga')) {
         if (pathFramed.includes('/ui/ancillaries/')) {
           ancTgaFiles.push(file);
@@ -460,7 +497,7 @@ export default function Home() {
           resourceTgaFiles.push(file);
         } else if (pathFramed.includes('/pips/') || pathFramed.includes('/religion/')) {
           religionPipFiles.push(file);
-        } else if (pathFramed.includes('/maps/base/')) {
+        } else if (inBaseWorldPath) {
           baseMapFiles.push(file);
         } else if (pathFramed.includes('/terrain/aerial_map/ground_types/')) {
           groundTypeTgaFiles.push(file);
@@ -470,12 +507,20 @@ export default function Home() {
 
       // Base map text files (forward to campaign map editor)
       const BASE_MAP_TXTS = ['descr_strat.txt', 'descr_regions.txt', 'descr_sounds_music_types.txt', 'descr_terrain.txt'];
-      if (BASE_MAP_TXTS.includes(name) && pathFramed.includes('/maps/base/')) {
+      if (BASE_MAP_TXTS.includes(name) && inBaseWorldPath) {
         baseMapFiles.push(file);
+        if (name === 'descr_strat.txt' || name === 'descr_regions.txt') {
+          const mapTxt = await readText(file);
+          try {
+            localStorage.setItem(name === 'descr_strat.txt' ? 'm2tw_campaign_strat' : 'm2tw_campaign_regions', mapTxt);
+            sessionStorage.setItem(name === 'descr_strat.txt' ? 'm2tw_strat_raw' : 'm2tw_regions_raw', mapTxt);
+          } catch {}
+          setFileStatus((prev) => ({ ...prev, campaign_world: 'ok' }));
+        }
         continue;
       }
       // descr_disasters.txt lives in maps/base/
-      if (name === 'descr_disasters.txt' && pathFramed.includes('/maps/base/')) {
+      if (name === 'descr_disasters.txt' && inBaseWorldPath) {
         const txt = await readText(file);
         try { localStorage.setItem('m2tw_campaign_disasters', txt); sessionStorage.setItem('m2tw_disasters_raw', txt); } catch {}
         continue;
@@ -483,7 +528,7 @@ export default function Home() {
 
       // Campaign map text + TGA files (base, imperial, or custom/* subfolders)
       const CAMPAIGN_MAP_TXTS = ['descr_strat.txt', 'descr_regions.txt', 'descr_mercenaries.txt', 'descr_win_conditions.txt', 'campaign_script.txt', 'descr_event.txt', 'descr_events.txt', 'description.txt', 'descr_faction_movies.xml', 'descr_disasters.txt'];
-      const inCampaignPath = pathFramed.includes('/maps/campaign/') || pathFramed.includes('/maps/base/');
+      const inCampaignPath = pathFramed.includes('/maps/campaign/') || inBaseWorldPath;
       const isStandaloneCampaignText = CAMPAIGN_MAP_TXTS.includes(name) && !DATA_FILE_MAP[name];
       if ((name.endsWith('.tga') && inCampaignPath) || (CAMPAIGN_MAP_TXTS.includes(name) && (inCampaignPath || isStandaloneCampaignText))) {
         baseMapFiles.push(file);
@@ -522,6 +567,9 @@ export default function Home() {
           if (name === 'descr_mercenaries.txt') {
             try { sessionStorage.setItem('m2tw_mercenaries_raw', csTxt); } catch {}
           }
+          if (name === 'descr_strat.txt' || name === 'descr_regions.txt' || name === 'descr_win_conditions.txt') {
+            setFileStatus((prev) => ({ ...prev, campaign_world: 'ok' }));
+          }
         }
         if (name.endsWith('.tga') || !DATA_FILE_MAP[name]) continue;
       }
@@ -540,6 +588,22 @@ export default function Home() {
         continue;
       } else if (key === 'edb') {
         loadEDB(text, file.name);
+      } else if (rawStoreKeys[key]) {
+        try {
+          localStorage.setItem(rawStoreKeys[key], text);
+          localStorage.setItem(`${rawStoreKeys[key]}_name`, file.name);
+          sessionStorage.setItem(`${rawStoreKeys[key]}_raw`, text);
+        } catch {}
+        if (key === 'banners') {
+          try { localStorage.setItem(BANNERS_GLOBAL_KEY, text); } catch {}
+          window.dispatchEvent(new CustomEvent('banners-xml-loaded'));
+        }
+        if (key === 'offmap_models') {
+          window.dispatchEvent(new CustomEvent('offmap-models-updated'));
+        }
+        if (key === 'descr_character' || key === 'model_strat') {
+          window.dispatchEvent(new CustomEvent('strat-model-files-loaded', { detail: { key, text, filename: file.name } }));
+        }
       } else if (storeKeys[key]) {
         try {
           localStorage.setItem(storeKeys[key], text);
@@ -1069,6 +1133,14 @@ export default function Home() {
               <FileStatus label="Factions" hint="descr_sm_factions.txt" status={fileStatus.fac} />
               <FileStatus label="Resources" hint="descr_sm_resources.txt" status={fileStatus.res} />
               <FileStatus label="Units" hint="export_descr_unit.txt" status={fileStatus.unit} />
+              <FileStatus label="Banners" hint="descr_banners / descr_banners_new.xml" status={fileStatus.banners} />
+              <FileStatus label="Building Battle" hint="descr_building_battle.txt" status={fileStatus.building_battle} />
+              <FileStatus label="Strat Characters" hint="descr_character.txt" status={fileStatus.descr_character} />
+              <FileStatus label="Formations AI" hint="descr_formations_ai.txt" status={fileStatus.formations_ai} />
+              <FileStatus label="LBC DB" hint="descr_lbc_db.txt" status={fileStatus.lbc_db} />
+              <FileStatus label="Strat Models" hint="descr_model_strat.txt" status={fileStatus.model_strat} />
+              <FileStatus label="Offmap Models" hint="descr_offmap_models.txt" status={fileStatus.offmap_models} />
+              <FileStatus label="Standards" hint="descr_standards.txt" status={fileStatus.standards} />
               {/* Events loaded in Step 2 (campaign descr_event.txt) — not shown here */}
               <FileStatus label="Traits" hint="export_descr_character_traits.txt" status={fileStatus.traits} />
 
@@ -1082,6 +1154,7 @@ export default function Home() {
               <FileStatus label="Guilds" hint="export_descr_guilds.txt" status={fileStatus.guilds} />
               <FileStatus label="Battle Models" hint="battle_models.modeldb / descr_model_battle.txt" status={fileStatus.modeldb} />
               <FileStatus label="Text Localization" hint={fileStatus.text_loc === 'ok' ? `${textLocCount} text files loaded` : 'text\\*.txt'} status={fileStatus.text_loc} />
+              <FileStatus label="World/Base Campaign" hint="descr_strat / regions / win_conditions" status={fileStatus.campaign_world} />
             </div>
           </div>
 

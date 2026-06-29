@@ -182,6 +182,12 @@ function saveFactionsRaw(text, filename = '') {
   }
 }
 
+function saveFactionAutomationReport(lines) {
+  const report = (lines || []).filter(Boolean).join('\n');
+  try { localStorage.setItem('m2tw_faction_automation_report', report); } catch {}
+  return report;
+}
+
 function saveEduRaw(text, filename = '') {
   const list = parseEduUnits(text);
   try { localStorage.setItem(LS_UNITS, JSON.stringify(list)); } catch {}
@@ -725,6 +731,9 @@ export default function FactionsEditor() {
   const [bannersLoaded, setBannersLoaded] = useState(false);
   const [stringsLoaded, setStringsLoaded] = useState(false);
   const [menuStringsLoaded, setMenuStringsLoaded] = useState(false);
+  const [automationReport, setAutomationReport] = useState(() => {
+    try { return localStorage.getItem('m2tw_faction_automation_report') || ''; } catch { return ''; }
+  });
 
   useEffect(() => {
     const loadCached = () => {
@@ -864,7 +873,33 @@ export default function FactionsEditor() {
   const updateFaction = (i, f) => {
     const updated = factions.map((x, idx) => idx === i ? f : x);
     setFactions(updated);
-    try {localStorage.setItem(LS_KEY, serialiseDescrSmFactions(updated));} catch {}
+    saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
+  };
+
+  const applyFactionAutomation = (factionName, options = {}) => {
+    const { entries, rawText } = getExpandedStringsData();
+    const updatedEntries = ensureRtwFactionLocEntries(entries, factionName, {
+      displayName: options.displayName || factionName,
+      adjective: options.adjective || options.displayName || factionName,
+      leaderTitle: options.leaderTitle,
+      heirTitle: options.heirTitle,
+    });
+    persistExpandedStrings(updatedEntries, rawText);
+    setStringsLoaded(true);
+    autoInsertNavyEntry(factionName);
+    injectMenuStringsForFaction(factionName, options.displayName || factionName);
+    const report = saveFactionAutomationReport([
+      `Automated faction setup for ${factionName}`,
+      '+ descr_sm_factions.txt updated',
+      '+ expanded_bi.txt RTW faction loc keys ensured',
+      '+ menu faction labels ensured when menu text is loaded',
+      '+ descr_offmap_models.txt navy entry ensured when loaded',
+      options.eduCopied ? '+ export_descr_unit.txt ownership copied from source faction' : '+ export_descr_unit.txt ownership unchanged unless copied from a source faction',
+      options.bannersCopied ? '+ descr_banners entries copied from source faction' : '+ descr_banners unchanged unless duplicating a source faction',
+      'Manual: descr_strat.txt placement/playability, descr_regions.txt ownership/regions, descr_win_conditions.txt, and graphical assets.',
+      'Manual if adding new character names: descr_names.txt and data/text/names.txt.',
+    ]);
+    setAutomationReport(report);
   };
 
   const addFaction = () => {
@@ -899,8 +934,8 @@ export default function FactionsEditor() {
     const updated = [...(factions || []), newF];
     setFactions(updated);
     setSelectedIdx(updated.length - 1);
-    autoInsertNavyEntry(newF.name);
-    injectMenuStringsForFaction(newF.name, newF.name);
+    saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
+    applyFactionAutomation(newF.name, { displayName: newF.name });
   };
 
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
@@ -962,6 +997,8 @@ export default function FactionsEditor() {
     const updated = [...factions, dup];
     setFactions(updated);
     setSelectedIdx(updated.length - 1);
+    saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
+    let bannersCopied = false;
     
     // Copy banner texture entries from source faction to new faction
     try {
@@ -1050,6 +1087,7 @@ export default function FactionsEditor() {
         const newXaml = serialiseBannersXml(parsed);
         localStorage.setItem(BANNERS_GLOBAL_KEY, newXaml);
         window.dispatchEvent(new CustomEvent('banners-xml-loaded'));
+        bannersCopied = true;
       }
     } catch (err) {
       console.error('Failed to copy banners:', err);
@@ -1149,9 +1187,15 @@ export default function FactionsEditor() {
       console.error('Failed to duplicate strings:', err);
     }
     
-    copyEduOwnershipFromFaction(src.name, newFactionName);
-    autoInsertNavyEntry(newFactionName);
-    injectMenuStringsForFaction(newFactionName, duplicateStrings.displayName || newFactionName);
+    const eduCopied = copyEduOwnershipFromFaction(src.name, newFactionName);
+    applyFactionAutomation(newFactionName, {
+      displayName: duplicateStrings.displayName || newFactionName,
+      adjective: duplicateStrings.adjective || duplicateStrings.displayName || newFactionName,
+      leaderTitle: duplicateStrings.leaderTitle,
+      heirTitle: duplicateStrings.heirTitle,
+      eduCopied,
+      bannersCopied,
+    });
     setDuplicateModalOpen(false);
     setDuplicateSourceIdx(null);
     setDuplicateName('');
@@ -1173,7 +1217,7 @@ export default function FactionsEditor() {
     const [reordered] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reordered);
     setFactions(items);
-    try { localStorage.setItem(LS_KEY, serialiseDescrSmFactions(items)); } catch {}
+    saveFactionsRaw(serialiseDescrSmFactions(items), 'descr_sm_factions.txt');
     if (selectedIdx !== null) {
       const newIdx = items.findIndex(f => f.name === factions[selectedIdx].name);
       setSelectedIdx(newIdx >= 0 ? newIdx : null);
@@ -1184,6 +1228,7 @@ export default function FactionsEditor() {
     const updated = factions.filter((_, idx) => idx !== i);
     setFactions(updated);
     setSelectedIdx(updated.length > 0 ? Math.min(i, updated.length - 1) : null);
+    saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
   };
 
   const filtered = factions ?
@@ -1278,6 +1323,12 @@ export default function FactionsEditor() {
           )}
         </div>
       </div>
+
+      {automationReport && (
+        <div className="border-b border-amber-700/40 bg-amber-950/20 px-4 py-2 text-[10px] text-amber-100 whitespace-pre-wrap font-mono">
+          {automationReport}
+        </div>
+      )}
 
       {!factions ?
       <div className="flex flex-col items-center justify-center flex-1 gap-3 text-slate-500">

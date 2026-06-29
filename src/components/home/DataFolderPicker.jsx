@@ -14,6 +14,10 @@ const CATEGORY_LABELS = {
 const TEXT_FILENAMES = new Set([
   'export_descr_buildings.txt','descr_sm_factions.txt','descr_sm_resources.txt',
   'export_descr_unit.txt','descr_events.txt','export_buildings.txt',
+  'descr_banners.txt','descr_banners.xml','descr_banners_new.xml',
+  'descr_building_battle.txt','descr_character.txt','descr_formations_ai.txt',
+  'descr_lbc_db.txt','descr_model_strat.txt','descr_offmap_models.txt',
+  'descr_standards.txt',
   'export_descr_character_traits.txt','export_descr_ancillaries.txt','export_units.txt',
   'descr_cultures.txt','descr_names.txt','descr_rebel_factions.txt','descr_religions.txt',
   'export_descr_guilds.txt','battle_models.modeldb','descr_model_battle.txt','descr_skeleton.txt','descr_mount.txt',
@@ -31,7 +35,7 @@ function categorizeFile(file) {
   const framed = `/${path}`;
 
   if (framed.includes('/text/') && name.endsWith('.txt')) return 'text_loc';
-  if (framed.includes('/maps/campaign/') || framed.includes('/maps/base/')) {
+  if (framed.includes('/maps/campaign/') || framed.includes('/maps/base/') || framed.includes('/world/base/')) {
     if (name.endsWith('.tga') || name.endsWith('.txt')) return 'campaign';
     return null;
   }
