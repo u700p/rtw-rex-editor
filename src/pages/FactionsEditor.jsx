@@ -1452,6 +1452,11 @@ export default function FactionsEditor() {
               <Download className="w-3 h-3 mr-1" /> Export factions
             </Button>
           }
+          {factions && (
+            <Button variant="outline" size="sm" className="text-[10px] h-7 text-amber-200 border-amber-700/70 hover:bg-amber-900/30" onClick={handleExportFactionSetup}>
+              <Download className="w-3 h-3 mr-1" /> Export setup zip
+            </Button>
+          )}
           {bannersLoaded && (
             <Button variant="outline" size="sm" className="text-[10px] h-7 text-slate-200 border-slate-600 hover:bg-slate-700" onClick={() => {
               const data = localStorage.getItem(BANNERS_GLOBAL_KEY);
