@@ -32,12 +32,16 @@ function lonToTileX(lon, zoom) {
 
 function chooseBestZoom(bbox, mapW, scale) {
   const screenW = mapW * Math.max(scale, 0.05);
-  for (let z = 13; z >= 1; z--) {
+  let bestZ = 1;
+  let bestScore = Infinity;
+  for (let z = 1; z <= 13; z++) {
     const tileCount = lonToTileX(bbox.east, z) - lonToTileX(bbox.west, z);
-    const pxPerTile = screenW / tileCount;
-    if (pxPerTile >= 80 && pxPerTile <= 800) return z;
+    const pxPerTile = screenW / Math.max(tileCount, 0.001);
+    // Target ~256px per tile; pick the zoom whose pxPerTile is closest to that
+    const score = Math.abs(Math.log2(pxPerTile / 256));
+    if (score < bestScore) { bestScore = score; bestZ = z; }
   }
-  return 5;
+  return bestZ;
 }
 
 // Global tile image cache: url → HTMLImageElement | Promise<HTMLImageElement|null>
