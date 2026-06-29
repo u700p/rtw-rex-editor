@@ -151,6 +151,7 @@ export default function CampaignMap() {
   const [pendingRelocate, setPendingRelocate] = useState(null); // { type: 'city'|'port', regionInfo, settlement }
   const [stratPanelOpenItemId, setStratPanelOpenItemId] = useState(null); // double-click to open char
   const [pendingCoordPick, setPendingCoordPick] = useState(null); // callback(x, y) waiting for map click
+  const [groundFixStatus, setGroundFixStatus] = useState('');
 
   // ── Extra data sources for region editor ──────────────────────────────────
   const [rebelFactions, setRebelFactions] = useState(() => { try { const r = sessionStorage.getItem('m2tw_rebel_factions_raw'); return r ? parseDescrRebelFactions(r) : []; } catch { return []; } });
