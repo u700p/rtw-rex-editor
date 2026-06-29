@@ -941,12 +941,20 @@ function HordeUnitsEditor({ units, onChange, eduUnits }) {
 }
 
 // ── Faction detail panel ──────────────────────────────────────────────────────
-function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSave, onCancel }) {
+function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAssignUnits, onSave, onCancel }) {
   const [draft, setDraft] = useState({ ...faction });
   const [activeTab, setActiveTab] = useState('stratmap');
   const [tertiaryEnabled, setTertiaryEnabled] = useState(!!faction.tertiary_colour);
+  const [unitAssignDescription, setUnitAssignDescription] = useState(`${faction.culture || ''} ${faction.name || ''}`.trim());
+  const [unitAssignResult, setUnitAssignResult] = useState(null);
   const set = (key, val) => setDraft({ ...draft, [key]: val });
   const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    setDraft({ ...faction });
+    setTertiaryEnabled(!!faction.tertiary_colour);
+    setUnitAssignDescription(`${faction.culture || ''} ${faction.name || ''}`.trim());
+    setUnitAssignResult(null);
+  }, [faction]);
   const handleSave = () => {
     onChange(draft);
     setSaved(true);
@@ -956,6 +964,10 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSav
   const nameUpper = (draft.name || '').toUpperCase();
   const defaultLogo = `FACTION_LOGO_${nameUpper}`;
   const defaultSmallLogo = `SMALL_FACTION_LOGO_${nameUpper}`;
+  const runUnitAssignment = () => {
+    const result = onAssignUnits?.(draft.name, `${unitAssignDescription} ${draft.culture || ''} ${draft.name || ''}`.trim());
+    setUnitAssignResult(result || { count: 0, generalAssigned: false });
+  };
 
   const hordeIntField = (key, label) =>
   <div key={key} className="flex items-center gap-3">
@@ -1014,6 +1026,31 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onSav
           }
           <SelectOrInput label="Culture" value={draft.culture} onChange={(v) => set('culture', v)} options={cultures} placeholder="e.g. roman" />
           <SelectOrInput label="Religion" value={draft.religion} onChange={(v) => set('religion', v)} options={religions} placeholder="optional" allowBlank />
+        </section>
+
+        <section className="space-y-2">
+          <h3 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-slate-600 pb-1">Unit Assigner</h3>
+          <textarea
+            value={unitAssignDescription}
+            onChange={(e) => setUnitAssignDescription(e.target.value)}
+            placeholder="e.g. Egyptian/Greek infantry, archers, light cavalry"
+            className="w-full h-16 bg-slate-700 border border-slate-600 rounded p-2 text-[10px] text-slate-100 resize-none"
+          />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[9px] text-slate-500">Adds exactly 13 slave-owned EDU units when possible and prioritizes a general_unit.</p>
+            <button
+              type="button"
+              onClick={runUnitAssignment}
+              className="px-3 py-1 text-[10px] rounded border border-amber-700 text-amber-200 hover:bg-amber-900/30 shrink-0"
+            >
+              Assign 13 Units
+            </button>
+          </div>
+          {unitAssignResult && (
+            <p className={`text-[10px] ${unitAssignResult.count ? 'text-green-300' : 'text-red-300'}`}>
+              {unitAssignResult.count ? `Assigned ${unitAssignResult.count} units${unitAssignResult.generalAssigned ? ' including a general.' : '.'}` : 'No slave-owned EDU units were available to assign.'}
+            </p>
+          )}
         </section>
 
         <section className="space-y-2">
@@ -1671,6 +1708,19 @@ export default function FactionsEditor() {
     });
   };
 
+  const handleAssignUnitsForFaction = (factionName, description) => {
+    const result = assignSlaveUnitsToFaction(factionName, description || factionName, { count: 13, packUi: true });
+    if (result.changed) {
+      try { setEduUnits(parseEduUnits(getEduRawText())); } catch {}
+      applyFactionAutomation(factionName, {
+        displayName: factionName,
+        unitAssigned: result.count,
+        generalAssigned: result.generalAssigned,
+      });
+    }
+    return result;
+  };
+
   const onDragEnd = (result) => {
     if (!result.destination) return;
     const items = Array.from(factions);
@@ -1871,7 +1921,8 @@ export default function FactionsEditor() {
             onCancel={() => setSelectedIdx(null)}
             cultures={cultures}
             religions={religions}
-            eduUnits={eduUnits} /> :
+            eduUnits={eduUnits}
+            onAssignUnits={handleAssignUnitsForFaction} /> :
 
 
           <div className="h-full flex items-center justify-center text-slate-500 text-sm">
