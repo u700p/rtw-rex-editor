@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import JSZip from 'jszip';
 import { Upload, Download, Plus, Trash2, AlertTriangle, Shield, X, Copy, GripVertical, Palette, FileText, Settings, ScrollText, Image } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,10 +12,10 @@ import { parseBannersXml, serialiseBannersXml } from '@/components/minorfiles/ba
 import DescriptionsTab from '@/components/factions/DescriptionsTab';
 import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/components/factions/MiscTab';
 import FactionSymbolsTab from '@/components/factions/FactionSymbolsTab';
-import { textBlob } from '@/lib/lineEndings';
+import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { parseTextLocFile, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { ensureRtwFactionLocEntries } from '@/lib/factionLoc';
-import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
+import { getEduRawText, loadEduRawText, setEduRawText } from '@/lib/eduStorage';
 import { getTextLocalizationStore, hydrateTextLocalizationStore, updateTextLocalizationFile } from '@/lib/textLocalizationStore';
 
 const LS_OFFMAP = 'm2tw_offmap_models';
@@ -192,6 +193,97 @@ function saveEduRaw(text, filename = '') {
   const list = parseEduUnits(text);
   try { localStorage.setItem(LS_UNITS, JSON.stringify(list)); } catch {}
   setEduRawText(text, filename);
+}
+
+const FACTION_SETUP_DATA_FILES = [
+  { path: 'data/descr_banners_new.xml', sources: [BANNERS_GLOBAL_KEY, 'm2tw_descr_banners_file', 'm2tw_descr_banners_file_raw'] },
+  { path: 'data/descr_building_battle.txt', sources: ['m2tw_descr_building_battle_file', 'm2tw_descr_building_battle_file_raw'] },
+  { path: 'data/descr_character.txt', sources: ['m2tw_descr_character', 'm2tw_descr_character_raw'] },
+  { path: 'data/descr_formations_ai.txt', sources: ['m2tw_descr_formations_ai_file', 'm2tw_descr_formations_ai_file_raw'] },
+  { path: 'data/descr_lbc_db.txt', sources: ['m2tw_descr_lbc_db_file', 'm2tw_descr_lbc_db_file_raw'] },
+  { path: 'data/descr_model_battle.txt', sources: ['m2tw_descr_model_battle_file', 'm2tw_modeldb_file'] },
+  { path: 'data/descr_model_strat.txt', sources: ['m2tw_descr_model_strat', 'm2tw_descr_model_strat_raw'] },
+  { path: 'data/descr_names.txt', sources: ['m2tw_descr_names_raw', 'm2tw_names_file'] },
+  { path: 'data/descr_offmap_models.txt', sources: [LS_OFFMAP, 'm2tw_offmap_models_raw'] },
+  { path: 'data/descr_standards.txt', sources: ['m2tw_descr_standards_file', 'm2tw_descr_standards_file_raw'] },
+  { path: 'data/export_descr_buildings.txt', sources: ['m2tw_edb_file'] },
+];
+
+const FACTION_SETUP_WORLD_FILES = [
+  { path: 'data/world/maps/base/descr_strat.txt', sources: ['m2tw_strat_raw'] },
+  { path: 'data/world/maps/base/descr_regions.txt', sources: ['m2tw_regions_raw'] },
+  { path: 'data/world/maps/base/descr_win_conditions.txt', sources: ['m2tw_win_conditions_raw', 'm2tw_campaign_win_conditions'] },
+];
+
+function getStoredText(sources) {
+  for (const key of sources || []) {
+    try {
+      const sessionValue = sessionStorage.getItem(key);
+      if (sessionValue) return sessionValue;
+    } catch {}
+    try {
+      const localValue = localStorage.getItem(key);
+      if (localValue) return localValue;
+    } catch {}
+  }
+  return '';
+}
+
+function addCRLFText(zip, path, text, included) {
+  if (!text) return false;
+  zip.file(path, toCRLF(text));
+  included.push(path);
+  return true;
+}
+
+function addStoredText(zip, path, sources, included) {
+  return addCRLFText(zip, path, getStoredText(sources), included);
+}
+
+function getStoredLocEntries(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return parsed.entries || parsed || [];
+  } catch {
+    return [];
+  }
+}
+
+function getTextFileFromStore(name) {
+  const store = getTextLocalizationStore();
+  const data = store[name];
+  if (!data?.entries?.length && !data?.rawText) return '';
+  return data.rawText || entriesToText(data.entries);
+}
+
+function buildFactionSetupManifest(included) {
+  const includedSet = new Set(included);
+  const expected = [
+    'data/descr_sm_factions.txt',
+    ...FACTION_SETUP_DATA_FILES.map((f) => f.path),
+    'data/export_descr_unit.txt',
+    'data/text/campaign_descriptions.txt',
+    'data/text/expanded_bi.txt',
+    'data/text/names.txt',
+    ...FACTION_SETUP_WORLD_FILES.map((f) => f.path),
+  ];
+  const missing = expected.filter((path) => !includedSet.has(path));
+  return [
+    'RTW faction setup export',
+    '',
+    'Included:',
+    ...(included.length ? included.map((path) => `+ ${path}`) : ['- Nothing was loaded yet.']),
+    '',
+    'Not included because it was not loaded/cached:',
+    ...(missing.length ? missing.map((path) => `- ${path}`) : ['- All checklist files that the editor can export were included.']),
+    '',
+    'Still manual:',
+    '- Graphical assets: faction symbols, loading screens, UI cards, models, banners, standards, and any new CAS/TGA/DDS files.',
+    '- descr_strat.txt playability/placement and descr_regions.txt ownership still need a human check after faction duplication.',
+    '- If adding new names, verify data/descr_names.txt and data/text/names.txt entries in game.',
+  ].join('\n');
 }
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
