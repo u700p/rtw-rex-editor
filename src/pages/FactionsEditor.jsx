@@ -394,13 +394,24 @@ function assignSlaveUnitsToFaction(targetFaction, profileText, options = {}) {
   const tokens = tokenizeProfile(`${profileText || ''} ${dst}`);
   const targetCount = Math.max(1, Number(options.count) || 13);
   const candidates = units
-    .map((unit, index) => ({ unit, index, owners: (unit.ownership || []).map((owner) => owner.toLowerCase()) }))
+    .map((unit, index) => ({ unit, index, source: 'slave', owners: (unit.ownership || []).map((owner) => owner.toLowerCase()) }))
     .filter(({ owners }) => owners.includes('slave') && !owners.includes(dst.toLowerCase()) && !owners.includes('all'))
     .map((entry) => ({ ...entry, score: scoreSlaveUnit(entry.unit, tokens) }))
     .sort((a, b) => b.score - a.score || String(a.unit.type).localeCompare(String(b.unit.type)));
+  const fallbackGenerals = units
+    .map((unit, index) => {
+      const owners = (unit.ownership || []).map((owner) => owner.toLowerCase());
+      const source = owners.find((owner) => owner !== dst.toLowerCase() && owner !== 'all') || 'slave';
+      return { unit, index, owners, source, score: scoreSlaveUnit(unit, tokens) };
+    })
+    .filter(({ unit, owners }) => isGeneralUnit(unit) && !owners.includes(dst.toLowerCase()) && !owners.includes('all'))
+    .sort((a, b) => {
+      const slaveDelta = Number(b.owners.includes('slave')) - Number(a.owners.includes('slave'));
+      return slaveDelta || b.score - a.score || String(a.unit.type).localeCompare(String(b.unit.type));
+    });
   const positive = candidates.filter((entry) => entry.score > 0);
   const pool = positive.length >= targetCount ? positive : candidates;
-  const general = pool.find((entry) => isGeneralUnit(entry.unit)) || candidates.find((entry) => isGeneralUnit(entry.unit));
+  const general = pool.find((entry) => isGeneralUnit(entry.unit)) || candidates.find((entry) => isGeneralUnit(entry.unit)) || fallbackGenerals[0];
   const selected = [];
   if (general) selected.push(general);
   for (const entry of pool) {
@@ -423,11 +434,11 @@ function assignSlaveUnitsToFaction(targetFaction, profileText, options = {}) {
   setEduRawText(serializeEDU(units), 'export_descr_unit.txt');
   window.dispatchEvent(new CustomEvent('edu-file-loaded'));
 
-  const assignedUnits = selected.map(({ unit, score }) => ({
+  const assignedUnits = selected.map(({ unit, score, source }) => ({
     type: unit.type,
     dictionary: unit.dictionary || unit.type,
     score,
-    source: 'slave',
+    source: source || 'slave',
     isGeneral: isGeneralUnit(unit),
   }));
   const store = getAssignmentStore();
