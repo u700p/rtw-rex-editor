@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Map, CheckSquare, Globe, FolderOpen, Box, Layers } from 'lucide-react';
 import OsmBackground from '../components/map/OsmBackground';
+import CoastlineTracer from '../components/map/CoastlineTracer';
 import Map3DPreview from '../components/map/Map3DPreview';
 import MapCanvas, { floodFillRGB } from '../components/map/MapCanvas';
 import MapPaintToolbar from '../components/map/MapPaintToolbar';
@@ -140,6 +141,7 @@ export default function CampaignMap() {
   const [pendingCoordPick, setPendingCoordPick] = useState(null); // callback(x, y) waiting for map click
   const [osmBbox, setOsmBbox] = useState(null); // { north, south, east, west } from bbox_coords.txt
   const [osmOpacity, setOsmOpacity] = useState(0.5);
+  const [showCoastlineTracer, setShowCoastlineTracer] = useState(false);
 
   // ── Extra data sources for region editor ──────────────────────────────────
   const [rebelFactions, setRebelFactions] = useState(() => { try { const r = sessionStorage.getItem('m2tw_rebel_factions_raw'); return r ? parseDescrRebelFactions(r) : []; } catch { return []; } });
@@ -902,6 +904,34 @@ export default function CampaignMap() {
     setLayers(prev => ({ ...prev, regions: { ...prev.regions, visible: true } }));
   }, []);
 
+  // ── Apply coastline ImageData onto heights layer ───────────────────────────
+  const handleApplyCoastlineToLayer = useCallback((layerId, coastlineImageData) => {
+    setLayers(prev => {
+      const layer = prev[layerId];
+      if (!layer?.data) {
+        // No heights layer loaded — create one from the coastline data
+        const newData = new Uint8ClampedArray(coastlineImageData.data);
+        createImageBitmap(new ImageData(newData, coastlineImageData.width, coastlineImageData.height)).then(bitmap => {
+          setLayers(p => ({ ...p, [layerId]: { ...p[layerId], bitmap, data: newData, width: coastlineImageData.width, height: coastlineImageData.height } }));
+        });
+        return { ...prev, [layerId]: { ...prev[layerId], data: newData, width: coastlineImageData.width, height: coastlineImageData.height } };
+      }
+      // Merge: paint only non-transparent coastline pixels on top of existing data
+      const newData = new Uint8ClampedArray(layer.data);
+      const cd = coastlineImageData.data;
+      for (let i = 0; i < cd.length; i += 4) {
+        if (cd[i + 3] > 0) {
+          newData[i] = cd[i]; newData[i + 1] = cd[i + 1]; newData[i + 2] = cd[i + 2]; newData[i + 3] = 255;
+        }
+      }
+      createImageBitmap(new ImageData(newData, layer.width, layer.height)).then(bitmap => {
+        setLayers(p => ({ ...p, [layerId]: { ...p[layerId], bitmap, data: newData } }));
+      });
+      return { ...prev, [layerId]: { ...layer, data: newData } };
+    });
+    setDirtyLayers(prev => new Set([...prev, layerId]));
+  }, []);
+
   const handleToggleCategory = (catId) => {
     setVisibleCategories(prev => {
       const next = new Set(prev);
@@ -1022,6 +1052,11 @@ export default function CampaignMap() {
             <input type="range" min={0} max={1} step={0.05} value={osmOpacity}
               onChange={e => setOsmOpacity(parseFloat(e.target.value))}
               className="w-16 accent-blue-400 h-1" title={`OSM opacity: ${Math.round(osmOpacity * 100)}%`} />
+            <button
+              onClick={() => setShowCoastlineTracer(v => !v)}
+              className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors ${showCoastlineTracer ? 'border-blue-500/50 text-blue-300 bg-blue-500/10' : 'border-slate-600/40 text-slate-500 hover:text-slate-200'}`}
+              title="OSM Coastline Tracer"
+            >≈ Coast</button>
             <button onClick={() => setOsmBbox(null)} className="text-[10px] text-slate-600 hover:text-red-400" title="Remove OSM background">✕</button>
           </div>
         )}
@@ -1110,6 +1145,18 @@ export default function CampaignMap() {
         hasSavedSnapshot={savedSnapshot.current !== null}
         dirtyLayers={dirtyLayers}
       />
+
+      {/* Coastline Tracer panel */}
+      {osmBbox && showCoastlineTracer && mapW2 > 0 && mapH > 0 && (
+        <div className="px-3 py-2 bg-slate-900/95 border-b border-slate-700 max-w-sm">
+          <CoastlineTracer
+            bbox={osmBbox}
+            mapW={mapW2}
+            mapH={mapH}
+            onApplyToLayer={handleApplyCoastlineToLayer}
+          />
+        </div>
+      )}
 
       {/* Body */}
       <div className="flex-1 flex min-h-0">
