@@ -1058,6 +1058,25 @@ export default function CampaignMap() {
           <option value="citiesports">Regions: cities+ports</option>
         </select>
 
+        <button
+          onClick={handleFixSettlementGroundPixels}
+          disabled={!layers.ground?.data || !(overlayItems || []).some((item) => item.category === 'settlement')}
+          title="Replace one mountains_high/mountains_low map_ground_types.tga pixel under each settlement with fertile_medium"
+          className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] border transition-colors ${
+            layers.ground?.data && (overlayItems || []).some((item) => item.category === 'settlement')
+              ? 'border-emerald-600/40 text-emerald-300 hover:bg-emerald-950/40'
+              : 'border-slate-700/40 text-slate-600 cursor-not-allowed'
+          }`}
+        >
+          <Mountain className="w-3 h-3" />
+          Fix settlement ground
+        </button>
+        {groundFixStatus && (
+          <span className="hidden xl:inline-flex px-2 py-1 rounded bg-emerald-950/30 border border-emerald-700/30 text-emerald-200 text-[10px]">
+            {groundFixStatus}
+          </span>
+        )}
+
         {/* DB import progress */}
         {importProgress && (
           <span className="flex items-center gap-1 px-2 py-1 rounded bg-blue-500/20 border border-blue-500/40 text-blue-400 text-[10px] font-semibold">
