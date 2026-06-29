@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Map, CheckSquare, Globe, FolderOpen, Box } from 'lucide-react';
+import { Map, CheckSquare, Globe, FolderOpen, Box, Mountain } from 'lucide-react';
 import Map3DPreview from '../components/map/Map3DPreview';
 import MapCanvas, { floodFillRGB } from '../components/map/MapCanvas';
 import MapPaintToolbar from '../components/map/MapPaintToolbar';
@@ -43,6 +43,20 @@ const TXT_MAP = {
   'descr_regions.txt':   'regions',
   'descr_sm_factions.txt':'factions',
 };
+
+const FERTILE_SETTLEMENT_GROUND = { r: 96, g: 160, b: 64 };
+const MOUNTAIN_GROUND_COLORS = [
+  { r: 196, g: 128, b: 128 },
+  { r: 98, g: 65, b: 65 },
+];
+
+function isSameRGB(data, idx, color) {
+  return data[idx] === color.r && data[idx + 1] === color.g && data[idx + 2] === color.b;
+}
+
+function isMountainGroundPixel(data, idx) {
+  return MOUNTAIN_GROUND_COLORS.some((color) => isSameRGB(data, idx, color));
+}
 
 export default function CampaignMap() {
   const [layers, setLayers] = useState(() => {
