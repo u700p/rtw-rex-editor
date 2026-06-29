@@ -104,8 +104,6 @@ const DATA_FILE_MAP = {
   'descr_sm_resources.txt': 'res',
   'export_descr_unit.txt': 'unit',
   'descr_banners.txt': 'banners',
-  'descr_banners.xml': 'banners',
-  'descr_banners_new.xml': 'banners',
   'descr_building_battle.txt': 'building_battle',
   'descr_character.txt': 'descr_character',
   'descr_formations_ai.txt': 'formations_ai',
@@ -600,7 +598,7 @@ export default function Home() {
         } catch {}
         if (key === 'banners') {
           try { localStorage.setItem(BANNERS_GLOBAL_KEY, text); } catch {}
-          window.dispatchEvent(new CustomEvent('banners-xml-loaded'));
+          window.dispatchEvent(new CustomEvent('banners-text-loaded'));
         }
         if (key === 'offmap_models') {
           window.dispatchEvent(new CustomEvent('offmap-models-updated'));
@@ -733,12 +731,20 @@ export default function Home() {
       setFileStatus((prev) => ({ ...prev, unit_images: 'loading' }));
       runInBackground(async () => {
         const images = {};
+        const fileMap = { ...(window._m2tw_unit_image_file_map || {}) };
         for (const item of await decodeTgaFiles(unitTgaFiles)) {
-          if (item) images[item.file.name.replace(/\.tga$/i, '').toLowerCase()] = item.dataUrl;
+          if (!item) continue;
+          const bareName = item.file.name.replace(/\.tga$/i, '').toLowerCase();
+          const relPath = (item.file.webkitRelativePath || item.file.name).replace(/\\/g, '/').replace(/\.tga$/i, '').toLowerCase();
+          images[bareName] = item.dataUrl;
+          images[relPath] = item.dataUrl;
+          fileMap[relPath] = item.file;
         }
-        window._m2tw_unit_images = images;
-        window.dispatchEvent(new CustomEvent('load-unit-images', { detail: images }));
-        setUnitImgCount(Object.keys(images).length);
+        window._m2tw_unit_images = { ...(window._m2tw_unit_images || {}), ...images };
+        window._m2tw_unit_image_files = mergeFilesByPath(window._m2tw_unit_image_files || [], unitTgaFiles);
+        window._m2tw_unit_image_file_map = fileMap;
+        window.dispatchEvent(new CustomEvent('load-unit-images', { detail: window._m2tw_unit_images }));
+        setUnitImgCount(Object.keys(window._m2tw_unit_images).length);
         setFileStatus((prev) => ({ ...prev, unit_images: 'ok' }));
       });
     }
@@ -1137,7 +1143,7 @@ export default function Home() {
               <FileStatus label="Factions" hint="descr_sm_factions.txt" status={fileStatus.fac} />
               <FileStatus label="Resources" hint="descr_sm_resources.txt" status={fileStatus.res} />
               <FileStatus label="Units" hint="export_descr_unit.txt" status={fileStatus.unit} />
-              <FileStatus label="Banners" hint="descr_banners / descr_banners_new.xml" status={fileStatus.banners} />
+              <FileStatus label="Banners" hint="descr_banners.txt" status={fileStatus.banners} />
               <FileStatus label="Building Battle" hint="descr_building_battle.txt" status={fileStatus.building_battle} />
               <FileStatus label="Strat Characters" hint="descr_character.txt" status={fileStatus.descr_character} />
               <FileStatus label="Formations AI" hint="descr_formations_ai.txt" status={fileStatus.formations_ai} />

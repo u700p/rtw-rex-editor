@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { FileText, Shield, Sparkles, Gem, Users, LayoutTemplate, Flag } from 'lucide-react';
+import { FileText, Shield, Sparkles, Gem, Users, LayoutTemplate } from 'lucide-react';
 import RebelFactionsTab from '../components/minorfiles/RebelFactionsTab';
 import ReligionsTab from '../components/minorfiles/ReligionsTab';
 import ResourcesTab from '../components/minorfiles/ResourcesTab';
 import CharacterNamesTab from '../components/minorfiles/CharacterNamesTab';
 import SpriteSheetsTab from '../components/minorfiles/spritesheet/SpriteSheetsTab';
-import BannersTab from '../components/minorfiles/banners/BannersTab';
 import StratMapCharTab from '../components/minorfiles/stratmap/StratMapCharTab';
 
 const TABS = [
@@ -15,7 +14,6 @@ const TABS = [
   { id: 'resources', label: 'Resources', Icon: Gem, description: 'descr_sm_resources.txt + strat.txt' },
   { id: 'names', label: 'Faction Names', Icon: Users, description: 'descr_names.txt + names.txt' },
   { id: 'spritesheets', label: 'UI Sprites', Icon: LayoutTemplate, description: 'strategy.sd.xml / battle.sd.xml / shared.sd.xml — \\data\\ui\\' },
-  { id: 'banners', label: 'Banners', Icon: Flag, description: 'descr_banners_new.xml — faction / unit / holy / royal banners' },
   { id: 'stratmap', label: 'Strat Characters', Icon: Users, description: 'descr_character.txt + descr_model_strat.txt — stratmap character types & models' },
 ];
 
@@ -52,10 +50,9 @@ export default function MinorFiles() {
         </p>
       </div>
 
-      {(activeTab === 'spritesheets' || activeTab === 'banners' || activeTab === 'stratmap') ? (
+      {(activeTab === 'spritesheets' || activeTab === 'stratmap') ? (
         <div className="flex-1 min-h-0 overflow-hidden p-3">
           {activeTab === 'spritesheets' && <SpriteSheetsTab />}
-          {activeTab === 'banners' && <BannersTab />}
           {activeTab === 'stratmap' && <StratMapCharTab />}
         </div>
       ) : (

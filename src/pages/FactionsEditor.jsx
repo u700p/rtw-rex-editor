@@ -8,7 +8,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import BannersTab, { BANNERS_GLOBAL_KEY } from '@/components/factions/BannersTab';
-import { parseBannersXml, serialiseBannersXml } from '@/components/minorfiles/banners/bannersParser';
 import DescriptionsTab from '@/components/factions/DescriptionsTab';
 import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/components/factions/MiscTab';
 import FactionSymbolsTab from '@/components/factions/FactionSymbolsTab';
@@ -16,12 +15,14 @@ import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { parseTextLocFile, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { ensureRtwFactionLocEntries } from '@/lib/factionLoc';
 import { getEduRawText, loadEduRawText, setEduRawText } from '@/lib/eduStorage';
+import { parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { getTextLocalizationStore, hydrateTextLocalizationStore, updateTextLocalizationFile } from '@/lib/textLocalizationStore';
 import { loadLargeText, saveLargeText } from '@/lib/largeTextStore';
 
 const LS_OFFMAP = 'm2tw_offmap_models';
 const LS_GLOBAL_STRINGS = 'rtw_expanded_text_global';
 const LS_MENU_STRINGS = 'rtw_menu_text_global';
+const LS_UNIT_ASSIGNMENTS = 'm2tw_faction_unit_assignments';
 const EXPANDED_BI_FILE = 'expanded_bi.txt';
 
 function normalizeLocKey(key) {
@@ -250,8 +251,245 @@ function copyRtwBannersText(sourceFaction, targetFaction) {
     localStorage.setItem(BANNERS_GLOBAL_KEY, text);
     localStorage.setItem('m2tw_descr_banners_file', text);
   } catch {}
-  window.dispatchEvent(new CustomEvent('banners-xml-loaded'));
+  window.dispatchEvent(new CustomEvent('banners-text-loaded'));
   return true;
+}
+
+function copyDescrCharacterEntries(sourceFaction, targetFaction, sourceCulture = '') {
+  const raw = getStoredText(['m2tw_descr_character', 'm2tw_descr_character_raw']);
+  const dst = String(targetFaction || '').trim();
+  if (!raw || !dst) return false;
+
+  const sourcePriority = [sourceFaction, sourceCulture, 'slave']
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+  const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const typeStarts = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*type\s+\S+/i.test(lines[i])) typeStarts.push(i);
+  }
+  if (!typeStarts.length) return false;
+
+  const insertions = [];
+  const factionNameAt = (line) => line.match(/^\s*faction\s+(\S+)/i)?.[1]?.replace(/,+$/, '') || '';
+  for (let t = 0; t < typeStarts.length; t++) {
+    const start = typeStarts[t];
+    const end = typeStarts[t + 1] ?? lines.length;
+    let targetExists = false;
+    const factionBlocks = [];
+    for (let i = start + 1; i < end; i++) {
+      const faction = factionNameAt(lines[i]);
+      if (!faction) continue;
+      if (faction.toLowerCase() === dst.toLowerCase()) targetExists = true;
+      let blockEnd = end;
+      for (let j = i + 1; j < end; j++) {
+        if (/^\s*(faction|type)\s+\S+/i.test(lines[j])) {
+          blockEnd = j;
+          break;
+        }
+      }
+      factionBlocks.push({ faction, start: i, end: blockEnd });
+      i = blockEnd - 1;
+    }
+    if (targetExists) continue;
+    const sourceBlock = sourcePriority
+      .map((source) => factionBlocks.find((block) => block.faction.toLowerCase() === source))
+      .find(Boolean);
+    if (!sourceBlock) continue;
+    const block = lines.slice(sourceBlock.start, sourceBlock.end).map((line, idx) =>
+      idx === 0 ? line.replace(/(\bfaction\s+)\S+/i, `$1${dst}`) : line
+    );
+    insertions.push({ at: sourceBlock.end, block: ['', `;; ${dst}`, ...block] });
+  }
+
+  if (!insertions.length) return false;
+  const out = [...lines];
+  for (const insertion of insertions.reverse()) {
+    out.splice(insertion.at, 0, ...insertion.block);
+  }
+  const text = out.join('\n');
+  try {
+    localStorage.setItem('m2tw_descr_character', text);
+    sessionStorage.setItem('m2tw_descr_character_raw', text);
+  } catch {}
+  window.dispatchEvent(new CustomEvent('strat-model-files-loaded', { detail: { key: 'descr_character', text, filename: 'descr_character.txt' } }));
+  return true;
+}
+
+function tokenizeProfile(text) {
+  return [...new Set(String(text || '').toLowerCase().match(/[a-z0-9_]+/g) || [])];
+}
+
+function unitSearchText(unit) {
+  return [
+    unit.type, unit.dictionary, unit.dictionaryComment, unit.category, unit.class,
+    unit.voice_type, unit.soldier_model, unit.attributes?.join(' '),
+  ].join(' ').toLowerCase();
+}
+
+function isGeneralUnit(unit) {
+  const haystack = unitSearchText(unit);
+  const attrs = new Set(unit.attributes || []);
+  return attrs.has('general_unit') || /\b(general|bodyguard|named character|family member)\b/i.test(haystack);
+}
+
+function scoreSlaveUnit(unit, tokens) {
+  const haystack = unitSearchText(unit);
+  let score = 0;
+  for (const token of tokens) {
+    if (token.length > 2 && haystack.includes(token)) score += token.length >= 6 ? 5 : 3;
+  }
+  const profile = new Set(tokens);
+  const attrs = new Set(unit.attributes || []);
+  const isCav = /cavalry|horse|mounted|chariot|camel/.test(haystack) || !!unit.mount;
+  const isMissile = /archer|slinger|peltast|javelin|bow|missile/.test(haystack) || /missile|arrow|javelin|pilum/.test(unit.stat_pri || '');
+  const isSpear = /spear|hoplite|phalanx|pike/.test(haystack) || attrs.has('spear') || attrs.has('pike');
+  const isLight = unit.class === 'light' || /light|skirmish|peltast/.test(haystack);
+  const isHeavy = unit.class === 'heavy' || /heavy|elite|guard|noble/.test(haystack);
+  if ((profile.has('cavalry') || profile.has('horse') || profile.has('mounted')) && isCav) score += 18;
+  if ((profile.has('archer') || profile.has('missile') || profile.has('ranged')) && isMissile) score += 16;
+  if ((profile.has('spear') || profile.has('hoplite') || profile.has('phalanx')) && isSpear) score += 14;
+  if ((profile.has('light') || profile.has('skirmish')) && isLight) score += 8;
+  if ((profile.has('heavy') || profile.has('elite')) && isHeavy) score += 8;
+  if ((profile.has('desert') || profile.has('arabian') || profile.has('eastern')) && /east|desert|arab|camel/.test(haystack)) score += 12;
+  if ((profile.has('greek') || profile.has('hellenic')) && /greek|hoplite|peltast|phalanx/.test(haystack)) score += 12;
+  if ((profile.has('roman') || profile.has('italian')) && /roman|italian|legion/.test(haystack)) score += 12;
+  if ((profile.has('barbarian') || profile.has('tribal')) && /barb|warband|celt|german/.test(haystack)) score += 12;
+  if (unit.category === 'ship' || unit.category === 'siege') score -= 12;
+  return score;
+}
+
+function getAssignmentStore() {
+  try { return JSON.parse(localStorage.getItem(LS_UNIT_ASSIGNMENTS) || '{}'); } catch { return {}; }
+}
+
+function saveAssignmentStore(store) {
+  try { localStorage.setItem(LS_UNIT_ASSIGNMENTS, JSON.stringify(store || {})); } catch {}
+}
+
+function buildUnitAssignmentReport() {
+  const assignments = getAssignmentStore();
+  const lines = ['RTW unit assignment report', ''];
+  const values = Object.values(assignments);
+  if (!values.length) return '';
+  for (const assignment of values) {
+    const units = assignment.units || [];
+    lines.push(`${assignment.faction}: ${units.length} units`);
+    lines.push(`profile: ${assignment.profile || assignment.faction}`);
+    lines.push(`ui cards: ${assignment.packUi ? 'pack when source files are loaded' : 'skip'}`);
+    for (const unit of units) {
+      const general = unit.isGeneral ? ' general_unit' : '';
+      lines.push(`- ${unit.type}${general} (${unit.dictionary || unit.type}) score ${unit.score ?? 0}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
+function assignSlaveUnitsToFaction(targetFaction, profileText, options = {}) {
+  const dst = String(targetFaction || '').trim();
+  const raw = getEduRawText();
+  if (!dst || !raw) return { changed: false, count: 0, units: [] };
+  const units = parseEDU(raw);
+  const tokens = tokenizeProfile(`${profileText || ''} ${dst}`);
+  const targetCount = Math.max(1, Number(options.count) || 13);
+  const candidates = units
+    .map((unit, index) => ({ unit, index, owners: (unit.ownership || []).map((owner) => owner.toLowerCase()) }))
+    .filter(({ owners }) => owners.includes('slave') && !owners.includes(dst.toLowerCase()) && !owners.includes('all'))
+    .map((entry) => ({ ...entry, score: scoreSlaveUnit(entry.unit, tokens) }))
+    .sort((a, b) => b.score - a.score || String(a.unit.type).localeCompare(String(b.unit.type)));
+  const positive = candidates.filter((entry) => entry.score > 0);
+  const pool = positive.length >= targetCount ? positive : candidates;
+  const general = pool.find((entry) => isGeneralUnit(entry.unit)) || candidates.find((entry) => isGeneralUnit(entry.unit));
+  const selected = [];
+  if (general) selected.push(general);
+  for (const entry of pool) {
+    if (selected.length >= targetCount) break;
+    if (general && entry.index === general.index) continue;
+    selected.push(entry);
+  }
+  if (selected.length < targetCount) {
+    for (const entry of candidates) {
+      if (selected.length >= targetCount) break;
+      if (selected.some((selectedEntry) => selectedEntry.index === entry.index)) continue;
+      selected.push(entry);
+    }
+  }
+  if (!selected.length) return { changed: false, count: 0, units: [] };
+
+  for (const { unit } of selected) {
+    unit.ownership = [...(unit.ownership || []), dst];
+  }
+  setEduRawText(serializeEDU(units), 'export_descr_unit.txt');
+  window.dispatchEvent(new CustomEvent('edu-file-loaded'));
+
+  const assignedUnits = selected.map(({ unit, score }) => ({
+    type: unit.type,
+    dictionary: unit.dictionary || unit.type,
+    score,
+    source: 'slave',
+    isGeneral: isGeneralUnit(unit),
+  }));
+  const store = getAssignmentStore();
+  store[dst] = {
+    faction: dst,
+    source: 'slave',
+    profile: String(profileText || dst),
+    packUi: options.packUi !== false,
+    units: assignedUnits,
+    updatedAt: Date.now(),
+  };
+  saveAssignmentStore(store);
+  const generalAssigned = assignedUnits.some((unit) => unit.isGeneral);
+  return { changed: true, count: assignedUnits.length, units: assignedUnits, generalAssigned };
+}
+
+function getUnitImageFileFor(dictionary, sourceFaction, kind) {
+  const dict = String(dictionary || '').toLowerCase().replace(/^#/, '');
+  const source = String(sourceFaction || 'slave').toLowerCase();
+  if (!dict || typeof window === 'undefined') return null;
+  const fileMap = window._m2tw_unit_image_file_map || {};
+  const suffixes = kind === 'info'
+    ? [`/unit_info/${source}/${dict}_info`, `/unit_info/${source}/#${dict}_info`]
+    : [`/units/${source}/#${dict}`, `/units/${source}/${dict}`];
+  for (const [key, file] of Object.entries(fileMap)) {
+    const normalized = String(key || '').toLowerCase().replace(/\\/g, '/').replace(/\.tga$/i, '');
+    if (suffixes.some((suffix) => normalized.endsWith(suffix))) return file;
+  }
+  return null;
+}
+
+async function addAssignedUnitUiFilesToZip(zip, included) {
+  const assignments = getAssignmentStore();
+  const used = new Set();
+  for (const assignment of Object.values(assignments)) {
+    if (!assignment?.packUi) continue;
+    const faction = String(assignment.faction || '').trim();
+    if (!faction) continue;
+    for (const unit of assignment.units || []) {
+      const dict = String(unit.dictionary || unit.type || '').toLowerCase().replace(/^#/, '');
+      if (!dict) continue;
+      const sourceFaction = unit.source || assignment.source || 'slave';
+      const cardFile = getUnitImageFileFor(dict, sourceFaction, 'card');
+      if (cardFile) {
+        const path = `data/ui/units/${faction}/#${dict}.tga`;
+        if (!used.has(path)) {
+          zip.file(path, cardFile);
+          included.push(path);
+          used.add(path);
+        }
+      }
+      const infoFile = getUnitImageFileFor(dict, sourceFaction, 'info');
+      if (infoFile) {
+        const path = `data/ui/unit_info/${faction}/${dict}_info.tga`;
+        if (!used.has(path)) {
+          zip.file(path, infoFile);
+          included.push(path);
+          used.add(path);
+        }
+      }
+    }
+  }
 }
 
 const VANILLA_FACTION_LIMIT = 31;
@@ -1013,7 +1251,7 @@ export default function FactionsEditor() {
     localStorage.setItem('m2tw_descr_banners_file', text);
     localStorage.setItem('m2tw_descr_banners_file_name', file.name);
     setBannersLoaded(true);
-    window.dispatchEvent(new CustomEvent('banners-xml-loaded'));
+    window.dispatchEvent(new CustomEvent('banners-text-loaded'));
     e.target.value = '';
   }, []);
 
@@ -1064,14 +1302,7 @@ export default function FactionsEditor() {
     addCRLFText(zip, 'data/descr_sm_factions.txt', factionsText, included);
 
     const bannersText = getStoredText([BANNERS_GLOBAL_KEY, 'm2tw_descr_banners_file', 'm2tw_descr_banners_file_raw']);
-    if (bannersText) {
-      addCRLFText(
-        zip,
-        /^\s*</.test(bannersText) ? 'data/descr_banners_new.xml' : 'data/descr_banners.txt',
-        bannersText,
-        included
-      );
-    }
+    if (bannersText && !/^\s*</.test(bannersText)) addCRLFText(zip, 'data/descr_banners.txt', bannersText, included);
 
     for (const file of FACTION_SETUP_DATA_FILES) {
       addStoredText(zip, file.path, file.sources, included);
@@ -1116,6 +1347,9 @@ export default function FactionsEditor() {
     for (const file of FACTION_SETUP_WORLD_FILES) {
       addStoredText(zip, file.path, file.sources, included);
     }
+    await addAssignedUnitUiFilesToZip(zip, included);
+    const unitAssignmentReport = buildUnitAssignmentReport();
+    if (unitAssignmentReport) addCRLFText(zip, 'unit_assignment_report.txt', unitAssignmentReport, included);
 
     const report = getStoredText(['m2tw_faction_automation_report']);
     if (report) addCRLFText(zip, 'faction_automation_report.txt', report, included);
@@ -1154,7 +1388,9 @@ export default function FactionsEditor() {
       '+ expanded_bi.txt RTW faction loc keys ensured',
       '+ menu faction labels ensured when menu text is loaded',
       '+ descr_offmap_models.txt navy entry ensured when loaded',
+      options.characterCopied ? '+ descr_character.txt faction entries created' : '+ descr_character.txt unchanged unless a source/slave entry was loaded',
       options.eduCopied ? '+ export_descr_unit.txt ownership copied from source faction' : '+ export_descr_unit.txt ownership unchanged unless copied from a source faction',
+      options.unitAssigned ? `+ export_descr_unit.txt assigned ${options.unitAssigned} slave roster units` : '+ export_descr_unit.txt auto roster unchanged unless enabled and slave units were loaded',
       options.edbCopied ? '+ export_descr_buildings.txt faction requirements copied from source faction/culture' : '+ export_descr_buildings.txt unchanged unless matching source faction/culture requirements were loaded',
       options.bannersCopied ? '+ descr_banners entries copied from source faction' : '+ descr_banners unchanged unless duplicating a source faction',
       'Manual: descr_strat.txt placement/playability, descr_regions.txt ownership/regions, descr_win_conditions.txt, and graphical assets.',
@@ -1196,7 +1432,13 @@ export default function FactionsEditor() {
     setFactions(updated);
     setSelectedIdx(updated.length - 1);
     saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
-    applyFactionAutomation(newF.name, { displayName: newF.name });
+    const characterCopied = copyDescrCharacterEntries('slave', newF.name);
+    const unitAssign = assignSlaveUnitsToFaction(newF.name, newF.name, { min: 12, max: 15, packUi: true });
+    applyFactionAutomation(newF.name, {
+      displayName: newF.name,
+      characterCopied,
+      unitAssigned: unitAssign.count,
+    });
   };
 
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
@@ -1211,6 +1453,11 @@ export default function FactionsEditor() {
     strengths: '',
     weaknesses: '',
     customUnit: ''
+  });
+  const [duplicateOptions, setDuplicateOptions] = useState({
+    createCharacters: true,
+    assignSlaveUnits: true,
+    packUnitCards: true,
   });
 
   const openDuplicateModal = (i) => {
@@ -1232,6 +1479,11 @@ export default function FactionsEditor() {
       strengths: '',
       weaknesses: '',
       customUnit: ''
+    });
+    setDuplicateOptions({
+      createCharacters: true,
+      assignSlaveUnits: true,
+      packUnitCards: true,
     });
     setDuplicateModalOpen(true);
   };
@@ -1265,94 +1517,7 @@ export default function FactionsEditor() {
     try {
       const srcBannersData = localStorage.getItem(BANNERS_GLOBAL_KEY);
       if (srcBannersData) {
-        if (!/^\s*</.test(srcBannersData)) {
-          bannersCopied = copyRtwBannersText(src.name, newFactionName);
-        } else {
-        const parsed = parseBannersXml(srcBannersData);
-        const srcNameLower = src.name.toLowerCase();
-        const newFactionLower = newFactionName.toLowerCase();
-        
-        const copySectionTextures = (section, isMeshSection) => {
-          const sectionData = parsed[section];
-          if (isMeshSection) {
-            if (Array.isArray(sectionData)) {
-              sectionData.forEach((banner) => {
-                const sourceTextures = banner.meshesAndTextures.filter(t => 
-                  t.faction.toLowerCase() === srcNameLower
-                );
-                if (sourceTextures.length === 0) return;
-                const existingTextureIndices = banner.meshesAndTextures
-                  .map((t, i) => t.faction.toLowerCase() === newFactionLower ? i : -1)
-                  .filter(i => i !== -1);
-                let newTextures = [...banner.meshesAndTextures];
-                existingTextureIndices.forEach(idx => { newTextures[idx] = null; });
-                newTextures = newTextures.filter(t => t !== null);
-                sourceTextures.forEach(sourceTex => {
-                  newTextures.push({
-                    faction: newFactionName,
-                    mesh: sourceTex.mesh || '',
-                    diffuseMap: sourceTex.diffuseMap,
-                    translucencyMap: sourceTex.translucencyMap
-                  });
-                });
-                banner.meshesAndTextures = newTextures;
-              });
-            } else if (sectionData) {
-              const banner = sectionData;
-              const sourceTextures = banner.meshesAndTextures.filter(t => 
-                t.faction.toLowerCase() === srcNameLower
-              );
-              if (sourceTextures.length === 0) return;
-              const existingTextureIndices = banner.meshesAndTextures
-                .map((t, i) => t.faction.toLowerCase() === newFactionLower ? i : -1)
-                .filter(i => i !== -1);
-              let newTextures = [...banner.meshesAndTextures];
-              existingTextureIndices.forEach(idx => { newTextures[idx] = null; });
-              newTextures = newTextures.filter(t => t !== null);
-              sourceTextures.forEach(sourceTex => {
-                newTextures.push({
-                  faction: newFactionName,
-                  mesh: sourceTex.mesh || '',
-                  diffuseMap: sourceTex.diffuseMap,
-                  translucencyMap: sourceTex.translucencyMap
-                });
-              });
-              banner.meshesAndTextures = newTextures;
-            }
-          } else {
-            sectionData.forEach((banner) => {
-              const sourceTextures = banner.textures.filter(t => 
-                t.faction.toLowerCase() === srcNameLower
-              );
-              if (sourceTextures.length === 0) return;
-              const existingTextureIndices = banner.textures
-                .map((t, i) => t.faction.toLowerCase() === newFactionLower ? i : -1)
-                .filter(i => i !== -1);
-              let newTextures = [...banner.textures];
-              existingTextureIndices.forEach(idx => { newTextures[idx] = null; });
-              newTextures = newTextures.filter(t => t !== null);
-              sourceTextures.forEach(sourceTex => {
-                newTextures.push({
-                  faction: newFactionName,
-                  diffuseMap: sourceTex.diffuseMap,
-                  translucencyMap: sourceTex.translucencyMap
-                });
-              });
-              banner.textures = newTextures;
-            });
-          }
-        };
-        
-        copySectionTextures('factionBanners', false);
-        copySectionTextures('holyBanners', true);
-        copySectionTextures('unitBanners', true);
-        copySectionTextures('royalBanner', true);
-        
-        const newXaml = serialiseBannersXml(parsed);
-        localStorage.setItem(BANNERS_GLOBAL_KEY, newXaml);
-        window.dispatchEvent(new CustomEvent('banners-xml-loaded'));
-        bannersCopied = true;
-        }
+        bannersCopied = copyRtwBannersText(src.name, newFactionName);
       }
     } catch (err) {
       console.error('Failed to copy banners:', err);
@@ -1452,6 +1617,21 @@ export default function FactionsEditor() {
       console.error('Failed to duplicate strings:', err);
     }
     
+    const unitProfileText = [
+      displayName,
+      adjective,
+      strengths,
+      weaknesses,
+      customUnit,
+      src.culture,
+      src.name,
+    ].filter(Boolean).join(' ');
+    const characterCopied = duplicateOptions.createCharacters
+      ? copyDescrCharacterEntries(src.name, newFactionName, src.culture)
+      : false;
+    const unitAssign = duplicateOptions.assignSlaveUnits
+      ? assignSlaveUnitsToFaction(newFactionName, unitProfileText, { min: 12, max: 15, packUi: duplicateOptions.packUnitCards })
+      : { count: 0 };
     const eduCopied = copyEduOwnershipFromFaction(src.name, newFactionName);
     const edbCopied = copyEdbFactionRequirements(src.name, newFactionName, src.culture);
     applyFactionAutomation(newFactionName, {
@@ -1459,6 +1639,8 @@ export default function FactionsEditor() {
       adjective: duplicateStrings.adjective || duplicateStrings.displayName || newFactionName,
       leaderTitle: duplicateStrings.leaderTitle,
       heirTitle: duplicateStrings.heirTitle,
+      characterCopied,
+      unitAssigned: unitAssign.count,
       eduCopied,
       edbCopied,
       bannersCopied,
@@ -1475,6 +1657,11 @@ export default function FactionsEditor() {
       strengths: '',
       weaknesses: '',
       customUnit: ''
+    });
+    setDuplicateOptions({
+      createCharacters: true,
+      assignSlaveUnits: true,
+      packUnitCards: true,
     });
   };
 
@@ -1535,7 +1722,7 @@ export default function FactionsEditor() {
             {eduUnits.length ? `${eduUnits.length} units` : 'export_descr_unit.txt'}
           </Button>
 
-          <input ref={bannersRef} type="file" accept=".txt,.xml,text/plain,text/xml" className="hidden" onChange={loadBannersFile} />
+          <input ref={bannersRef} type="file" accept=".txt,text/plain" className="hidden" onChange={loadBannersFile} />
           <Button variant="outline" size="sm" className={`text-[10px] h-7 ${bannersLoaded ? 'text-green-300 border-green-700' : ''}`} onClick={() => bannersRef.current?.click()}>
             <Upload className="w-3 h-3 mr-1" />
             {bannersLoaded ? 'Banners ✓' : 'descr_banners.txt'}
@@ -1574,9 +1761,8 @@ export default function FactionsEditor() {
             <Button variant="outline" size="sm" className="text-[10px] h-7 text-slate-200 border-slate-600 hover:bg-slate-700" onClick={() => {
               const data = localStorage.getItem(BANNERS_GLOBAL_KEY);
               if (!data) return;
-              const isXml = /^\s*</.test(data);
-              const blob = textBlob(data, isXml ? 'text/xml' : 'text/plain');
-              const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = isXml ? 'descr_banners_new.xml' : 'descr_banners.txt'; a.click();
+              const blob = textBlob(data, 'text/plain');
+              const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'descr_banners.txt'; a.click();
             }}>
               <Download className="w-3 h-3 mr-1" /> Export banners
             </Button>
@@ -1706,6 +1892,24 @@ export default function FactionsEditor() {
                 className="h-8 text-[11px] px-2 bg-slate-700 border-slate-600 text-slate-100"
                 onKeyDown={(e) => e.key === 'Enter' && confirmDuplicate()}
               />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border border-slate-700 rounded p-2 bg-slate-950/40">
+              {[
+                ['createCharacters', 'descr_character entries'],
+                ['assignSlaveUnits', '12-15 slave units'],
+                ['packUnitCards', 'Pack slave UI cards'],
+              ].map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2 text-[10px] text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={!!duplicateOptions[key]}
+                    disabled={key === 'packUnitCards' && !duplicateOptions.assignSlaveUnits}
+                    onChange={(e) => setDuplicateOptions((prev) => ({ ...prev, [key]: e.target.checked }))}
+                  />
+                  {label}
+                </label>
+              ))}
             </div>
             
             <div className="border-t border-slate-700 pt-3">

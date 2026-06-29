@@ -14,7 +14,7 @@ const CATEGORY_LABELS = {
 const TEXT_FILENAMES = new Set([
   'export_descr_buildings.txt','descr_sm_factions.txt','descr_sm_resources.txt',
   'export_descr_unit.txt','descr_events.txt','export_buildings.txt',
-  'descr_banners.txt','descr_banners.xml','descr_banners_new.xml',
+  'descr_banners.txt',
   'descr_building_battle.txt','descr_character.txt','descr_formations_ai.txt',
   'descr_lbc_db.txt','descr_model_strat.txt','descr_offmap_models.txt',
   'descr_standards.txt','descr_ui_buildings.txt',
