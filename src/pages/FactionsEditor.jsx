@@ -962,6 +962,68 @@ export default function FactionsEditor() {
     a.click();
   };
 
+  const handleExportFactionSetup = async () => {
+    const zip = new JSZip();
+    const included = [];
+
+    try { await hydrateTextLocalizationStore(); } catch {}
+
+    const factionsText = factions
+      ? serialiseDescrSmFactions(factions)
+      : getStoredText(['m2tw_factions_raw', 'm2tw_sm_factions_raw', 'm2tw_factions_file']);
+    addCRLFText(zip, 'data/descr_sm_factions.txt', factionsText, included);
+
+    for (const file of FACTION_SETUP_DATA_FILES) {
+      addStoredText(zip, file.path, file.sources, included);
+    }
+
+    const { text: eduText } = await loadEduRawText();
+    addCRLFText(zip, 'data/export_descr_unit.txt', eduText || getEduRawText(), included);
+
+    const expanded = getExpandedStringsData();
+    addCRLFText(
+      zip,
+      'data/text/expanded_bi.txt',
+      expanded.rawText || (expanded.entries.length ? entriesToText(expanded.entries) : ''),
+      included
+    );
+
+    const menuEntries = getStoredLocEntries(LS_MENU_STRINGS);
+    if (menuEntries.length) {
+      addCRLFText(zip, 'data/text/menu_english.txt', entriesToText(menuEntries), included);
+    }
+
+    let campaignDescriptionsText = getTextFileFromStore('campaign_descriptions.txt')
+      || getStoredText(['m2tw_campaign_descriptions_raw']);
+    if (!campaignDescriptionsText) {
+      try {
+        const descMap = JSON.parse(sessionStorage.getItem('m2tw_campaign_desc_strings') || '{}');
+        const entries = Object.entries(descMap).map(([key, value]) => ({ key, value }));
+        if (entries.length) campaignDescriptionsText = entriesToText(entries);
+      } catch {}
+    }
+    addCRLFText(zip, 'data/text/campaign_descriptions.txt', campaignDescriptionsText, included);
+
+    const namesText = getTextFileFromStore('names.txt') || getStoredText(['m2tw_campaign_names_raw']);
+    addCRLFText(zip, 'data/text/names.txt', namesText, included);
+
+    for (const file of FACTION_SETUP_WORLD_FILES) {
+      addStoredText(zip, file.path, file.sources, included);
+    }
+
+    const report = getStoredText(['m2tw_faction_automation_report']);
+    if (report) addCRLFText(zip, 'faction_automation_report.txt', report, included);
+    zip.file('faction_setup_export_checklist.txt', toCRLF(buildFactionSetupManifest(included)));
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = 'rtw_faction_setup_export.zip';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const updateFaction = (i, f) => {
     const updated = factions.map((x, idx) => idx === i ? f : x);
     setFactions(updated);
