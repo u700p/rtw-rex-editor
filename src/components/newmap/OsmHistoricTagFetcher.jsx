@@ -159,9 +159,14 @@ function downloadText(text, filename) {
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-export default function OsmHistoricTagFetcher({ bbox, mapW, mapH, onAssetReady, onToggleOverlay, visibleOverlays = {} }) {
-  // tagStates: key → { status, count, imageData, points, color }
-  const [tagStates, setTagStates] = useState({});
+export default function OsmHistoricTagFetcher({
+  bbox, mapW, mapH, onAssetReady, onToggleOverlay, visibleOverlays = {},
+  tagStates, onTagStatesChange,
+}) {
+  // tagStates is lifted to parent; use local fallback if not provided
+  const [localTagStates, setLocalTagStates] = useState({});
+  const effectiveTagStates = tagStates ?? localTagStates;
+  const setTagStates = onTagStatesChange ?? setLocalTagStates;
   const [fetchProgress, setFetchProgress] = useState({});
   const [expanded, setExpanded] = useState(true);
   const [openGroups, setOpenGroups] = useState({});
@@ -170,13 +175,13 @@ export default function OsmHistoricTagFetcher({ bbox, mapW, mapH, onAssetReady, 
   const bboxStr = bbox ? `${bbox.south},${bbox.west},${bbox.north},${bbox.east}` : '';
   const getKey = t => `${t.key}=${t.value}`;
 
-  const anyRunning = Object.values(tagStates).some(s => s?.status === 'running');
+  const anyRunning = Object.values(effectiveTagStates).some(s => s?.status === 'running');
 
   const fetchTag = async (tag) => {
     if (!bbox || !mapW || !mapH) return;
     const k = getKey(tag);
     const color = tagColor(tag.key, tag.value);
-    setTagStates(s => ({ ...s, [k]: { ...s[k], status: 'running', color } }));
+    setTagStates(s => ({ ...s, [k]: { ...(s[k] ?? {}), status: 'running', color } }));
     setFetchProgress(p => ({ ...p, [k]: 0 }));
 
     let pct = 0;
@@ -233,7 +238,7 @@ export default function OsmHistoricTagFetcher({ bbox, mapW, mapH, onAssetReady, 
     downloadDataUrl(dataUrl, `${k.replace('=', '_')}.png`);
   };
 
-  const doneStates = Object.entries(tagStates).filter(([, s]) => s?.status === 'done');
+  const doneStates = Object.entries(effectiveTagStates).filter(([, s]) => s?.status === 'done');
   const doneCount = doneStates.length;
 
   const downloadAll = () => {
@@ -330,7 +335,7 @@ export default function OsmHistoricTagFetcher({ bbox, mapW, mapH, onAssetReady, 
                   <div className="divide-y divide-slate-800">
                     {g.tags.map(tag => {
                       const k = getKey(tag);
-                      const st = tagStates[k];
+                      const st = effectiveTagStates[k];
                       const isRunning = st?.status === 'running';
                       const isDone = st?.status === 'done';
                       const isErr = st?.status?.startsWith('error');

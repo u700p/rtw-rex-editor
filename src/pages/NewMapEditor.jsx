@@ -69,11 +69,16 @@ export default function NewMapEditor() {
   const { refLayers, toggleRef, setRefOpacity } = useReferenceLayers();
 
   // Extra downloadable assets accumulated during the workflow (historic PNGs, TXTs, etc.)
-  // Each entry: { filename: string, getData: () => Blob | string (dataUrl) | Uint8Array, type: 'png'|'txt' }
   const [extraAssets, setExtraAssets] = useState([]);
 
   // Historic tag overlays shown on the map: key → imageData
   const [historicOverlays, setHistoricOverlays] = useState({});
+
+  // Lifted state from RegionsWorkshop so it survives tab switches
+  const [settlements, setSettlements] = useState([]);
+
+  // Lifted state from OsmHistoricTagFetcher so it survives tab switches
+  const [historicTagStates, setHistoricTagStates] = useState({});
 
   const handleToggleHistoricOverlay = useCallback((key, imageData) => {
     setHistoricOverlays(prev => {
@@ -88,7 +93,6 @@ export default function NewMapEditor() {
 
   const registerExtraAsset = useCallback((asset) => {
     setExtraAssets(prev => {
-      // Replace if same filename already registered
       const filtered = prev.filter(a => a.filename !== asset.filename);
       return [...filtered, asset];
     });
@@ -487,6 +491,9 @@ export default function NewMapEditor() {
                       onLayerUpdate={handleLayerUpdate}
                       mapWidth={mapWidth}
                       mapHeight={mapHeight}
+                      settlements={settlements}
+                      onSettlementsChange={setSettlements}
+                      onAssetReady={registerExtraAsset}
                     />
                     <OsmHistoricTagFetcher
                       bbox={bbox}
@@ -495,6 +502,8 @@ export default function NewMapEditor() {
                       onAssetReady={registerExtraAsset}
                       onToggleOverlay={handleToggleHistoricOverlay}
                       visibleOverlays={historicOverlays}
+                      tagStates={historicTagStates}
+                      onTagStatesChange={setHistoricTagStates}
                     />
                   </div>
                 )}
@@ -504,7 +513,14 @@ export default function NewMapEditor() {
             {/* ── EXPORT tab (edit phase) ── */}
             {currentTab === 'export' && phase === 'edit' && (
               <div className="p-3">
-                <ExportPanel layers={layers} mapWidth={mapWidth} mapHeight={mapHeight} extraAssets={extraAssets} />
+                <ExportPanel
+                  layers={layers}
+                  mapWidth={mapWidth}
+                  mapHeight={mapHeight}
+                  extraAssets={extraAssets}
+                  settlements={settlements}
+                  historicTagStates={historicTagStates}
+                />
               </div>
             )}
           </div>
