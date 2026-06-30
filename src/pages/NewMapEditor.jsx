@@ -449,6 +449,8 @@ export default function NewMapEditor() {
                   onGroundRangesChange={setGroundRanges}
                   onLayerUpdate={handleLayerUpdate}
                   bbox={bbox}
+                  mapWidth={mapWidth}
+                  mapHeight={mapHeight}
                 />
                 {workflowStep === 'regions' && (
                   <div className="px-3 pb-3 border-t border-slate-700 mt-2 pt-2">

@@ -4,6 +4,7 @@ import { CLIMATE_PALETTE } from '@/lib/mapLayerStore';
 import GroundTypeRangeEditor, { DEFAULT_GROUND_RANGES } from '@/components/newmap/GroundTypeRangeEditor';
 import RiverChecker from '@/components/newmap/RiverChecker';
 import OsmTagOverlayEditor from '@/components/newmap/OsmTagOverlayEditor';
+import OsmHistoricTagFetcher from '@/components/newmap/OsmHistoricTagFetcher';
 
 /**
  * WorkflowPanel — drives the step-by-step layer editing flow.
@@ -27,6 +28,7 @@ export default function WorkflowPanel({
   groundRanges, onGroundRangesChange,
   onLayerUpdate,
   bbox,
+  mapWidth, mapHeight,
 }) {
   const currentIdx = STEPS.findIndex(s => s.id === currentStepId);
   const [showRangeEditor, setShowRangeEditor] = useState(false);
@@ -149,6 +151,15 @@ export default function WorkflowPanel({
                       You can also switch to the <strong className="text-slate-300">Paint</strong> tab to paint climate zones manually.
                     </p>
                   </>
+                )}
+
+                {/* Regions: historic OSM reference fetcher */}
+                {step.id === 'regions' && (
+                  <OsmHistoricTagFetcher
+                    bbox={bbox}
+                    mapW={mapWidth}
+                    mapH={mapHeight}
+                  />
                 )}
 
                 {/* Features: river checker + hints */}
