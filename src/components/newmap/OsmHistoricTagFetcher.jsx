@@ -128,10 +128,8 @@ function renderToImageData(elements, bbox, mapW, mapH, color) {
     if (!pos) continue;
     const { px, py } = pos;
 
-    // Draw a 3x3 cross so single-pixel features are visible
+    // Single pixel dot at exact coordinates
     setPixel(px, py);
-    setPixel(px - 1, py); setPixel(px + 1, py);
-    setPixel(px, py - 1); setPixel(px, py + 1);
 
     const name = el.tags?.name || el.tags?.['name:en'] || '';
     points.push({ px, py, name, osmId: el.id });
