@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Search, Plus, Trash2, Download, MapPin, Map, Loader } from 'lucide-react';
+import { Search, Plus, Trash2, Download, MapPin, Map as MapIcon, Loader } from 'lucide-react';
 
 const OSM_OVERPASS_MIRRORS = [
   'https://overpass.kumi.systems/api/interpreter',
@@ -414,7 +414,7 @@ export default function RegionsWorkshop({
                         }`}>
                         {municipalityStatus[i] === 'fetching'
                           ? <Loader className="w-2.5 h-2.5 animate-spin" />
-                          : <Map className="w-2.5 h-2.5" />}
+                          : <MapIcon className="w-2.5 h-2.5" />}
                       </button>
                       <button onClick={() => removeSettlement(i)}
                         className="text-slate-600 hover:text-red-400 transition-colors shrink-0">
