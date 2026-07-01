@@ -198,7 +198,7 @@ export default function RegionsWorkshop({
     setSearching(false);
   };
 
-  const addSettlement = useCallback(async (result) => {
+  const addSettlement = useCallback((result) => {
     const lat = parseFloat(result.lat);
     const lng = parseFloat(result.lon);
     const { px, py } = latLngToPixel(lat, lng, bbox, mapWidth, mapHeight);
@@ -220,12 +220,6 @@ export default function RegionsWorkshop({
       paintRegionPixels(copy, px, py, rgb);
       onLayerUpdate('regions', { imageData: copy, visible: true, opacity: 1, dirty: true });
     }
-
-    // Auto-fill municipality boundary immediately after adding
-    const newIdx = newSettlements.length - 1;
-    await fillMunicipalityFor(settlement, newIdx, layer?.imageData
-      ? new ImageData(new Uint8ClampedArray(layer.imageData.data), layer.imageData.width, layer.imageData.height)
-      : null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bbox, mapWidth, mapHeight, onLayerUpdate, onSettlementsChange]);
 
@@ -434,7 +428,7 @@ export default function RegionsWorkshop({
           )}
 
           <p className="text-[9px] text-slate-500 leading-relaxed">
-            Selecting a settlement auto-fetches its municipality boundary and fills it on the regions layer. The map icon button re-fetches it manually.
+            Click the map icon next to a settlement to fetch and fill its municipality boundary. This is optional — use it to pre-fill a region's area on the map.
           </p>
         </>
       )}
