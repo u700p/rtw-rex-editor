@@ -226,9 +226,19 @@ export default function RegionsWorkshop({
   const fillMunicipalityFor = async (settlement, idx, baseImageData) => {
     setMunicipalityStatus(s => ({ ...s, [idx]: 'fetching' }));
 
-    const pad = 0.5;
+    // Use a small search radius — just enough to find the local boundary
+    const pad = 0.15;
     const bboxStr = `${settlement.lat - pad},${settlement.lng - pad},${settlement.lat + pad},${settlement.lng + pad}`;
-    const q = `[out:json][timeout:60];\n(\n  way["place"="municipality"](${bboxStr});\n  relation["place"="municipality"](${bboxStr});\n  way["boundary"="administrative"]["admin_level"="8"](${bboxStr});\n  relation["boundary"="administrative"]["admin_level"="8"](${bboxStr});\n);\nout geom;`;
+    // Query the settlement node itself first to get its admin_level, then fetch boundaries
+    // Try admin_level 8 (municipality), fall back to 7, then 6
+    const q = `[out:json][timeout:60];
+(
+  relation["boundary"="administrative"]["admin_level"="8"](${bboxStr});
+  relation["boundary"="administrative"]["admin_level"="9"](${bboxStr});
+  relation["boundary"="administrative"]["admin_level"="10"](${bboxStr});
+  way["boundary"="administrative"]["admin_level"="8"](${bboxStr});
+);
+out geom;`;
 
     let elements;
     try {
@@ -247,6 +257,35 @@ export default function RegionsWorkshop({
       return;
     }
 
+    // Pick the SMALLEST element whose bounding box contains the settlement point.
+    // "Smallest" = smallest bbox area (in degrees²). This avoids picking large regional boundaries.
+    const getElementBbox = (el) => {
+      let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+      const processGeom = (geom) => {
+        for (const pt of geom) {
+          if (pt.lat < minLat) minLat = pt.lat;
+          if (pt.lat > maxLat) maxLat = pt.lat;
+          if (pt.lon < minLon) minLon = pt.lon;
+          if (pt.lon > maxLon) maxLon = pt.lon;
+        }
+      };
+      if (el.type === 'way' && el.geometry) processGeom(el.geometry);
+      else if (el.type === 'relation' && el.members) {
+        el.members.filter(m => m.geometry).forEach(m => processGeom(m.geometry));
+      }
+      return { minLat, maxLat, minLon, maxLon, area: (maxLat - minLat) * (maxLon - minLon) };
+    };
+
+    const containsPoint = (bb) =>
+      settlement.lat >= bb.minLat && settlement.lat <= bb.maxLat &&
+      settlement.lng >= bb.minLon && settlement.lng <= bb.maxLon;
+
+    // Filter to elements that actually contain the settlement point, then pick the smallest
+    const containing = elements.map(el => ({ el, bb: getElementBbox(el) })).filter(({ bb }) => containsPoint(bb));
+    const candidates = containing.length ? containing : elements.map(el => ({ el, bb: getElementBbox(el) }));
+    candidates.sort((a, b) => a.bb.area - b.bb.area);
+    const best = candidates[0].el;
+
     // Use the freshest layer data available
     const currentLayer = layersRef.current.regions;
     const srcData = baseImageData ?? currentLayer?.imageData;
@@ -260,22 +299,19 @@ export default function RegionsWorkshop({
     const copy = new ImageData(new Uint8ClampedArray(srcData.data), W, H);
     const [r, g, b] = settlement.rgb;
 
-    for (const el of elements) {
-      if (el.type === 'way' && el.geometry?.length > 2) {
-        fillPolygon(copy, el.geometry, toXY, r, g, b);
-      } else if (el.type === 'relation' && el.members) {
-        const outerWays = el.members
-          .filter(m => m.type === 'way' && m.geometry?.length > 1 && (m.role === 'outer' || m.role === ''))
-          .map(m => m.geometry);
-        const rings = chainPolylines(outerWays.length ? outerWays
-          : el.members.filter(m => m.type === 'way' && m.geometry?.length > 1).map(m => m.geometry));
-        for (const ring of rings) fillPolygon(copy, ring, toXY, r, g, b);
-      }
+    if (best.type === 'way' && best.geometry?.length > 2) {
+      fillPolygon(copy, best.geometry, toXY, r, g, b);
+    } else if (best.type === 'relation' && best.members) {
+      const outerWays = best.members
+        .filter(m => m.type === 'way' && m.geometry?.length > 1 && (m.role === 'outer' || m.role === ''))
+        .map(m => m.geometry);
+      const rings = chainPolylines(outerWays.length ? outerWays
+        : best.members.filter(m => m.type === 'way' && m.geometry?.length > 1).map(m => m.geometry));
+      for (const ring of rings) fillPolygon(copy, ring, toXY, r, g, b);
     }
 
     // Re-stamp all settlement dots on top so none are erased
     settlementsRef.current.forEach(s => paintRegionPixels(copy, s.px, s.py, s.rgb));
-    // Also stamp the new one if it wasn't in ref yet
     paintRegionPixels(copy, settlement.px, settlement.py, settlement.rgb);
 
     onLayerUpdate('regions', { imageData: copy, visible: true, opacity: 1, dirty: true });
