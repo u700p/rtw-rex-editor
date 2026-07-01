@@ -91,9 +91,37 @@ const OSM_OVERPASS_MIRRORS = [
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
 
-async function fetchPolygons(key, value, bboxStr) {
-  // out geom on ways gives inline geometry; relations get member geometry via out geom too
-  const query = `[out:json][timeout:180];\n(\n  way["${key}"="${value}"](${bboxStr});\n  relation["${key}"="${value}"](${bboxStr});\n);\nout geom;`;
+// Area threshold in square degrees above which tiling kicks in
+const TILE_THRESHOLD_DEG2 = 4; // ~2°×2° tile max before splitting
+// Max tiles per axis (so a huge map uses at most 6×6 = 36 tiles)
+const MAX_TILES_PER_AXIS = 6;
+
+/** Split a bbox into a grid of sub-tiles, each ≤ TILE_THRESHOLD_DEG2 sq degrees. */
+function computeTiles(bbox) {
+  const dLat = bbox.north - bbox.south;
+  const dLon = bbox.east - bbox.west;
+  const area = dLat * dLon;
+  if (area <= TILE_THRESHOLD_DEG2) return [bbox]; // small enough — single fetch
+  // How many divisions do we need so each tile ≤ threshold?
+  const nSide = Math.ceil(Math.sqrt(area / TILE_THRESHOLD_DEG2));
+  const n = Math.min(nSide, MAX_TILES_PER_AXIS);
+  const tiles = [];
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      tiles.push({
+        south: bbox.south + (dLat / n) * row,
+        north: bbox.south + (dLat / n) * (row + 1),
+        west:  bbox.west  + (dLon / n) * col,
+        east:  bbox.west  + (dLon / n) * (col + 1),
+      });
+    }
+  }
+  return tiles;
+}
+
+async function fetchTile(key, value, tile) {
+  const bboxStr = `${tile.south},${tile.west},${tile.north},${tile.east}`;
+  const query = `[out:json][timeout:90];\n(\n  way["${key}"="${value}"](${bboxStr});\n  relation["${key}"="${value}"](${bboxStr});\n);\nout geom;`;
   let lastErr;
   for (const mirror of OSM_OVERPASS_MIRRORS) {
     try {
@@ -106,9 +134,8 @@ async function fetchPolygons(key, value, bboxStr) {
       if (res.status === 429 || res.status === 504) { lastErr = new Error(`HTTP ${res.status}`); continue; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      // Detect server-side runtime errors (returned with HTTP 200 but zero elements)
       if (json.remark && /runtime error|out of memory|exceeded/i.test(json.remark)) {
-        throw new Error(`Overpass server error: ${json.remark}`);
+        throw new Error(`Overpass: ${json.remark}`);
       }
       return (json.elements || []).filter(e =>
         (e.type === 'way' && e.geometry?.length > 1) ||
@@ -183,37 +210,53 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
     setTagStates(s => ({ ...s, [k]: { ...s[k], gtId } }));
   };
 
-  const [fetchProgress, setFetchProgress] = useState({}); // k → 0-100
+  // k → { pct: 0-100, tileLabel: string }
+  const [fetchProgress, setFetchProgress] = useState({});
+  // ref to always-current groundLayer so the tiled loop can read latest painted state
+  const groundLayerRef = React.useRef(groundLayer);
+  React.useEffect(() => { groundLayerRef.current = groundLayer; }, [groundLayer]);
 
   const applyTag = async (tag) => {
     if (!hasLayer || !bbox) return;
     const k = getTagKey(tag);
-    setTagStates(s => ({ ...s, [k]: { ...s[k], status: 'running' } }));
-    setFetchProgress(p => ({ ...p, [k]: 0 }));
+    const gtId = tagStates[k]?.gtId ?? tag.defaultGt;
+    const color = GT[gtId] ?? [96, 160, 64];
 
-    // Animate progress up to 90% while waiting (OSM gives no real progress signal)
-    let pct = 0;
-    const interval = setInterval(() => {
-      pct = Math.min(pct + Math.random() * 8 + 2, 90);
-      setFetchProgress(p => ({ ...p, [k]: pct }));
-    }, 300);
+    const tiles = computeTiles(bbox);
+    const isTiled = tiles.length > 1;
 
-    try {
-      const elements = await fetchPolygons(tag.key, tag.value, bboxStr);
-      clearInterval(interval);
-      setFetchProgress(p => ({ ...p, [k]: 100 }));
-      const src = groundLayer.imageData;
-      const copy = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
-      const gtId = tagStates[k]?.gtId ?? tag.defaultGt;
-      const color = GT[gtId] ?? [96, 160, 64];
-      paintPolygonsOntoImageData(copy, elements, bbox, color);
-      onLayerUpdate('ground', { imageData: copy, visible: true, opacity: 1, dirty: true });
-      setTagStates(s => ({ ...s, [k]: { ...s[k], status: `done ${elements.length}`, elements } }));
-    } catch (e) {
-      clearInterval(interval);
-      setFetchProgress(p => ({ ...p, [k]: 0 }));
-      setTagStates(s => ({ ...s, [k]: { ...s[k], status: `error: ${e.message}` } }));
+    setTagStates(s => ({ ...s, [k]: { ...s[k], status: 'running', elements: [] } }));
+    setFetchProgress(p => ({ ...p, [k]: { pct: 0, tileLabel: isTiled ? `tile 0/${tiles.length}` : 'fetching…' } }));
+
+    let totalElements = 0;
+    let allElements = [];
+
+    for (let i = 0; i < tiles.length; i++) {
+      const tile = tiles[i];
+      setFetchProgress(p => ({ ...p, [k]: { pct: Math.round((i / tiles.length) * 100), tileLabel: isTiled ? `tile ${i + 1}/${tiles.length}` : 'fetching…' } }));
+
+      let elements;
+      try {
+        elements = await fetchTile(tag.key, tag.value, tile);
+      } catch (e) {
+        setFetchProgress(p => ({ ...p, [k]: { pct: 0, tileLabel: '' } }));
+        setTagStates(s => ({ ...s, [k]: { ...s[k], status: `error: ${e.message}` } }));
+        return;
+      }
+
+      if (elements.length > 0) {
+        // Paint this tile's elements onto the current layer state (incrementally)
+        const src = groundLayerRef.current.imageData;
+        const copy = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
+        paintPolygonsOntoImageData(copy, elements, bbox, color);
+        onLayerUpdate('ground', { imageData: copy, visible: true, opacity: 1, dirty: true });
+        totalElements += elements.length;
+        allElements = allElements.concat(elements);
+      }
     }
+
+    setFetchProgress(p => ({ ...p, [k]: { pct: 100, tileLabel: '' } }));
+    setTagStates(s => ({ ...s, [k]: { ...s[k], status: `done ${totalElements}`, elements: allElements } }));
   };
 
   const downloadTagPng = (tag) => {
@@ -319,10 +362,20 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
                               <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
                                 <div
                                   className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                                  style={{ width: `${fetchProgress[k] ?? 0}%` }}
+                                  style={{ width: `${fetchProgress[k]?.pct ?? 0}%` }}
                                 />
                               </div>
-                              <p className="text-[8px] text-blue-400 mt-0.5">Fetching from OpenStreetMap… {Math.round(fetchProgress[k] ?? 0)}%</p>
+                              <p className="text-[8px] text-blue-400 mt-0.5">
+                                {fetchProgress[k]?.tileLabel && fetchProgress[k].tileLabel !== 'fetching…'
+                                  ? `Fetching ${fetchProgress[k].tileLabel} — painting as tiles arrive…`
+                                  : 'Fetching from OpenStreetMap…'
+                                } {Math.round(fetchProgress[k]?.pct ?? 0)}%
+                              </p>
+                              {fetchProgress[k]?.tileLabel && fetchProgress[k].tileLabel !== 'fetching…' && (
+                                <p className="text-[8px] text-amber-500/80 mt-0.5 leading-snug">
+                                  Large area — split into tiles. The map updates after each tile completes.
+                                </p>
+                              )}
                             </div>
                           )}
                           {/* Tag row */}
