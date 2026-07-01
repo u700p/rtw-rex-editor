@@ -226,26 +226,29 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
     const isTiled = tiles.length > 1;
 
     setTagStates(s => ({ ...s, [k]: { ...s[k], status: 'running', elements: [] } }));
-    setFetchProgress(p => ({ ...p, [k]: { pct: 0, tileLabel: isTiled ? `tile 0/${tiles.length}` : 'fetching…' } }));
+    setFetchProgress(p => ({ ...p, [k]: { pct: 0, tilesDone: 0, tilesTotal: tiles.length } }));
 
     let totalElements = 0;
     let allElements = [];
 
     for (let i = 0; i < tiles.length; i++) {
       const tile = tiles[i];
-      setFetchProgress(p => ({ ...p, [k]: { pct: Math.round((i / tiles.length) * 100), tileLabel: isTiled ? `tile ${i + 1}/${tiles.length}` : 'fetching…' } }));
 
       let elements;
       try {
         elements = await fetchTile(tag.key, tag.value, tile);
       } catch (e) {
-        setFetchProgress(p => ({ ...p, [k]: { pct: 0, tileLabel: '' } }));
+        setFetchProgress(p => ({ ...p, [k]: { pct: 0, tilesDone: i, tilesTotal: tiles.length } }));
         setTagStates(s => ({ ...s, [k]: { ...s[k], status: `error: ${e.message}` } }));
         return;
       }
 
+      // Update progress AFTER tile completes — real progress
+      const tilesDone = i + 1;
+      const pct = Math.round((tilesDone / tiles.length) * 100);
+      setFetchProgress(p => ({ ...p, [k]: { pct, tilesDone, tilesTotal: tiles.length } }));
+
       if (elements.length > 0) {
-        // Paint this tile's elements onto the current layer state (incrementally)
         const src = groundLayerRef.current.imageData;
         const copy = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
         paintPolygonsOntoImageData(copy, elements, bbox, color);
@@ -255,7 +258,7 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
       }
     }
 
-    setFetchProgress(p => ({ ...p, [k]: { pct: 100, tileLabel: '' } }));
+    setFetchProgress(p => ({ ...p, [k]: { pct: 100, tilesDone: tiles.length, tilesTotal: tiles.length } }));
     setTagStates(s => ({ ...s, [k]: { ...s[k], status: `done ${totalElements}`, elements: allElements } }));
   };
 
@@ -357,27 +360,37 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
                       return (
                         <div key={k} className="bg-slate-900">
                           {/* Fetch progress bar */}
-                          {isRunning && (
-                            <div className="mx-1.5 mt-1">
-                              <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                                  style={{ width: `${fetchProgress[k]?.pct ?? 0}%` }}
-                                />
+                          {isRunning && (() => {
+                            const fp = fetchProgress[k];
+                            const isTiledFetch = (fp?.tilesTotal ?? 1) > 1;
+                            const pct = fp?.pct ?? 0;
+                            return (
+                              <div className="mx-1.5 mt-1 space-y-0.5">
+                                {isTiledFetch ? (
+                                  <>
+                                    <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                                      <div className="h-full bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <p className="text-[8px] text-blue-400">
+                                      Tile {fp.tilesDone}/{fp.tilesTotal} — {pct}% complete
+                                    </p>
+                                    <p className="text-[8px] text-amber-500/80 leading-snug">
+                                      Large area split into {fp.tilesTotal} tiles. Map updates as each tile arrives.
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                                      <div className="h-full bg-blue-400 rounded-full animate-pulse" style={{ width: '100%' }} />
+                                    </div>
+                                    <p className="text-[8px] text-blue-400 leading-snug">
+                                      Fetching from OpenStreetMap… please be patient, this may take a minute.
+                                    </p>
+                                  </>
+                                )}
                               </div>
-                              <p className="text-[8px] text-blue-400 mt-0.5">
-                                {fetchProgress[k]?.tileLabel && fetchProgress[k].tileLabel !== 'fetching…'
-                                  ? `Fetching ${fetchProgress[k].tileLabel} — painting as tiles arrive…`
-                                  : 'Fetching from OpenStreetMap…'
-                                } {Math.round(fetchProgress[k]?.pct ?? 0)}%
-                              </p>
-                              {fetchProgress[k]?.tileLabel && fetchProgress[k].tileLabel !== 'fetching…' && (
-                                <p className="text-[8px] text-amber-500/80 mt-0.5 leading-snug">
-                                  Large area — split into tiles. The map updates after each tile completes.
-                                </p>
-                              )}
-                            </div>
-                          )}
+                            );
+                          })()}
                           {/* Tag row */}
                           <div className="flex items-center gap-1.5 px-1.5 py-1">
                             {/* GT color swatch + picker toggle */}
