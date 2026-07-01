@@ -11,73 +11,73 @@ const TAG_GROUPS = [
   {
     group: 'Water (Sea)',
     tags: [
-      { key: 'water', value: 'lake',         label: 'Lake',          defaultGt: 'swamp' },
-      { key: 'water', value: 'lagoon',        label: 'Lagoon',        defaultGt: 'swamp' },
-      { key: 'water', value: 'river',         label: 'River (area)',  defaultGt: 'swamp' },
-      { key: 'water', value: 'oxbow',         label: 'Oxbow Lake',    defaultGt: 'swamp' },
-      { key: 'water', value: 'pond',          label: 'Pond',          defaultGt: 'swamp' },
-      { key: 'water', value: 'basin',         label: 'Basin',         defaultGt: 'swamp' },
+      { key: 'water', value: 'lake',         label: 'Lake',          defaultGt: 'swamp',          desc: 'Natural or artificial standing water body.' },
+      { key: 'water', value: 'lagoon',        label: 'Lagoon',        defaultGt: 'swamp',          desc: 'Shallow coastal water separated from the sea.' },
+      { key: 'water', value: 'river',         label: 'River (area)',  defaultGt: 'swamp',          desc: 'Wide river mapped as a polygon area.' },
+      { key: 'water', value: 'oxbow',         label: 'Oxbow Lake',    defaultGt: 'swamp',          desc: 'Isolated curved lake formed by a cut-off river meander.' },
+      { key: 'water', value: 'pond',          label: 'Pond',          defaultGt: 'swamp',          desc: 'Small standing water body.' },
+      { key: 'water', value: 'basin',         label: 'Basin',         defaultGt: 'swamp',          desc: 'Man-made water basin or reservoir.' },
     ],
   },
   {
     group: 'Wetland',
     tags: [
-      { key: 'wetland', value: 'bog',         label: 'Bog',           defaultGt: 'swamp' },
-      { key: 'wetland', value: 'fen',         label: 'Fen',           defaultGt: 'swamp' },
-      { key: 'wetland', value: 'marsh',       label: 'Marsh',         defaultGt: 'swamp' },
-      { key: 'wetland', value: 'swamp',       label: 'Swamp',         defaultGt: 'swamp' },
-      { key: 'wetland', value: 'reedbed',     label: 'Reedbed',       defaultGt: 'swamp' },
-      { key: 'wetland', value: 'saltmarsh',   label: 'Saltmarsh',     defaultGt: 'swamp' },
-      { key: 'wetland', value: 'wet_meadow',  label: 'Wet Meadow',    defaultGt: 'fertile_medium' },
-      { key: 'wetland', value: 'tidalflat',   label: 'Tidal Flat',    defaultGt: 'beach' },
-      { key: 'wetland', value: 'mangrove',    label: 'Mangrove',      defaultGt: 'swamp' },
+      { key: 'wetland', value: 'bog',         label: 'Bog',           defaultGt: 'swamp',          desc: 'Acidic, waterlogged peat ground with mosses.' },
+      { key: 'wetland', value: 'fen',         label: 'Fen',           defaultGt: 'swamp',          desc: 'Alkaline or neutral waterlogged ground.' },
+      { key: 'wetland', value: 'marsh',       label: 'Marsh',         defaultGt: 'swamp',          desc: 'Flat, low-lying land flooded with shallow water.' },
+      { key: 'wetland', value: 'swamp',       label: 'Swamp',         defaultGt: 'swamp',          desc: 'Forested or shrubby waterlogged area.' },
+      { key: 'wetland', value: 'reedbed',     label: 'Reedbed',       defaultGt: 'swamp',          desc: 'Dense reeds in shallow water or muddy ground.' },
+      { key: 'wetland', value: 'saltmarsh',   label: 'Saltmarsh',     defaultGt: 'swamp',          desc: 'Coastal wetland flooded by seawater.' },
+      { key: 'wetland', value: 'wet_meadow',  label: 'Wet Meadow',    defaultGt: 'fertile_medium', desc: 'Grass meadow with waterlogged soils.' },
+      { key: 'wetland', value: 'tidalflat',   label: 'Tidal Flat',    defaultGt: 'beach',          desc: 'Coastal mudflat exposed at low tide.' },
+      { key: 'wetland', value: 'mangrove',    label: 'Mangrove',      defaultGt: 'swamp',          desc: 'Tropical coastal forest growing in saltwater.' },
     ],
   },
   {
     group: 'Natural',
     tags: [
-      { key: 'natural', value: 'wood',        label: 'Wood',          defaultGt: 'forest_sparse' },
-      { key: 'natural', value: 'scrub',       label: 'Scrub',         defaultGt: 'wilderness' },
-      { key: 'natural', value: 'heath',       label: 'Heath',         defaultGt: 'wilderness' },
-      { key: 'natural', value: 'grassland',   label: 'Grassland',     defaultGt: 'fertile_medium' },
-      { key: 'natural', value: 'wetland',     label: 'Wetland',       defaultGt: 'swamp' },
-      { key: 'natural', value: 'beach',       label: 'Beach',         defaultGt: 'beach' },
-      { key: 'natural', value: 'sand',        label: 'Sand / Dunes',  defaultGt: 'beach' },
-      { key: 'natural', value: 'bare_rock',   label: 'Bare Rock',     defaultGt: 'mountains_high' },
-      { key: 'natural', value: 'scree',       label: 'Scree',         defaultGt: 'mountains_low' },
-      { key: 'natural', value: 'glacier',     label: 'Glacier',       defaultGt: 'mountains_high' },
-      { key: 'natural', value: 'fell',        label: 'Fell',          defaultGt: 'hills' },
-      { key: 'natural', value: 'moor',        label: 'Moor',          defaultGt: 'wilderness' },
-      { key: 'natural', value: 'mud',         label: 'Mud',           defaultGt: 'swamp' },
-      { key: 'natural', value: 'shingle',     label: 'Shingle',       defaultGt: 'beach' },
-      { key: 'natural', value: 'cliff',       label: 'Cliff',         defaultGt: 'mountains_high' },
-      { key: 'natural', value: 'valley',      label: 'Valley',        defaultGt: 'fertile_medium' },
-      { key: 'natural', value: 'volcano',     label: 'Volcano',       defaultGt: 'mountains_high' },
+      { key: 'natural', value: 'wood',        label: 'Wood',          defaultGt: 'forest_sparse',  desc: 'Natural woodland or forest.' },
+      { key: 'natural', value: 'scrub',       label: 'Scrub',         defaultGt: 'wilderness',     desc: 'Low shrubs and bushes, transitional land.' },
+      { key: 'natural', value: 'heath',       label: 'Heath',         defaultGt: 'wilderness',     desc: 'Open land with heather and low shrubs.' },
+      { key: 'natural', value: 'grassland',   label: 'Grassland',     defaultGt: 'fertile_medium', desc: 'Natural grassy area, not farmed.' },
+      { key: 'natural', value: 'wetland',     label: 'Wetland',       defaultGt: 'swamp',          desc: 'Generic wetland tag (use specific wetland types when possible).' },
+      { key: 'natural', value: 'beach',       label: 'Beach',         defaultGt: 'beach',          desc: 'Sandy or pebbly shore at sea or lake edge.' },
+      { key: 'natural', value: 'sand',        label: 'Sand / Dunes',  defaultGt: 'beach',          desc: 'Sandy desert, dunes, or sandy ground.' },
+      { key: 'natural', value: 'bare_rock',   label: 'Bare Rock',     defaultGt: 'mountains_high', desc: 'Exposed rock surface with little vegetation.' },
+      { key: 'natural', value: 'scree',       label: 'Scree',         defaultGt: 'mountains_low',  desc: 'Loose broken rock on a slope.' },
+      { key: 'natural', value: 'glacier',     label: 'Glacier',       defaultGt: 'mountains_high', desc: 'Slow-moving mass of ice covering land.' },
+      { key: 'natural', value: 'fell',        label: 'Fell',          defaultGt: 'hills',          desc: 'High open moorland, typical of Scandinavia.' },
+      { key: 'natural', value: 'moor',        label: 'Moor',          defaultGt: 'wilderness',     desc: 'Open upland, often boggy with heather.' },
+      { key: 'natural', value: 'mud',         label: 'Mud',           defaultGt: 'swamp',          desc: 'Muddy ground or tidal mudflat.' },
+      { key: 'natural', value: 'shingle',     label: 'Shingle',       defaultGt: 'beach',          desc: 'Beach of small rounded pebbles or gravel.' },
+      { key: 'natural', value: 'cliff',       label: 'Cliff',         defaultGt: 'mountains_high', desc: 'Steep rock face; often a linear feature.' },
+      { key: 'natural', value: 'valley',      label: 'Valley',        defaultGt: 'fertile_medium', desc: 'Low area between hills or mountains.' },
+      { key: 'natural', value: 'volcano',     label: 'Volcano',       defaultGt: 'mountains_high', desc: 'Volcanic mountain or cone.' },
     ],
   },
   {
     group: 'Land Use',
     tags: [
-      { key: 'landuse', value: 'farmland',     label: 'Farmland',          defaultGt: 'fertile_high' },
-      { key: 'landuse', value: 'farmyard',     label: 'Farmyard',          defaultGt: 'fertile_medium' },
-      { key: 'landuse', value: 'meadow',       label: 'Meadow',            defaultGt: 'fertile_high' },
-      { key: 'landuse', value: 'orchard',      label: 'Orchard',           defaultGt: 'fertile_high' },
-      { key: 'landuse', value: 'vineyard',     label: 'Vineyard',          defaultGt: 'fertile_medium' },
-      { key: 'landuse', value: 'forest',       label: 'Forest (landuse)',  defaultGt: 'forest_sparse' },
-      { key: 'landuse', value: 'residential',  label: 'Residential',       defaultGt: 'fertile_low' },
-      { key: 'landuse', value: 'industrial',   label: 'Industrial',        defaultGt: 'impassable_land' },
-      { key: 'landuse', value: 'quarry',       label: 'Quarry',            defaultGt: 'mountains_low' },
-      { key: 'landuse', value: 'cemetery',     label: 'Cemetery',          defaultGt: 'wilderness' },
-      { key: 'landuse', value: 'allotments',   label: 'Allotments',        defaultGt: 'fertile_medium' },
-      { key: 'landuse', value: 'village_green',label: 'Village Green',     defaultGt: 'fertile_high' },
-      { key: 'landuse', value: 'wetland',      label: 'Wetland (landuse)', defaultGt: 'swamp' },
+      { key: 'landuse', value: 'farmland',     label: 'Farmland',          defaultGt: 'fertile_high',   desc: 'Cultivated arable land, crops or ploughed fields.' },
+      { key: 'landuse', value: 'farmyard',     label: 'Farmyard',          defaultGt: 'fertile_medium', desc: 'Area around farm buildings.' },
+      { key: 'landuse', value: 'meadow',       label: 'Meadow',            defaultGt: 'fertile_high',   desc: 'Managed grassland used for grazing or hay.' },
+      { key: 'landuse', value: 'orchard',      label: 'Orchard',           defaultGt: 'fertile_high',   desc: 'Planted fruit or nut trees.' },
+      { key: 'landuse', value: 'vineyard',     label: 'Vineyard',          defaultGt: 'fertile_medium', desc: 'Cultivated grapevines.' },
+      { key: 'landuse', value: 'forest',       label: 'Forest (landuse)',  defaultGt: 'forest_sparse',  desc: 'Managed or plantation forest.' },
+      { key: 'landuse', value: 'residential',  label: 'Residential',       defaultGt: 'fertile_low',    desc: 'Land used for housing and dwellings.' },
+      { key: 'landuse', value: 'industrial',   label: 'Industrial',        defaultGt: 'impassable_land',desc: 'Industrial zone, factories, warehouses.' },
+      { key: 'landuse', value: 'quarry',       label: 'Quarry',            defaultGt: 'mountains_low',  desc: 'Open-pit extraction of stone, gravel or minerals.' },
+      { key: 'landuse', value: 'cemetery',     label: 'Cemetery',          defaultGt: 'wilderness',     desc: 'Burial ground.' },
+      { key: 'landuse', value: 'allotments',   label: 'Allotments',        defaultGt: 'fertile_medium', desc: 'Small plots for private vegetable/flower growing.' },
+      { key: 'landuse', value: 'village_green',label: 'Village Green',     defaultGt: 'fertile_high',   desc: 'Common grassy area in a village.' },
+      { key: 'landuse', value: 'wetland',      label: 'Wetland (landuse)', defaultGt: 'swamp',          desc: 'Land designated or managed as wetland.' },
     ],
   },
   {
     group: 'Leisure',
     tags: [
-      { key: 'leisure', value: 'park',          label: 'Park',            defaultGt: 'fertile_low' },
-      { key: 'leisure', value: 'garden',        label: 'Garden',          defaultGt: 'fertile_high' },
+      { key: 'leisure', value: 'park',          label: 'Park',            defaultGt: 'fertile_low',    desc: 'Public park or green space in a settlement.' },
+      { key: 'leisure', value: 'garden',        label: 'Garden',          defaultGt: 'fertile_high',   desc: 'Cultivated garden area.' },
     ],
   },
 ];
@@ -400,9 +400,12 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
                               className={`w-4 h-4 rounded-sm border shrink-0 transition-all ${isPickerOpen ? 'border-amber-400 ring-1 ring-amber-400/50' : 'border-slate-600 hover:border-slate-400'}`}
                               style={{ backgroundColor: GT_COLOR[gtId] ?? '#888' }}
                             />
-                            {/* Tag label */}
-                            <span className="flex-1 text-[10px] text-slate-300 truncate">{tag.label}</span>
-                            <span className="text-[8px] font-mono text-slate-600 hidden sm:inline">{k}</span>
+                            {/* Tag label + description */}
+                            <div className="flex-1 min-w-0">
+                              <span className="text-[10px] text-slate-300 truncate block">{tag.label}</span>
+                              {tag.desc && <span className="text-[8px] text-slate-500 leading-tight block truncate">{tag.desc}</span>}
+                            </div>
+                            <span className="text-[8px] font-mono text-slate-600 hidden sm:inline shrink-0">{k}</span>
                             {/* Status indicator */}
                             {st && !isRunning && (
                               <span className={`text-[8px] font-mono shrink-0 ${isDone ? 'text-green-400' : isErr ? 'text-red-400' : 'text-amber-400'}`}>

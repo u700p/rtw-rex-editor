@@ -253,7 +253,7 @@ export default function NewMapEditor() {
   const currentTab = availableTabs.includes(sideTab) ? sideTab : availableTabs[0];
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-200 overflow-hidden">
+    <div className="flex flex-col bg-slate-950 text-slate-200 overflow-hidden" style={{ height: '100vh' }}>
       {/* Header — phase stepper */}
       <div className="h-10 bg-slate-900 border-b border-slate-700 flex items-center gap-3 px-4 shrink-0">
         <Map className="w-4 h-4 text-amber-400 shrink-0" />
