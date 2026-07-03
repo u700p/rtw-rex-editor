@@ -1,5 +1,7 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Map, CheckSquare, Globe, FolderOpen, Box, Mountain } from 'lucide-react';
+import { Map, CheckSquare, Globe, FolderOpen, Box, Layers } from 'lucide-react';
+import OsmBackground from '../components/map/OsmBackground';
+import CoastlineTracer from '../components/map/CoastlineTracer';
 import Map3DPreview from '../components/map/Map3DPreview';
 import MapCanvas, { floodFillRGB } from '../components/map/MapCanvas';
 import MapPaintToolbar from '../components/map/MapPaintToolbar';
@@ -14,12 +16,12 @@ import { parseDescrStrat, parseDescrRegions, parseSettlementNames, parseDescrSmF
 import { parseDescrRebelFactions, parseDescrReligions, parseDescrSmResources, parseDescrMercenaries, parseDescrSoundsMusicTypes, parseDescrCultures, extractHiddenResourcesFromEDB, extractBuildingLevelsFromEDB, parseDescrNames, parseExportDescrTraits, parseExportDescrAncillaries } from '../components/map/additionalParsers';
 import { parseFactionMovies } from '../components/map/factionMoviesParser';
 import { parseEDU } from '../components/units/EDUParser';
-import { getTextLocalizationStore } from '../lib/textLocalizationStore';
+import { parseStringsBin } from '../components/strings/stringsBinCodec';
+import { getStringsBinStore } from '../lib/stringsBinStore';
 import { importCampaignToDatabase } from '../components/map/campaignImporter';
 import { useEDB } from '../components/edb/EDBContext';
 import { base44 } from '@/api/base44Client';
 import { setLayer, getLayer, getAllLayers, hasAnyLayer } from '../lib/mapLayerStore';
-import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
 
 const INITIAL_PAINT = {
   active: false,
@@ -44,20 +46,6 @@ const TXT_MAP = {
   'descr_sm_factions.txt':'factions',
 };
 
-const FERTILE_SETTLEMENT_GROUND = { r: 96, g: 160, b: 64 };
-const MOUNTAIN_GROUND_COLORS = [
-  { r: 196, g: 128, b: 128 },
-  { r: 98, g: 65, b: 65 },
-];
-
-function isSameRGB(data, idx, color) {
-  return data[idx] === color.r && data[idx + 1] === color.g && data[idx + 2] === color.b;
-}
-
-function isMountainGroundPixel(data, idx) {
-  return MOUNTAIN_GROUND_COLORS.some((color) => isSameRGB(data, idx, color));
-}
-
 export default function CampaignMap() {
   const [layers, setLayers] = useState(() => {
     // Restore pixel data from module-level store (survives navigation, not page close)
@@ -81,7 +69,7 @@ export default function CampaignMap() {
   const [stratData, setStratDataRaw] = useState(() => {
     try {
       const raw = sessionStorage.getItem('m2tw_strat_raw');
-      if (raw) {
+      if (raw && raw.length < 20_000_000) { // guard against absurdly large files
         const p = parseDescrStrat(raw);
         // Merge any persisted overlay items (includes newly added items from previous session)
         const savedOverlay = sessionStorage.getItem('m2tw_overlay_items_json');
@@ -108,7 +96,7 @@ export default function CampaignMap() {
       const savedJson = sessionStorage.getItem('m2tw_regions_data_json');
       if (savedJson) return JSON.parse(savedJson);
       const raw = sessionStorage.getItem('m2tw_regions_raw');
-      if (raw) return parseDescrRegions(raw);
+      if (raw && raw.length < 5_000_000) return parseDescrRegions(raw);
     } catch (e) {
       console.error('[CampaignMap] Failed to restore regions from sessionStorage:', e);
       try { sessionStorage.removeItem('m2tw_regions_data_json'); sessionStorage.removeItem('m2tw_regions_raw'); } catch {}
@@ -136,7 +124,7 @@ export default function CampaignMap() {
       if (savedOverlay) return JSON.parse(savedOverlay);
       // Fall back to parsing strat raw
       const raw = sessionStorage.getItem('m2tw_strat_raw');
-      if (raw) { const p = parseDescrStrat(raw); return p.items || []; }
+      if (raw && raw.length < 20_000_000) { const p = parseDescrStrat(raw); return p.items || []; }
     } catch (e) {
       console.error('[CampaignMap] Failed to restore overlayItems:', e);
       try { sessionStorage.removeItem('m2tw_overlay_items_json'); } catch {}
@@ -151,7 +139,9 @@ export default function CampaignMap() {
   const [pendingRelocate, setPendingRelocate] = useState(null); // { type: 'city'|'port', regionInfo, settlement }
   const [stratPanelOpenItemId, setStratPanelOpenItemId] = useState(null); // double-click to open char
   const [pendingCoordPick, setPendingCoordPick] = useState(null); // callback(x, y) waiting for map click
-  const [groundFixStatus, setGroundFixStatus] = useState('');
+  const [osmBbox, setOsmBbox] = useState(null); // { north, south, east, west } from bbox_coords.txt
+  const [osmOpacity, setOsmOpacity] = useState(0.5);
+  const [showCoastlineTracer, setShowCoastlineTracer] = useState(false);
 
   // ── Extra data sources for region editor ──────────────────────────────────
   const [rebelFactions, setRebelFactions] = useState(() => { try { const r = sessionStorage.getItem('m2tw_rebel_factions_raw'); return r ? parseDescrRebelFactions(r) : []; } catch { return []; } });
@@ -165,8 +155,8 @@ export default function CampaignMap() {
   const [descrNames, setDescrNames] = useState(() => { try { const r = sessionStorage.getItem('m2tw_descr_names_raw'); return r ? parseDescrNames(r) : null; } catch { return null; } });
   const [traitsList, setTraitsList] = useState(() => { try { const r = sessionStorage.getItem('m2tw_traits_raw'); return r ? parseExportDescrTraits(r) : []; } catch { return []; } });
   const [ancillariesList, setAncillariesList] = useState(() => { try { const r = sessionStorage.getItem('m2tw_ancillaries_raw'); return r ? parseExportDescrAncillaries(r) : []; } catch { return []; } });
-  const [eduUnits, setEduUnits] = useState(() => { try { const r = getEduRawText(); return r ? parseEDU(r) : []; } catch { return []; } });
-  // namesDisplayMap: loaded from names.txt (separate from region settlement names)
+  const [eduUnits, setEduUnits] = useState(() => { try { const r = sessionStorage.getItem('m2tw_edu_raw'); return r ? parseEDU(r) : []; } catch { return []; } });
+  // namesDisplayMap: decoded from names.txt.strings.bin (separate from region settlement names)
   const [namesDisplayMap, setNamesDisplayMap] = useState(() => { try { const r = sessionStorage.getItem('m2tw_char_names_display'); return r ? JSON.parse(r) : {}; } catch { return {}; } });
 
   // ── Selected region (click on map) ────────────────────────────────────────
@@ -251,7 +241,7 @@ export default function CampaignMap() {
     // Auto-restore names display map from sessionStorage only (no localStorage cross-session)
     try {
       if (!sessionStorage.getItem('m2tw_char_names_display')) {
-        const store = getTextLocalizationStore();
+        const store = getStringsBinStore();
         for (const [fname, binData] of Object.entries(store)) {
           if (fname.toLowerCase().includes('names') && !fname.toLowerCase().includes('settlement') && !fname.toLowerCase().includes('region')) {
             const namesMap = {};
@@ -263,10 +253,10 @@ export default function CampaignMap() {
         }
       }
     } catch {}
-    // Auto-restore settlement names from text localization store if not already loaded
+    // Auto-restore settlement names from strings bin store if not already loaded
     try {
       if (!sessionStorage.getItem('m2tw_names_raw')) {
-        const store = getTextLocalizationStore();
+        const store = getStringsBinStore();
         for (const [fname, binData] of Object.entries(store)) {
           if (fname.toLowerCase().includes('regions_and_settlement_names')) {
             const namesMap = {};
@@ -386,20 +376,29 @@ export default function CampaignMap() {
       }
       if (name === 'descr_sm_factions.txt') {
         const text = await file.text();
-        try {
-          sessionStorage.setItem('m2tw_factions_raw', text);
-          localStorage.setItem('m2tw_factions_raw', text);
-          localStorage.setItem('m2tw_factions_file', text);
-          localStorage.setItem('m2tw_sm_factions_raw', text);
-          localStorage.setItem('m2tw_factions_file_name', file.name);
-        } catch {}
+        try { sessionStorage.setItem('m2tw_factions_raw', text); } catch {}
         setFactionColorsRaw(parseDescrSmFactions(text));
-        window.dispatchEvent(new CustomEvent('factions-file-loaded'));
       }
       if (name.endsWith('_regions_and_settlement_names.txt')) {
         const text = await file.text();
         try { sessionStorage.setItem('m2tw_names_raw', text); } catch {}
         setSettlementNamesRaw(parseSettlementNames(text));
+      }
+      // Auto-parse .strings.bin files from data/text/ folder
+      if (name.endsWith('.strings.bin') || name.endsWith('_names.bin')) {
+        const buf = await file.arrayBuffer();
+        const decoded = parseStringsBin(buf);
+        if (decoded?.entries?.length) {
+          const namesMap = {};
+          for (const { key, value } of decoded.entries) if (key) namesMap[key] = value;
+          // If it's a character names file, store separately for character display names
+          if (name.toLowerCase().includes('names') && !name.toLowerCase().includes('settlement') && !name.toLowerCase().includes('region')) {
+            setNamesDisplayMap(prev => ({ ...prev, ...namesMap }));
+            try { sessionStorage.setItem('m2tw_char_names_display', JSON.stringify({ ...namesMap })); } catch {}
+          } else {
+            setSettlementNamesRaw(prev => ({ ...(prev || {}), ...namesMap }));
+          }
+        }
       }
       if (name === 'descr_cultures.txt') {
         const text = await file.text();
@@ -448,9 +447,8 @@ export default function CampaignMap() {
       }
       if (name === 'export_descr_unit.txt') {
         const text = await file.text();
-        setEduRawText(text, file.name);
+        try { sessionStorage.setItem('m2tw_edu_raw', text); } catch {}
         setEduUnits(parseEDU(text));
-        window.dispatchEvent(new CustomEvent('edu-file-loaded'));
       }
       // Store additional campaign text files for ZIP export
       const extraSessionMap = {
@@ -466,6 +464,20 @@ export default function CampaignMap() {
         // Also mirror win conditions to localStorage so StratPanel can read it on fresh navigation
         if (name === 'descr_win_conditions.txt') {
           try { localStorage.setItem('m2tw_campaign_win_conditions', text); } catch {}
+        }
+      }
+      // Parse bbox_coords.txt from New Map Editor
+      if (name === 'bbox_coords.txt') {
+        const text = await file.text();
+        const parsedBbox = {};
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+          const [k, v] = trimmed.split('=');
+          parsedBbox[k.trim()] = parseFloat(v.trim());
+        }
+        if (parsedBbox.north && parsedBbox.south && parsedBbox.east && parsedBbox.west) {
+          setOsmBbox({ north: parsedBbox.north, south: parsedBbox.south, east: parsedBbox.east, west: parsedBbox.west });
         }
       }
       // Parse descr_faction_movies.xml
@@ -541,63 +553,6 @@ export default function CampaignMap() {
     return 0;
   })();
 
-  const handleFixSettlementGroundPixels = useCallback(async () => {
-    const ground = layers.ground;
-    if (!ground?.data || !ground.width || !ground.height) {
-      setGroundFixStatus('Load map_ground_types.tga first.');
-      return;
-    }
-
-    const settlements = (overlayItems || []).filter((item) =>
-      item.category === 'settlement'
-      && Number.isFinite(Number(item.x))
-      && Number.isFinite(Number(item.y))
-    );
-    if (!settlements.length) {
-      setGroundFixStatus('Load descr_strat.txt/descr_regions.txt first so settlement pixels are known.');
-      return;
-    }
-
-    const baseW = layers.regions?.width || mapW2 || ground.width;
-    const baseH = layers.regions?.height || mapH || ground.height;
-    const nextData = new Uint8ClampedArray(ground.data);
-    let checked = 0;
-    let fixed = 0;
-    let outOfBounds = 0;
-
-    for (const settlement of settlements) {
-      const mapX = Math.round(Number(settlement.x));
-      const mapTopY = baseH - 1 - Math.round(Number(settlement.y));
-      const px = Math.max(0, Math.min(ground.width - 1, Math.round(mapX * (ground.width / baseW))));
-      const py = Math.max(0, Math.min(ground.height - 1, Math.round(mapTopY * (ground.height / baseH))));
-      if (mapX < 0 || mapX >= baseW || mapTopY < 0 || mapTopY >= baseH) {
-        outOfBounds++;
-        continue;
-      }
-      const idx = (py * ground.width + px) * 4;
-      checked++;
-      if (!isMountainGroundPixel(nextData, idx)) continue;
-      nextData[idx] = FERTILE_SETTLEMENT_GROUND.r;
-      nextData[idx + 1] = FERTILE_SETTLEMENT_GROUND.g;
-      nextData[idx + 2] = FERTILE_SETTLEMENT_GROUND.b;
-      nextData[idx + 3] = 255;
-      fixed++;
-    }
-
-    if (!fixed) {
-      setGroundFixStatus(`Checked ${checked} settlement pixels; no mountain ground found${outOfBounds ? ` (${outOfBounds} out of bounds)` : ''}.`);
-      return;
-    }
-
-    const bitmap = await createImageBitmap(new ImageData(nextData, ground.width, ground.height));
-    setLayers((prev) => ({
-      ...prev,
-      ground: { ...prev.ground, data: nextData, bitmap },
-    }));
-    setDirtyLayers((prev) => new Set([...prev, 'ground']));
-    setGroundFixStatus(`Fixed ${fixed} settlement ground pixel${fixed === 1 ? '' : 's'} to fertile_medium.`);
-  }, [layers.ground, layers.regions, mapH, mapW2, overlayItems]);
-
   // ── Helper: place a single pixel on the regions layer ────────────────────
   const placePixelOnRegions = useCallback((rx, ry, r, g, b) => {
     setLayers(prev => {
@@ -668,7 +623,7 @@ export default function CampaignMap() {
       region: draft.regionName,
       faction: draft.faction || 'slave',
       factionCreator: draft.factionCreator || draft.faction || 'slave',
-      castle: false,
+      castle: draft.castle || false,
       level: draft.level || 'village',
       population: draft.population || 400,
       yearFounded: draft.yearFounded || 0,
@@ -949,6 +904,34 @@ export default function CampaignMap() {
     setLayers(prev => ({ ...prev, regions: { ...prev.regions, visible: true } }));
   }, []);
 
+  // ── Apply coastline ImageData onto heights layer ───────────────────────────
+  const handleApplyCoastlineToLayer = useCallback((layerId, coastlineImageData) => {
+    setLayers(prev => {
+      const layer = prev[layerId];
+      if (!layer?.data) {
+        // No heights layer loaded — create one from the coastline data
+        const newData = new Uint8ClampedArray(coastlineImageData.data);
+        createImageBitmap(new ImageData(newData, coastlineImageData.width, coastlineImageData.height)).then(bitmap => {
+          setLayers(p => ({ ...p, [layerId]: { ...p[layerId], bitmap, data: newData, width: coastlineImageData.width, height: coastlineImageData.height } }));
+        });
+        return { ...prev, [layerId]: { ...prev[layerId], data: newData, width: coastlineImageData.width, height: coastlineImageData.height } };
+      }
+      // Merge: paint only non-transparent coastline pixels on top of existing data
+      const newData = new Uint8ClampedArray(layer.data);
+      const cd = coastlineImageData.data;
+      for (let i = 0; i < cd.length; i += 4) {
+        if (cd[i + 3] > 0) {
+          newData[i] = cd[i]; newData[i + 1] = cd[i + 1]; newData[i + 2] = cd[i + 2]; newData[i + 3] = 255;
+        }
+      }
+      createImageBitmap(new ImageData(newData, layer.width, layer.height)).then(bitmap => {
+        setLayers(p => ({ ...p, [layerId]: { ...p[layerId], bitmap, data: newData } }));
+      });
+      return { ...prev, [layerId]: { ...layer, data: newData } };
+    });
+    setDirtyLayers(prev => new Set([...prev, layerId]));
+  }, []);
+
   const handleToggleCategory = (catId) => {
     setVisibleCategories(prev => {
       const next = new Set(prev);
@@ -1033,7 +1016,7 @@ export default function CampaignMap() {
       <div className="h-9 border-b border-slate-800 flex items-center px-3 gap-2 shrink-0 bg-slate-900/80">
         <Map className="w-3.5 h-3.5 text-primary shrink-0" />
         <span className="text-xs font-semibold">Campaign Map Editor</span>
-        <span className="text-[10px] text-slate-500 font-mono hidden lg:block">— Rome map_*.tga + descr_strat.txt</span>
+        <span className="text-[10px] text-slate-500 font-mono hidden lg:block">— M2TW map_*.tga + descr_strat.txt</span>
 
         {/* Bulk folder import */}
         <label className="ml-auto cursor-pointer flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
@@ -1041,6 +1024,42 @@ export default function CampaignMap() {
           Import folder
           <input ref={folderInputRef} type="file" className="hidden" webkitdirectory="" directory="" multiple onChange={handleFolderImport} />
         </label>
+
+        {/* OSM bbox import */}
+        <label className="cursor-pointer flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors" title="Import bbox_coords.txt to show OSM map background">
+          <Layers className="w-3 h-3" />
+          {osmBbox ? 'OSM ✓' : 'OSM bbox'}
+          <input type="file" className="hidden" accept=".txt" onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const text = await file.text();
+            const parsedBbox = {};
+            for (const line of text.split('\n')) {
+              const trimmed = line.trim();
+              if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+              const [k, v] = trimmed.split('=');
+              parsedBbox[k.trim()] = parseFloat(v.trim());
+            }
+            if (parsedBbox.north && parsedBbox.south && parsedBbox.east && parsedBbox.west) {
+              setOsmBbox({ north: parsedBbox.north, south: parsedBbox.south, east: parsedBbox.east, west: parsedBbox.west });
+            }
+            e.target.value = '';
+          }} />
+        </label>
+        {osmBbox && (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-slate-500">OSM</span>
+            <input type="range" min={0} max={1} step={0.05} value={osmOpacity}
+              onChange={e => setOsmOpacity(parseFloat(e.target.value))}
+              className="w-16 accent-blue-400 h-1" title={`OSM opacity: ${Math.round(osmOpacity * 100)}%`} />
+            <button
+              onClick={() => setShowCoastlineTracer(v => !v)}
+              className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors ${showCoastlineTracer ? 'border-blue-500/50 text-blue-300 bg-blue-500/10' : 'border-slate-600/40 text-slate-500 hover:text-slate-200'}`}
+              title="OSM Coastline Tracer"
+            >≈ Coast</button>
+            <button onClick={() => setOsmBbox(null)} className="text-[10px] text-slate-600 hover:text-red-400" title="Remove OSM background">✕</button>
+          </div>
+        )}
 
         {/* Pixel grid toggle */}
         <button
@@ -1057,25 +1076,6 @@ export default function CampaignMap() {
           <option value="fill">Regions: fill</option>
           <option value="citiesports">Regions: cities+ports</option>
         </select>
-
-        <button
-          onClick={handleFixSettlementGroundPixels}
-          disabled={!layers.ground?.data || !(overlayItems || []).some((item) => item.category === 'settlement')}
-          title="Replace one mountains_high/mountains_low map_ground_types.tga pixel under each settlement with fertile_medium"
-          className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] border transition-colors ${
-            layers.ground?.data && (overlayItems || []).some((item) => item.category === 'settlement')
-              ? 'border-emerald-600/40 text-emerald-300 hover:bg-emerald-950/40'
-              : 'border-slate-700/40 text-slate-600 cursor-not-allowed'
-          }`}
-        >
-          <Mountain className="w-3 h-3" />
-          Fix settlement ground
-        </button>
-        {groundFixStatus && (
-          <span className="hidden xl:inline-flex px-2 py-1 rounded bg-emerald-950/30 border border-emerald-700/30 text-emerald-200 text-[10px]">
-            {groundFixStatus}
-          </span>
-        )}
 
         {/* DB import progress */}
         {importProgress && (
@@ -1146,11 +1146,32 @@ export default function CampaignMap() {
         dirtyLayers={dirtyLayers}
       />
 
+      {/* Coastline Tracer panel */}
+      {osmBbox && showCoastlineTracer && mapW2 > 0 && mapH > 0 && (
+        <div className="px-3 py-2 bg-slate-900/95 border-b border-slate-700 max-w-sm">
+          <CoastlineTracer
+            bbox={osmBbox}
+            mapW={mapW2}
+            mapH={mapH}
+            onApplyToLayer={handleApplyCoastlineToLayer}
+          />
+        </div>
+      )}
+
       {/* Body */}
       <div className="flex-1 flex min-h-0">
         {/* Canvas */}
         <div className="flex-1 relative min-w-0">
           <MapCanvas
+            osmBackground={osmBbox ? (
+              <OsmBackground
+                bbox={osmBbox}
+                mapW={mapW2 || 256}
+                mapH={mapH || 256}
+                transform={transform}
+                opacity={osmOpacity}
+              />
+            ) : null}
             layers={layers}
             regionsMode={regionsMode}
             onRegionClick={handleCanvasClick}
@@ -1234,16 +1255,7 @@ export default function CampaignMap() {
                     }
                   }}
                   onNamesLoad={(text) => { try { sessionStorage.setItem('m2tw_names_raw', text); } catch {} setSettlementNamesRaw(parseSettlementNames(text)); }}
-                  onFactionsLoad={(text) => {
-                    try {
-                      sessionStorage.setItem('m2tw_factions_raw', text);
-                      localStorage.setItem('m2tw_factions_raw', text);
-                      localStorage.setItem('m2tw_factions_file', text);
-                      localStorage.setItem('m2tw_sm_factions_raw', text);
-                    } catch {}
-                    setFactionColorsRaw(parseDescrSmFactions(text));
-                    window.dispatchEvent(new CustomEvent('factions-file-loaded'));
-                  }}
+                  onFactionsLoad={(text) => { try { sessionStorage.setItem('m2tw_factions_raw', text); } catch {} setFactionColorsRaw(parseDescrSmFactions(text)); }}
                   onRegionsDataUpdate={setRegionsDataRaw}
                   onSettlementChange={(id, edits) => {
                     setEditedSettlements(prev => ({ ...prev, [id]: { ...(prev[id] || {}), ...edits } }));

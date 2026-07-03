@@ -101,6 +101,8 @@ export default function MapCanvas({
   ohmVisible, ohmYear, ohmOpacity,
   // CotaMap-style box
   box, onBoxChange,
+  // Historic tag overlays: key → ImageData
+  historicOverlays = {},
 }) {
   const isPainting = useRef(false);
   const [dragDisabled, setDragDisabled] = useState(false);
@@ -236,6 +238,18 @@ export default function MapCanvas({
             opacity={layer.opacity ?? 0.7}
             className="pixelated-overlay"
           />
+        );
+      })}
+
+      {/* Historic tag overlays (show/hide from sidebar) */}
+      {Object.entries(historicOverlays).map(([key, imageData]) => {
+        if (!imageData) return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = imageData.width; canvas.height = imageData.height;
+        canvas.getContext('2d').putImageData(imageData, 0, 0);
+        return (
+          <ImageOverlay key={`historic-${key}`} url={canvas.toDataURL()} bounds={layerBounds}
+            opacity={0.9} className="pixelated-overlay" />
         );
       })}
 

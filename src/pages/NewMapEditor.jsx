@@ -2,10 +2,9 @@ import React, { useState, useCallback } from 'react';
 import { getLayerDimensions, LAYER_DEFS, CLIMATE_PALETTE, hexToRgb } from '@/lib/mapLayerStore';
 import {
   Map, Download, Crop, Edit3, MousePointer, Layers,
-  Settings, Paintbrush, GitBranch, Package
+  GitBranch
 } from 'lucide-react';
 import LayerSidebar from '../components/newmap/LayerSidebar';
-import ToolSettings from '../components/newmap/ToolSettings';
 import MapStatusBar from '../components/newmap/MapStatusBar';
 import ExportPanel from '../components/newmap/ExportPanel';
 import SelectionPanel from '../components/newmap/SelectionPanel';
@@ -14,6 +13,7 @@ import BboxLayerGenerator from '../components/newmap/BboxLayerGenerator';
 import LayerPreviewPanel from '../components/newmap/LayerPreviewPanel';
 import WorkflowPanel from '../components/newmap/WorkflowPanel';
 import RegionsWorkshop from '../components/newmap/RegionsWorkshop';
+import OsmHistoricTagFetcher from '../components/newmap/OsmHistoricTagFetcher';
 import { useReferenceLayers, ReferenceLayerControls } from '../components/newmap/ReferenceLayers';
 
 import { autoGenerateGroundTypesAsync, autoGenerateClimates, fillSolidColor } from '@/lib/autoGroundTypes';
@@ -35,14 +35,13 @@ const SIDEBAR_TABS = {
   resolution: ['area', 'layers'],
   generate:   ['area', 'layers'],
   preview:    ['area', 'layers'],
-  edit:       ['workflow', 'paint', 'layers', 'export'],
+  edit:       ['workflow', 'layers', 'export'],
 };
 
 const TAB_META = {
   area:     { label: 'Area',     icon: Crop },
   layers:   { label: 'Layers',   icon: Layers },
   workflow: { label: 'Workflow', icon: GitBranch },
-  paint:    { label: 'Paint',    icon: Paintbrush },
   export:   { label: 'Export',   icon: Download },
 };
 
@@ -68,6 +67,36 @@ export default function NewMapEditor() {
   const [groundRanges, setGroundRanges] = useState(DEFAULT_GROUND_RANGES);
 
   const { refLayers, toggleRef, setRefOpacity } = useReferenceLayers();
+
+  // Extra downloadable assets accumulated during the workflow (historic PNGs, TXTs, etc.)
+  const [extraAssets, setExtraAssets] = useState([]);
+
+  // Historic tag overlays shown on the map: key → imageData
+  const [historicOverlays, setHistoricOverlays] = useState({});
+
+  // Lifted state from RegionsWorkshop so it survives tab switches
+  const [settlements, setSettlements] = useState([]);
+
+  // Lifted state from OsmHistoricTagFetcher so it survives tab switches
+  const [historicTagStates, setHistoricTagStates] = useState({});
+
+  const handleToggleHistoricOverlay = useCallback((key, imageData) => {
+    setHistoricOverlays(prev => {
+      if (prev[key]) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: imageData };
+    });
+  }, []);
+
+  const registerExtraAsset = useCallback((asset) => {
+    setExtraAssets(prev => {
+      const filtered = prev.filter(a => a.filename !== asset.filename);
+      return [...filtered, asset];
+    });
+  }, []);
 
 
   // bbox derived from box (preferred) or legacy selection
@@ -224,7 +253,7 @@ export default function NewMapEditor() {
   const currentTab = availableTabs.includes(sideTab) ? sideTab : availableTabs[0];
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-200 overflow-hidden">
+    <div className="flex flex-col bg-slate-950 text-slate-200 overflow-hidden" style={{ height: '100vh' }}>
       {/* Header — phase stepper */}
       <div className="h-10 bg-slate-900 border-b border-slate-700 flex items-center gap-3 px-4 shrink-0">
         <Map className="w-4 h-4 text-amber-400 shrink-0" />
@@ -451,41 +480,47 @@ export default function NewMapEditor() {
                   onGroundRangesChange={setGroundRanges}
                   onLayerUpdate={handleLayerUpdate}
                   bbox={bbox}
+                  mapWidth={mapWidth}
+                  mapHeight={mapHeight}
                 />
                 {workflowStep === 'regions' && (
-                  <div className="px-3 pb-3 border-t border-slate-700 mt-2 pt-2">
+                  <div className="px-3 pb-3 border-t border-slate-700 mt-2 pt-2 space-y-3">
                     <RegionsWorkshop
                       bbox={bbox}
                       layers={layers}
                       onLayerUpdate={handleLayerUpdate}
                       mapWidth={mapWidth}
                       mapHeight={mapHeight}
+                      settlements={settlements}
+                      onSettlementsChange={setSettlements}
+                      onAssetReady={registerExtraAsset}
+                    />
+                    <OsmHistoricTagFetcher
+                      bbox={bbox}
+                      mapW={mapWidth}
+                      mapH={mapHeight}
+                      onAssetReady={registerExtraAsset}
+                      onToggleOverlay={handleToggleHistoricOverlay}
+                      visibleOverlays={historicOverlays}
+                      tagStates={historicTagStates}
+                      onTagStatesChange={setHistoricTagStates}
                     />
                   </div>
                 )}
               </div>
             )}
 
-            {/* ── PAINT tab (edit phase) ── */}
-            {currentTab === 'paint' && phase === 'edit' && (
-              <ToolSettings
-                activeTool={activeTool}
-                onSetTool={setActiveTool}
-                brushSize={brushSize}
-                onBrushSize={setBrushSize}
-                color={color}
-                onColor={setColor}
-                activeLayerId={activeLayerId}
-                regionName={regionName}
-                onRegionName={setRegionName}
-                inline
-              />
-            )}
-
             {/* ── EXPORT tab (edit phase) ── */}
             {currentTab === 'export' && phase === 'edit' && (
               <div className="p-3">
-                <ExportPanel layers={layers} mapWidth={mapWidth} mapHeight={mapHeight} />
+                <ExportPanel
+                  layers={layers}
+                  mapWidth={mapWidth}
+                  mapHeight={mapHeight}
+                  extraAssets={extraAssets}
+                  settlements={settlements}
+                  historicTagStates={historicTagStates}
+                />
               </div>
             )}
           </div>
@@ -496,7 +531,7 @@ export default function NewMapEditor() {
           <MapCanvas
             layers={layers}
             activeLayerId={activeLayerId}
-            activeTool={phase === 'edit' ? activeTool : 'none'}
+            activeTool={phase === 'edit' && currentTab === 'layers' ? activeTool : 'none'}
             brushSize={brushSize}
             color={color}
             onLayerUpdate={handleLayerUpdate}
@@ -509,6 +544,7 @@ export default function NewMapEditor() {
             refLayers={refLayers}
             box={box}
             onBoxChange={setBox}
+            historicOverlays={historicOverlays}
           />
           <MapStatusBar
             coords={coords}
