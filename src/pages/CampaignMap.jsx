@@ -17,7 +17,7 @@ import { parseDescrRebelFactions, parseDescrReligions, parseDescrSmResources, pa
 import { parseFactionMovies } from '../components/map/factionMoviesParser';
 import { parseEDU } from '../components/units/EDUParser';
 import { parseStringsBin } from '../components/strings/stringsBinCodec';
-import { getStringsBinStore } from '../lib/stringsBinStore';
+import { getTextLocalizationStore } from '../lib/textLocalizationStore';
 import { importCampaignToDatabase } from '../components/map/campaignImporter';
 import { useEDB } from '../components/edb/EDBContext';
 import { base44 } from '@/api/base44Client';
@@ -241,7 +241,7 @@ export default function CampaignMap() {
     // Auto-restore names display map from sessionStorage only (no localStorage cross-session)
     try {
       if (!sessionStorage.getItem('m2tw_char_names_display')) {
-        const store = getStringsBinStore();
+        const store = getTextLocalizationStore();
         for (const [fname, binData] of Object.entries(store)) {
           if (fname.toLowerCase().includes('names') && !fname.toLowerCase().includes('settlement') && !fname.toLowerCase().includes('region')) {
             const namesMap = {};
@@ -253,10 +253,10 @@ export default function CampaignMap() {
         }
       }
     } catch {}
-    // Auto-restore settlement names from strings bin store if not already loaded
+    // Auto-restore settlement names from text localization store if not already loaded
     try {
       if (!sessionStorage.getItem('m2tw_names_raw')) {
-        const store = getStringsBinStore();
+        const store = getTextLocalizationStore();
         for (const [fname, binData] of Object.entries(store)) {
           if (fname.toLowerCase().includes('regions_and_settlement_names')) {
             const namesMap = {};
