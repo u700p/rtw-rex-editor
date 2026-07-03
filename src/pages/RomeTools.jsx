@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import JSZip from 'jszip';
 import { Download, FileText, Image, Upload, Wand2, Copy, Search, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { parseEDU, serializeEDU } from '@/components/units/EDUParser';
+import { inferSiegeEngine, parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { parseDescrSmFactions, serializeDescrSmFactions } from '@/lib/descrSmFactionsCodec';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
@@ -76,10 +76,16 @@ function parseDependencyReport(unit, modelText) {
   return {
     soldier,
     mount: unit.mount || '',
-    engine: unit.engine || '',
+    engine: inferSiegeEngine(unit) || '',
     ownership: (unit.ownership || []).join(', '),
     missing,
   };
+}
+
+function stripPlaceholderOwnership(unit) {
+  const ownership = (unit.ownership || []).filter(f => String(f || '').toLowerCase() !== 'new_faction');
+  if (ownership.length === (unit.ownership || []).length) return { unit, removed: false };
+  return { unit: { ...unit, ownership }, removed: true };
 }
 
 function UnitImporterTab() {
@@ -129,8 +135,13 @@ function UnitImporterTab() {
     const sourceLoc = parseTextLocFile(sourceText || '');
     const targetLoc = parseTextLocFile(targetText || '');
     const existing = new Set(targetUnits.map(u => u.type?.toLowerCase()));
+    const targetByType = new Map(targetUnits.map(u => [String(u.type || '').toLowerCase(), u]));
     const imported = [];
     const skipped = [];
+    const preservedAnimal = [];
+    const preservedEngine = [];
+    const inferredEngine = [];
+    const strippedNewFaction = [];
     const missingLines = [];
 
     for (const unit of chosen) {
@@ -138,7 +149,27 @@ function UnitImporterTab() {
         skipped.push(`${unit.type} already exists`);
         continue;
       }
-      imported.push(JSON.parse(JSON.stringify(unit)));
+      let copy = JSON.parse(JSON.stringify(unit));
+      const targetMatch = targetByType.get(String(unit.type || '').toLowerCase());
+      if (!copy.animal && targetMatch?.animal) {
+        copy.animal = targetMatch.animal;
+        preservedAnimal.push(`${copy.type}: ${copy.animal}`);
+      }
+      if (!copy.engine && targetMatch?.engine) {
+        copy.engine = targetMatch.engine;
+        preservedEngine.push(`${copy.type}: ${copy.engine}`);
+      }
+      if (!copy.engine) {
+        const engine = inferSiegeEngine(copy);
+        if (engine) {
+          copy.engine = engine;
+          inferredEngine.push(`${copy.type}: ${copy.engine}`);
+        }
+      }
+      const stripped = stripPlaceholderOwnership(copy);
+      copy = stripped.unit;
+      if (stripped.removed) strippedNewFaction.push(copy.type);
+      imported.push(copy);
       const dep = parseDependencyReport(unit, sourceModels);
       if (dep.missing.length) missingLines.push(`${unit.type}: ${dep.missing.join(', ')}`);
       const key = unit.dictionary || unit.type;
@@ -148,15 +179,24 @@ function UnitImporterTab() {
       }
     }
 
-    const retained = replaceExisting
+    const retainedRaw = replaceExisting
       ? targetUnits.filter(u => !selected.has(u.type))
       : targetUnits;
+    const retained = retainedRaw.map(unit => {
+      const stripped = stripPlaceholderOwnership(unit);
+      if (stripped.removed) strippedNewFaction.push(unit.type);
+      return stripped.unit;
+    });
     const merged = [...retained, ...imported];
     const report = [
       `Imported units: ${imported.length}`,
       `Skipped units: ${skipped.length}`,
       '',
       imported.map(u => `+ ${u.type}`).join('\n'),
+      preservedAnimal.length ? `\nAnimal lines preserved from target:\n${preservedAnimal.map(s => `- ${s}`).join('\n')}` : '',
+      preservedEngine.length ? `\nEngine lines preserved from target:\n${preservedEngine.map(s => `- ${s}`).join('\n')}` : '',
+      inferredEngine.length ? `\nEngine lines inferred for siege units:\n${inferredEngine.map(s => `- ${s}`).join('\n')}` : '',
+      strippedNewFaction.length ? `\nRemoved placeholder ownership new_faction:\n${strippedNewFaction.map(s => `- ${s}`).join('\n')}` : '',
       skipped.length ? `\nSkipped:\n${skipped.map(s => `- ${s}`).join('\n')}` : '',
       missingLines.length ? `\nDependency warnings:\n${missingLines.map(s => `- ${s}`).join('\n')}` : '',
     ].filter(Boolean).join('\n');

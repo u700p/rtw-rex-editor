@@ -127,6 +127,12 @@ export default function UnitEditor({ unit, onChange, descr, onDescrChange, unitI
               <Field label="officer 1"><TextInput value={unit.officer1} onChange={v => set('officer1', v)} mono placeholder="Officer model name" /></Field>
               <Field label="officer 2"><TextInput value={unit.officer2} onChange={v => set('officer2', v)} mono placeholder="Officer model name" /></Field>
               <Field label="officer 3"><TextInput value={unit.officer3} onChange={v => set('officer3', v)} mono placeholder="Officer model name" /></Field>
+              <Field label="animal" tooltip="Animal type used by handler units, e.g. wardogs or pigs.">
+                <TextInput value={unit.animal || ''} onChange={v => set('animal', v)} mono placeholder="wardogs" />
+              </Field>
+              <Field label="engine" tooltip="Siege engine type used by siege units.">
+                <TextInput value={unit.engine || ''} onChange={v => set('engine', v)} mono placeholder="onager" />
+              </Field>
               <Field label="mount" tooltip="Mount type, e.g. 'heavy horse'. Leave blank for foot units.">
                 <TextInput value={unit.mount} onChange={v => set('mount', v)} mono placeholder="heavy horse" />
               </Field>
