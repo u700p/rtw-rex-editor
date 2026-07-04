@@ -33,6 +33,18 @@ const SYMBOL_GROUPS = [
   },
 ];
 
+const GENERATED_SYMBOL_SLOTS = {
+  '24_standard': 'symbol24',
+  '24_grey': 'symbol24_grey',
+  '24_roll': 'symbol24_roll',
+  '24_select': 'symbol24_select',
+  '48_standard': 'symbol48',
+  '48_grey': 'symbol48_grey',
+  '48_roll': 'symbol48_roll',
+  '48_select': 'symbol48_select',
+  loading128_standard: 'loading_symbol128',
+};
+
 function SymbolSlot({ label, filename, imageUrl, onLoad }) {
   const inputRef = useRef();
 
@@ -76,6 +88,15 @@ export default function FactionSymbolsTab({ factionName }) {
     setImages(prev => ({ ...prev, [key]: url }));
   }, []);
 
+  const loadGeneratedSymbols = useCallback((generated) => {
+    const next = {};
+    for (const [id, url] of Object.entries(generated || {})) {
+      const slotKey = GENERATED_SYMBOL_SLOTS[id];
+      if (slotKey && url) next[slotKey] = url;
+    }
+    if (Object.keys(next).length) setImages(prev => ({ ...prev, ...next }));
+  }, []);
+
   return (
     <div className="space-y-5">
       <div className="border-b border-slate-600 pb-2">
@@ -83,7 +104,7 @@ export default function FactionSymbolsTab({ factionName }) {
         <p className="text-xs text-slate-400">Preview and load .tga symbol files for <span className="font-mono text-amber-400">{factionName}</span></p>
       </div>
 
-      <SymbolGenerator factionName={factionName} />
+      <SymbolGenerator factionName={factionName} onGeneratedSymbols={loadGeneratedSymbols} />
 
       {SYMBOL_GROUPS.map((group) => (
         <div key={group.label} className="space-y-2">

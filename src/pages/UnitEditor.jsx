@@ -8,7 +8,6 @@ import { parseEDU, serializeEDU, serializeUnit, createDefaultUnit } from '../com
 import { parseModeldb, serializeModeldb } from '../lib/modeldbCodec';
 import { parseDescrModelBattle, serializeDescrModelBattle, syncDescrModelBattleEntryAliases } from '../lib/descrModelBattleCodec';
 import { modeldbStore } from '../lib/modeldbStore';
-import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 import { EDU_FILE_NAME_KEY, getEduFilename, getEduRawText, loadEduRawText, setEduRawText } from '@/lib/eduStorage';
 
@@ -32,29 +31,6 @@ function saveEduRaw(text, filename = '') {
   setEduRawText(text, filename);
 }
 
-async function mapWithLimit(items, limit, mapper) {
-  const results = new Array(items.length);
-  let index = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (index < items.length) {
-      const current = index++;
-      results[current] = await mapper(items[current], current);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
-async function decodeTgaFiles(files) {
-  const cpuCount = typeof window !== 'undefined' ? window.navigator?.hardwareConcurrency || 8 : 8;
-  const limit = Math.max(8, Math.min(16, cpuCount * 2));
-  return mapWithLimit(files, limit, async (file) => {
-    const buf = await file.arrayBuffer();
-    const dataUrl = decodeTgaToDataUrl(buf);
-    return dataUrl ? { file, dataUrl } : null;
-  });
-}
-
 function persistUnitImages(images) {
   const count = Object.keys(images || {}).length;
   try {
@@ -64,6 +40,35 @@ function persistUnitImages(images) {
       localStorage.removeItem(UNIT_IMAGES_KEY);
     }
   } catch {}
+}
+
+function fileIdentity(file) {
+  return (file?.webkitRelativePath || file?.name || '').toLowerCase().replace(/\\/g, '/');
+}
+
+function mergeFilesByPath(existing = [], incoming = []) {
+  const byPath = new Map();
+  for (const file of existing) byPath.set(fileIdentity(file), file);
+  for (const file of incoming) byPath.set(fileIdentity(file), file);
+  return Array.from(byPath.values());
+}
+
+function registerUnitImageFiles(files) {
+  const fileMap = { ...(window._m2tw_unit_image_file_map || {}) };
+  for (const file of files || []) {
+    const bareName = file.name.replace(/\.tga$/i, '').toLowerCase();
+    const relPath = (file.webkitRelativePath || file.name)
+      .replace(/\\/g, '/')
+      .replace(/\.tga$/i, '')
+      .toLowerCase();
+    fileMap[bareName] = file;
+    fileMap[relPath] = file;
+    const uiIndex = relPath.indexOf('/ui/');
+    if (uiIndex >= 0) fileMap[relPath.slice(uiIndex + 4)] = file;
+  }
+  window._m2tw_unit_image_file_map = fileMap;
+  window._m2tw_unit_image_files = mergeFilesByPath(window._m2tw_unit_image_files || [], files || []);
+  return fileMap;
 }
 
 function makeUniqueUnitValue(base, units, field) {
@@ -352,11 +357,17 @@ export default function UnitEditorPage() {
   // Listen for unit images loaded from Home page
   useEffect(() => {
     const handler = (e) => {
-      setUnitImages(e.detail);
-      persistUnitImages(e.detail);
+      const images = e.detail?.images || e.detail || {};
+      setUnitImages(images);
+      if (Object.keys(images).length) persistUnitImages(images);
     };
+    const fileHandler = () => setUnitImages({ ...(window._m2tw_unit_images || {}) });
     window.addEventListener('load-unit-images', handler);
-    return () => window.removeEventListener('load-unit-images', handler);
+    window.addEventListener('unit-image-files-loaded', fileHandler);
+    return () => {
+      window.removeEventListener('load-unit-images', handler);
+      window.removeEventListener('unit-image-files-loaded', fileHandler);
+    };
   }, []);
 
   // Live-reload descriptions when Home page loads export_units.txt
@@ -606,21 +617,11 @@ export default function UnitEditorPage() {
     const files = Array.from(e.target.files || []).filter(f => f.name.toLowerCase().endsWith('.tga'));
     e.target.value = '';
     if (!files.length) return;
-    const images = {};
-    for (const item of await decodeTgaFiles(files)) {
-      if (!item) continue;
-      const { file, dataUrl } = item;
-      // Store under full relative path (lowercased) AND bare filename for flexible lookup
-      const bareName = file.name.replace(/\.tga$/i, '').toLowerCase();
-      // webkitRelativePath gives e.g. "units/english/unit_spearmen.tga"
-      const relPath = (file.webkitRelativePath || file.name).replace(/\.tga$/i, '').toLowerCase();
-      images[bareName] = dataUrl;
-      if (relPath !== bareName) images[relPath] = dataUrl;
-    }
-    const updated = { ...(unitImages || {}), ...images };
+    registerUnitImageFiles(files);
+    const updated = { ...(unitImages || {}), ...(window._m2tw_unit_images || {}) };
     window._m2tw_unit_images = updated;
     setUnitImages(updated);
-    persistUnitImages(updated);
+    window.dispatchEvent(new CustomEvent('unit-image-files-loaded'));
     if (files.length > MAX_PERSISTED_UNIT_IMAGES) setShowMemoryNotice(true);
   };
 

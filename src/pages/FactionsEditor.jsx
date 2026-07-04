@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import JSZip from 'jszip';
 import { Upload, Download, Plus, Trash2, AlertTriangle, Shield, X, Copy, GripVertical, Palette, FileText, Settings, ScrollText, Image } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import DescriptionsTab from '@/components/factions/DescriptionsTab';
 import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/components/factions/MiscTab';
 import FactionSymbolsTab from '@/components/factions/FactionSymbolsTab';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
-import { parseTextLocFile, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
+import { parseTextLocFile, serializeTextLocEntries, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { ensureRtwFactionLocEntries } from '@/lib/factionLoc';
 import { getEduRawText, loadEduRawText, setEduRawText } from '@/lib/eduStorage';
 import { parseEDU, serializeEDU } from '@/components/units/EDUParser';
@@ -72,12 +72,39 @@ function persistExpandedStrings(entries, rawText = '') {
   const normalizedEntries = (entries || [])
     .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }))
     .filter((entry) => entry.key);
+  const nextRawText = serializeTextLocEntries(normalizedEntries, { rawText, preserveMissing: true });
+  const storedEntries = textLocMapToEntries(parseTextLocFile(nextRawText))
+    .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }));
   updateTextLocalizationFile(EXPANDED_BI_FILE, {
-    entries: normalizedEntries,
-    rawText,
+    entries: storedEntries,
+    rawText: nextRawText,
     sourceFormat: 'txt',
   });
-  try { localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries: normalizedEntries, rawText })); } catch {}
+  try { localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries: storedEntries, rawText: nextRawText })); } catch {}
+}
+
+function upsertTextLocEntries(existingEntries, incomingEntries) {
+  const out = [];
+  const indexByKey = new Map();
+  for (const entry of existingEntries || []) {
+    const key = normalizeLocKey(entry.key);
+    if (!key) continue;
+    indexByKey.set(key.toUpperCase(), out.length);
+    out.push({ key, value: entry.value ?? '' });
+  }
+  for (const entry of incomingEntries || []) {
+    const key = normalizeLocKey(entry.key);
+    if (!key) continue;
+    const normalized = { key, value: entry.value ?? '' };
+    const index = indexByKey.get(key.toUpperCase());
+    if (index === undefined) {
+      indexByKey.set(key.toUpperCase(), out.length);
+      out.push(normalized);
+    } else {
+      out[index] = normalized;
+    }
+  }
+  return out;
 }
 
 /** Inject {UI_FACTION_X} and {UI_FACTION_X_DESCRIPTION} into menu strings if missing */
@@ -1194,6 +1221,9 @@ export default function FactionsEditor() {
   const bannersRef = useRef();
   const stringsRef = useRef();
   const menuStringsRef = useRef();
+  const lastFactionsRawRef = useRef('');
+  const pendingFactionsSaveRef = useRef(null);
+  const factionsSaveTimerRef = useRef(null);
   const [bannersLoaded, setBannersLoaded] = useState(false);
   const [stringsLoaded, setStringsLoaded] = useState(false);
   const [menuStringsLoaded, setMenuStringsLoaded] = useState(false);
@@ -1201,13 +1231,37 @@ export default function FactionsEditor() {
     try { return localStorage.getItem('m2tw_faction_automation_report') || ''; } catch { return ''; }
   });
 
+  const flushFactionsSave = useCallback(() => {
+    if (!pendingFactionsSaveRef.current) return;
+    if (factionsSaveTimerRef.current) {
+      clearTimeout(factionsSaveTimerRef.current);
+      factionsSaveTimerRef.current = null;
+    }
+    const text = serialiseDescrSmFactions(pendingFactionsSaveRef.current);
+    pendingFactionsSaveRef.current = null;
+    lastFactionsRawRef.current = text;
+    saveFactionsRaw(text, 'descr_sm_factions.txt');
+  }, []);
+
+  const persistFactions = useCallback((items, { immediate = false } = {}) => {
+    pendingFactionsSaveRef.current = items;
+    if (factionsSaveTimerRef.current) clearTimeout(factionsSaveTimerRef.current);
+    if (immediate) {
+      flushFactionsSave();
+      return;
+    }
+    factionsSaveTimerRef.current = setTimeout(flushFactionsSave, 450);
+  }, [flushFactionsSave]);
+
+  useEffect(() => () => flushFactionsSave(), [flushFactionsSave]);
+
   useEffect(() => {
     const loadCached = () => {
       try {
         const r = localStorage.getItem(LS_KEY) || localStorage.getItem('m2tw_factions_file') || sessionStorage.getItem('m2tw_factions_raw');
-        if (r) {
+        if (r && r !== lastFactionsRawRef.current) {
+          lastFactionsRawRef.current = r;
           setFactions(parseDescrSmFactions(r));
-          saveFactionsRaw(r);
         }
       } catch {}
       try {
@@ -1255,6 +1309,7 @@ export default function FactionsEditor() {
     const file = e.target.files?.[0];if (!file) return;
     const text = await file.text();
     saveFactionsRaw(text, file.name);
+    lastFactionsRawRef.current = text;
     const parsed = parseDescrSmFactions(text);
     setFactions(parsed);
     setSelectedIdx(parsed.length > 0 ? 0 : null);
@@ -1330,6 +1385,7 @@ export default function FactionsEditor() {
 
   const handleExport = () => {
     if (!factions) return;
+    flushFactionsSave();
     const text = serialiseDescrSmFactions(factions);
     const blob = textBlob(text);
     const a = document.createElement('a');
@@ -1339,6 +1395,7 @@ export default function FactionsEditor() {
   };
 
   const handleExportFactionSetup = async () => {
+    flushFactionsSave();
     const zip = new JSZip();
     const included = [];
 
@@ -1415,7 +1472,7 @@ export default function FactionsEditor() {
   const updateFaction = (i, f) => {
     const updated = factions.map((x, idx) => idx === i ? f : x);
     setFactions(updated);
-    saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
+    persistFactions(updated);
   };
 
   const applyFactionAutomation = (factionName, options = {}) => {
@@ -1479,7 +1536,7 @@ export default function FactionsEditor() {
     const updated = [...(factions || []), newF];
     setFactions(updated);
     setSelectedIdx(updated.length - 1);
-    saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
+    persistFactions(updated, { immediate: true });
     const characterCopied = copyDescrCharacterEntries('slave', newF.name);
     const unitAssign = assignSlaveUnitsToFaction(newF.name, newF.name, { count: 13, packUi: true });
     applyFactionAutomation(newF.name, {
@@ -1561,7 +1618,7 @@ export default function FactionsEditor() {
     const updated = [...factions, dup];
     setFactions(updated);
     setSelectedIdx(updated.length - 1);
-    saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
+    persistFactions(updated, { immediate: true });
     let bannersCopied = false;
     
     // Copy banner texture entries from source faction to new faction
@@ -1654,14 +1711,8 @@ export default function FactionsEditor() {
         heirTitle,
       });
       
-      // Remove any existing entries for this new faction name
-      const filtered = storedEntries.filter(entry => {
-        const keyUpper = entry.key.toUpperCase();
-        return !keyUpper.includes(nameUpper);
-      });
-      
-      // Add the duplicated entries and save with proper structure
-      const updated = [...filtered, ...newEntries];
+      // Preserve unrelated and existing text data; only update keys we generated.
+      const updated = upsertTextLocEntries(storedEntries, newEntries);
       persistExpandedStrings(updated, rawText);
       setStringsLoaded(true);
     } catch (err) {
@@ -1738,7 +1789,7 @@ export default function FactionsEditor() {
     const [reordered] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reordered);
     setFactions(items);
-    saveFactionsRaw(serialiseDescrSmFactions(items), 'descr_sm_factions.txt');
+    persistFactions(items, { immediate: true });
     if (selectedIdx !== null) {
       const newIdx = items.findIndex(f => f.name === factions[selectedIdx].name);
       setSelectedIdx(newIdx >= 0 ? newIdx : null);
@@ -1749,12 +1800,16 @@ export default function FactionsEditor() {
     const updated = factions.filter((_, idx) => idx !== i);
     setFactions(updated);
     setSelectedIdx(updated.length > 0 ? Math.min(i, updated.length - 1) : null);
-    saveFactionsRaw(serialiseDescrSmFactions(updated), 'descr_sm_factions.txt');
+    persistFactions(updated, { immediate: true });
   };
 
-  const filtered = factions ?
-  factions.map((f, i) => ({ f, i })).filter(({ f }) => !search || f.name.toLowerCase().includes(search.toLowerCase())) :
-  [];
+  const filtered = useMemo(() => {
+    if (!factions) return [];
+    const query = search.trim().toLowerCase();
+    return factions
+      .map((f, i) => ({ f, i }))
+      .filter(({ f }) => !query || f.name.toLowerCase().includes(query));
+  }, [factions, search]);
 
   const overLimit = factions && factions.length > VANILLA_FACTION_LIMIT;
 
@@ -1880,7 +1935,7 @@ export default function FactionsEditor() {
                   {(provided) => (
                     <div {...provided.droppableProps} ref={provided.innerRef}>
                       {filtered.map(({ f, i }, index) => {
-                        const originalIdx = factions.findIndex(faction => faction.name === f.name);
+                        const originalIdx = i;
                         return (
                           <Draggable key={f.name} draggableId={f.name} index={index}>
                             {(provided, snapshot) => (

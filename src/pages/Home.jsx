@@ -191,6 +191,24 @@ function mergeFilesByPath(existing = [], incoming = []) {
   return Array.from(byPath.values());
 }
 
+function registerUnitImageFiles(files) {
+  const fileMap = { ...(window._m2tw_unit_image_file_map || {}) };
+  for (const file of files || []) {
+    const bareName = file.name.replace(/\.tga$/i, '').toLowerCase();
+    const relPath = (file.webkitRelativePath || file.name)
+      .replace(/\\/g, '/')
+      .replace(/\.tga$/i, '')
+      .toLowerCase();
+    fileMap[bareName] = file;
+    fileMap[relPath] = file;
+    const uiIndex = relPath.indexOf('/ui/');
+    if (uiIndex >= 0) fileMap[relPath.slice(uiIndex + 4)] = file;
+  }
+  window._m2tw_unit_image_file_map = fileMap;
+  window._m2tw_unit_image_files = mergeFilesByPath(window._m2tw_unit_image_files || [], files || []);
+  return fileMap;
+}
+
 async function mapWithLimit(items, limit, mapper) {
   const results = new Array(items.length);
   let index = 0;
@@ -729,24 +747,12 @@ export default function Home() {
     // Auto-load unit images (icon: #dict.tga in ui/units/[faction|merc]/, info: dict_info.tga in ui/unit_info/[faction|merc]/)
     if (unitTgaFiles.length > 0) {
       setFileStatus((prev) => ({ ...prev, unit_images: 'loading' }));
-      runInBackground(async () => {
-        const images = {};
-        const fileMap = { ...(window._m2tw_unit_image_file_map || {}) };
-        for (const item of await decodeTgaFiles(unitTgaFiles)) {
-          if (!item) continue;
-          const bareName = item.file.name.replace(/\.tga$/i, '').toLowerCase();
-          const relPath = (item.file.webkitRelativePath || item.file.name).replace(/\\/g, '/').replace(/\.tga$/i, '').toLowerCase();
-          images[bareName] = item.dataUrl;
-          images[relPath] = item.dataUrl;
-          fileMap[relPath] = item.file;
-        }
-        window._m2tw_unit_images = { ...(window._m2tw_unit_images || {}), ...images };
-        window._m2tw_unit_image_files = mergeFilesByPath(window._m2tw_unit_image_files || [], unitTgaFiles);
-        window._m2tw_unit_image_file_map = fileMap;
-        window.dispatchEvent(new CustomEvent('load-unit-images', { detail: window._m2tw_unit_images }));
-        setUnitImgCount(Object.keys(window._m2tw_unit_images).length);
-        setFileStatus((prev) => ({ ...prev, unit_images: 'ok' }));
-      });
+      registerUnitImageFiles(unitTgaFiles);
+      window._m2tw_unit_images = { ...(window._m2tw_unit_images || {}) };
+      window.dispatchEvent(new CustomEvent('unit-image-files-loaded'));
+      window.dispatchEvent(new CustomEvent('load-unit-images', { detail: { images: window._m2tw_unit_images } }));
+      setUnitImgCount(Object.keys(window._m2tw_unit_image_file_map || {}).length);
+      setFileStatus((prev) => ({ ...prev, unit_images: 'ok' }));
     }
 
     // Auto-load religion pip images
@@ -1079,6 +1085,8 @@ export default function Home() {
       window._m2tw_resource_icons = {};
       window._m2tw_map_files = [];
       window._m2tw_unit_images = {};
+      window._m2tw_unit_image_file_map = {};
+      window._m2tw_unit_image_files = [];
       window._m2tw_ground_textures = {};
       window._m2tw_aerial_ground_types = {};
       window.location.reload();

@@ -456,16 +456,15 @@ function smoothMask(value) {
   return t * t * (3 - 2 * t);
 }
 
-function colorDistance(a, b) {
-  const dr = a.r - b.r;
-  const dg = a.g - b.g;
-  const db = a.b - b.b;
+function colorDistanceRgb(r, g, b, target) {
+  const dr = r - target.r;
+  const dg = g - target.g;
+  const db = b - target.b;
   return Math.sqrt(dr * dr + dg * dg + db * db);
 }
 
-function materialProtectionType(pixel, hsl, settings) {
-  if (!settings.protectMaterials) return false;
-  const { r, g, b } = pixel;
+function materialProtectionType(r, g, b, hsl, protectMaterials) {
+  if (!protectMaterials) return false;
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
   const skinLike = hsl.h >= 4 && hsl.h <= 52 && hsl.s >= 0.12 && hsl.s <= 0.78 &&
     hsl.l >= 0.20 && hsl.l <= 0.86 && r >= g * 0.78 && r > b * 1.12 && g > b * 0.70;
@@ -499,43 +498,72 @@ function recolorPasses(settings) {
   });
 }
 
-function recolorImageData(imageData, settings) {
-  const passes = recolorPasses(settings);
+function buildRecolorPlan(settings) {
+  return {
+    isRecolorPlan: true,
+    passes: recolorPasses(settings),
+    tolerance: Math.max(1, Number(settings.tolerance) || 1),
+    rgbTolerance: Math.max(1, Number(settings.rgbTolerance) || 1),
+    strength: Math.max(0, Number(settings.strength) || 0) / 100,
+    minSat: Math.max(0, Number(settings.minSat) || 0) / 100,
+    lightnessShift: Number(settings.lightnessShift || 0) / 100,
+    exactMix: settings.exactTarget ? 0.88 : 0.42,
+    useSource: !!settings.useSource,
+    preserveLight: !!settings.preserveLight,
+    recolorNeutrals: !!settings.recolorNeutrals,
+    protectExtremes: !!settings.protectExtremes,
+    protectMaterials: !!settings.protectMaterials,
+  };
+}
+
+function recolorImageData(imageData, settingsOrPlan) {
+  const plan = settingsOrPlan?.isRecolorPlan ? settingsOrPlan : buildRecolorPlan(settingsOrPlan);
   const out = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
   const d = out.data;
-  const tolerance = Number(settings.tolerance);
-  const rgbTolerance = Number(settings.rgbTolerance);
-  const strength = Math.max(0, Number(settings.strength) || 0) / 100;
-  const minSat = Number(settings.minSat) / 100;
+  const {
+    passes, tolerance, rgbTolerance, strength, minSat, lightnessShift, exactMix,
+    useSource, preserveLight, recolorNeutrals, protectExtremes, protectMaterials,
+  } = plan;
+  if (!passes.length || strength <= 0) return out;
+
   for (let i = 0; i < d.length; i += 4) {
     const a = d[i + 3];
     if (a < 8) continue;
-    const pixel = { r: d[i], g: d[i + 1], b: d[i + 2] };
-    const hsl = rgbToHsl(pixel.r, pixel.g, pixel.b);
-    if (!settings.recolorNeutrals && hsl.s < minSat) continue;
-    let best = null;
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+    const hsl = rgbToHsl(r, g, b);
+    if (!recolorNeutrals && hsl.s < minSat) continue;
+
+    let best = passes[0];
+    let bestScore = useSource ? 0 : 1;
     for (const pass of passes) {
-      const hueMask = settings.useSource ? Math.max(0, 1 - hueDistance(hsl.h, pass.src.h) / Math.max(1, tolerance)) : 1;
-      const rgbMask = settings.useSource ? Math.max(0, 1 - colorDistance(pixel, pass.srcRgb) / Math.max(1, rgbTolerance)) : 1;
+      if (!useSource) break;
+      const hueMask = Math.max(0, 1 - hueDistance(hsl.h, pass.src.h) / tolerance);
+      if (hueMask <= 0 && bestScore > 0) continue;
+      const rgbMask = Math.max(0, 1 - colorDistanceRgb(r, g, b, pass.srcRgb) / rgbTolerance);
       const score = Math.sqrt(hueMask * rgbMask);
-      if (!best || score > best.score) best = { ...pass, score };
+      if (score > bestScore) {
+        best = pass;
+        bestScore = score;
+      }
     }
-    const protectedType = materialProtectionType(pixel, hsl, settings);
+
+    const protectedType = materialProtectionType(r, g, b, hsl, protectMaterials);
     if (protectedType === 'skin' || protectedType === 'metal') continue;
-    if (protectedType && (best?.score || 0) < 0.84) continue;
+    if (protectedType && bestScore < 0.84) continue;
     const satMask = hsl.s >= minSat ? 1 : 0.38;
-    const detailMask = settings.protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;
+    const detailMask = protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;
     const materialMask = protectedType ? 0.25 : 1;
-    const mask = clamp01(smoothMask((best?.score || 0) * satMask * detailMask * materialMask) * strength);
+    const mask = clamp01(smoothMask(bestScore * satMask * detailMask * materialMask) * strength);
     if (mask <= 0) continue;
-    const exactMix = settings.exactTarget ? 0.88 : 0.42;
     const targetSat = clamp01(hsl.s * (1 - exactMix) + best.tgt.s * exactMix);
-    const baseLight = settings.preserveLight ? hsl.l : clamp01(hsl.l * 0.64 + best.tgt.l * 0.36);
-    const targetLight = clamp01(baseLight + Number(settings.lightnessShift || 0) / 100);
+    const baseLight = preserveLight ? hsl.l : clamp01(hsl.l * 0.64 + best.tgt.l * 0.36);
+    const targetLight = clamp01(baseLight + lightnessShift);
     const recolored = hslToRgb(best.tgt.h, targetSat, targetLight);
-    d[i] = Math.round(d[i] * (1 - mask) + recolored.r * mask);
-    d[i + 1] = Math.round(d[i + 1] * (1 - mask) + recolored.g * mask);
-    d[i + 2] = Math.round(d[i + 2] * (1 - mask) + recolored.b * mask);
+    d[i] = Math.round(r * (1 - mask) + recolored.r * mask);
+    d[i + 1] = Math.round(g * (1 - mask) + recolored.g * mask);
+    d[i + 2] = Math.round(b * (1 - mask) + recolored.b * mask);
   }
   return out;
 }
@@ -731,7 +759,9 @@ async function decodeImageFile(file) {
   canvas.width = bitmap.width; canvas.height = bitmap.height;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(bitmap, 0, 0);
-  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  return imageData;
 }
 
 function imageDataUrl(imageData) {
@@ -739,6 +769,129 @@ function imageDataUrl(imageData) {
   canvas.width = imageData.width; canvas.height = imageData.height;
   canvas.getContext('2d').putImageData(imageData, 0, 0);
   return canvas.toDataURL('image/png');
+}
+
+function imageDataToCanvas(imageData) {
+  const canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  canvas.getContext('2d').putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function alphaBoundsFromImageData(imageData) {
+  const { width, height, data } = imageData;
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] <= 8) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return maxX < minX ? null : { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+function resizeIconImageData(imageData, size, mode) {
+  const src = imageDataToCanvas(imageData);
+  const out = document.createElement('canvas');
+  out.width = size;
+  out.height = size;
+  const ctx = out.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  let sx = 0, sy = 0, sw = imageData.width, sh = imageData.height;
+  if (mode === 'trim-fit') {
+    const bounds = alphaBoundsFromImageData(imageData);
+    if (bounds) ({ x: sx, y: sy, w: sw, h: sh } = bounds);
+  }
+
+  let dx = 0, dy = 0, dw = size, dh = size;
+  if (mode !== 'stretch') {
+    const padding = mode === 'trim-fit' ? Math.max(1, Math.round(size * 0.03)) : 0;
+    const inner = Math.max(1, size - padding * 2);
+    const scale = Math.min(inner / sw, inner / sh);
+    dw = sw * scale;
+    dh = sh * scale;
+    dx = padding + (inner - dw) / 2;
+    dy = padding + (inner - dh) / 2;
+  }
+
+  ctx.drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh);
+  return ctx.getImageData(0, 0, size, size);
+}
+
+function factionNameFromIconFile(file) {
+  const stem = String(file?.name || 'faction').replace(/\.(tga|png)$/i, '').toLowerCase();
+  const match = /^symbol128_(.+)$/i.exec(stem);
+  return (match ? match[1] : stem).replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'faction';
+}
+
+function buildSpriteXml(sheetName, icons, size, columns) {
+  const lines = [`<sprite_definitions version='7'>`, `  <page file='${sheetName}'>`];
+  icons.forEach((icon, j) => {
+    const col = j % columns;
+    const row = Math.floor(j / columns);
+    lines.push(`    <sprite name='${icon.spriteName}' x='${col * size}' y='${row * size}' w='${size}' h='${size}' alpha='1'/>`);
+  });
+  lines.push('  </page>', '</sprite_definitions>');
+  return lines.join('\n');
+}
+
+function updateFactionLogoIndexes(text, mapping) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  let patched = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const factionMatch = /^(\s*faction\s+)(\S+)/i.exec(lines[i]);
+    if (!factionMatch) continue;
+    const factionName = factionMatch[2].trim().toLowerCase();
+    const spriteName = mapping[factionName];
+    if (!spriteName) continue;
+    let blockEnd = lines.length;
+    for (let k = i + 1; k < lines.length; k++) {
+      if (/^\s*faction\s+\S+/i.test(lines[k])) {
+        blockEnd = k;
+        break;
+      }
+    }
+    const logoIndex = lines.slice(i + 1, blockEnd).findIndex(line => /^\s*logo_index\b/i.test(line));
+    if (logoIndex >= 0) {
+      const lineIndex = i + 1 + logoIndex;
+      const indent = /^(\s*)/.exec(lines[lineIndex])?.[1] || '';
+      lines[lineIndex] = `${indent}logo_index\t\t\t\t${spriteName}`;
+      patched++;
+    } else {
+      const insertAfter = lines.slice(i + 1, blockEnd).findIndex(line => /^\s*loading_logo\b/i.test(line));
+      const lineIndex = insertAfter >= 0 ? i + 2 + insertAfter : i + 1;
+      lines.splice(lineIndex, 0, `logo_index\t\t\t\t${spriteName}`);
+      patched++;
+      i++;
+    }
+  }
+  return { text: toCRLF(lines.join('\n')), patched };
+}
+
+async function mapWithLimit(items, limit, mapper) {
+  const results = new Array(items.length);
+  let index = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (index < items.length) {
+      const current = index++;
+      results[current] = await mapper(items[current], current);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function textureWorkerLimit(count) {
+  const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4;
+  return Math.min(count, Math.max(2, Math.min(4, Math.floor(cores / 2) || 2)));
 }
 
 function TextureRecolorTab() {
@@ -761,8 +914,9 @@ function TextureRecolorTab() {
     const first = fileList[0];
     if (!first) return;
     try {
+      const plan = buildRecolorPlan(settings);
       const original = await decodeImageFile(first);
-      const processed = recolorImageData(original, settings);
+      const processed = recolorImageData(original, plan);
       setPreview({ name: first.name, before: imageDataUrl(original), after: imageDataUrl(processed) });
     } catch (err) {
       setStatus(`Preview failed: ${err.message}`);
@@ -786,27 +940,38 @@ function TextureRecolorTab() {
 
   const exportZip = async () => {
     const zip = new JSZip();
-    const lines = [];
-    for (const file of files) {
+    const plan = buildRecolorPlan(settings);
+    let completed = 0;
+    const progressStep = files.length > 100 ? 10 : files.length > 40 ? 5 : 1;
+    setStatus(`Processing ${files.length} texture file${files.length === 1 ? '' : 's'}...`);
+
+    const results = await mapWithLimit(files, textureWorkerLimit(files.length), async (file) => {
       try {
         const original = await decodeImageFile(file);
-        const processed = recolorImageData(original, settings);
+        const processed = recolorImageData(original, plan);
         const sourcePath = file.webkitRelativePath || file.name;
-        const outNames = [];
+        const outputs = [];
         if (settings.outputFormat === 'tga' || settings.outputFormat === 'both') {
           const outName = appendSuffix(sourcePath, settings.suffix, 'tga');
-          zip.file(outName, encodeTga(processed));
-          outNames.push(outName);
+          outputs.push({ name: outName, data: encodeTga(processed) });
         }
         if (settings.outputFormat === 'dds' || settings.outputFormat === 'both') {
           const outName = appendSuffix(sourcePath, settings.suffix, 'dds');
-          zip.file(outName, encodeDds(processed));
-          outNames.push(outName);
+          outputs.push({ name: outName, data: encodeDds(processed) });
         }
-        lines.push(`OK ${sourcePath} -> ${outNames.join(', ')}`);
+        completed += 1;
+        if (completed === files.length || completed % progressStep === 0) setStatus(`Processed ${completed}/${files.length}: ${sourcePath}`);
+        return { line: `OK ${sourcePath} -> ${outputs.map(out => out.name).join(', ')}`, outputs };
       } catch (err) {
-        lines.push(`FAILED ${file.name}: ${err.message}`);
+        completed += 1;
+        if (completed === files.length || completed % progressStep === 0) setStatus(`Processed ${completed}/${files.length}: ${file.name}`);
+        return { line: `FAILED ${file.name}: ${err.message}`, outputs: [] };
       }
+    });
+
+    const lines = results.map(result => result.line);
+    for (const result of results) {
+      for (const output of result.outputs) zip.file(output.name, output.data);
     }
     zip.file('recolor_report.txt', toCRLF(lines.join('\n')));
     const blob = await zip.generateAsync({ type: 'blob' });
@@ -993,6 +1158,194 @@ function PreviewImage({ label, src }) {
   );
 }
 
+function SpriteLogoGeneratorTab() {
+  const [files, setFiles] = useState([]);
+  const [factionText, setFactionText] = useState(() => {
+    try {
+      return localStorage.getItem('m2tw_sm_factions_raw') || localStorage.getItem('m2tw_factions_file') || sessionStorage.getItem('m2tw_factions_raw') || '';
+    } catch { return ''; }
+  });
+  const [settings, setSettings] = useState({ size: 128, columns: 8, maxPerSheet: 64, fitMode: 'trim-fit', prefix: 'faction_logo_spritesheet' });
+  const [result, setResult] = useState(null);
+  const [status, setStatus] = useState('');
+
+  const update = (key, value) => setSettings(prev => ({ ...prev, [key]: value }));
+  const numeric = (key, value, min, max) => {
+    const n = Math.max(min, Math.min(max, Number(value) || min));
+    update(key, n);
+  };
+
+  const handleIcons = (e) => {
+    const list = Array.from(e.target.files || [])
+      .filter(file => /\.(tga|png)$/i.test(file.name))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    e.target.value = '';
+    setFiles(list);
+    setResult(null);
+    setStatus(`${list.length} icon file${list.length === 1 ? '' : 's'} queued.`);
+  };
+
+  const generate = async () => {
+    if (!files.length) return;
+    const size = Math.max(16, Math.min(512, Number(settings.size) || 128));
+    const columns = Math.max(1, Math.min(32, Number(settings.columns) || 8));
+    const maxPerSheet = Math.max(1, Math.min(512, Number(settings.maxPerSheet) || 64));
+    const prefix = String(settings.prefix || 'faction_logo_spritesheet').trim() || 'faction_logo_spritesheet';
+    setStatus(`Processing ${files.length} icon file${files.length === 1 ? '' : 's'}...`);
+
+    const icons = (await mapWithLimit(files, textureWorkerLimit(files.length), async (file) => {
+      const imageData = await decodeImageFile(file);
+      const resized = resizeIconImageData(imageData, size, settings.fitMode);
+      const faction = factionNameFromIconFile(file);
+      return {
+        fileName: file.name,
+        faction,
+        spriteName: `FACTION_LOGO_${faction.toUpperCase()}`,
+        imageData: resized,
+      };
+    })).filter(Boolean);
+
+    const zip = new JSZip();
+    const sheets = [];
+    const mapping = {};
+    for (const icon of icons) mapping[icon.faction] = icon.spriteName;
+
+    for (let i = 0, sheetIndex = 0; i < icons.length; i += maxPerSheet, sheetIndex++) {
+      const chunk = icons.slice(i, i + maxPerSheet);
+      const rows = Math.max(1, Math.ceil(chunk.length / columns));
+      const canvas = document.createElement('canvas');
+      canvas.width = columns * size;
+      canvas.height = rows * size;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      chunk.forEach((icon, j) => {
+        const x = (j % columns) * size;
+        const y = Math.floor(j / columns) * size;
+        ctx.putImageData(icon.imageData, x, y);
+      });
+
+      const sheetName = `${prefix}_${sheetIndex}.tga`;
+      const xmlName = `${prefix}_${sheetIndex}.xml`;
+      const sheetData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const xml = buildSpriteXml(sheetName, chunk, size, columns);
+      zip.file(sheetName, encodeTga(sheetData));
+      zip.file(xmlName, toCRLF(xml));
+      sheets.push({ sheetName, xmlName, count: chunk.length, width: canvas.width, height: canvas.height, preview: canvas.toDataURL('image/png') });
+    }
+
+    let patchedText = '';
+    let patchedCount = 0;
+    if (factionText.trim()) {
+      const patched = updateFactionLogoIndexes(factionText, mapping);
+      patchedText = patched.text;
+      patchedCount = patched.patched;
+      zip.file('descr_sm_factions_patched.txt', patchedText);
+    }
+
+    const report = [
+      `Icons: ${icons.length}`,
+      `Sheets: ${sheets.length}`,
+      `Size: ${size}x${size}`,
+      `Columns: ${columns}`,
+      `Max per sheet: ${maxPerSheet}`,
+      `Patched factions: ${patchedCount}`,
+      '',
+      ...icons.map(icon => `${icon.fileName} -> ${icon.spriteName}`),
+    ].join('\n');
+    zip.file('faction_logo_spritesheet_report.txt', toCRLF(report));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    setResult({ blob, sheets, report, patchedText, patchedCount });
+    setStatus(`Created ${sheets.length} sheet${sheets.length === 1 ? '' : 's'} and ${icons.length} sprite${icons.length === 1 ? '' : 's'}.`);
+    try { localStorage.setItem('rtw_tools_last_output', report); } catch {}
+  };
+
+  return (
+    <div className="grid grid-cols-[320px_1fr_360px] gap-3 min-h-0">
+      <div className="space-y-3">
+        <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
+          <input type="file" accept=".tga,.png" multiple className="hidden" onChange={handleIcons} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load icon files</span>
+        </label>
+        <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
+          <input type="file" accept=".tga,.png" multiple webkitdirectory="" directory="" className="hidden" onChange={handleIcons} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load icon folder</span>
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="block">
+            <span className="text-[10px] uppercase text-slate-500">Size</span>
+            <input type="number" min="16" max="512" value={settings.size} onChange={e => numeric('size', e.target.value, 16, 512)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs" />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase text-slate-500">Columns</span>
+            <input type="number" min="1" max="32" value={settings.columns} onChange={e => numeric('columns', e.target.value, 1, 32)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs" />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase text-slate-500">Max</span>
+            <input type="number" min="1" max="512" value={settings.maxPerSheet} onChange={e => numeric('maxPerSheet', e.target.value, 1, 512)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs" />
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-[10px] uppercase text-slate-500">Fit mode</span>
+          <select value={settings.fitMode} onChange={e => update('fitMode', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
+            <option value="trim-fit">Trim + fit</option>
+            <option value="contain">Contain</option>
+            <option value="stretch">Stretch exact</option>
+          </select>
+        </label>
+        <TextField label="Output prefix" value={settings.prefix} onChange={value => update('prefix', value)} />
+        <FileInput label="Load descr_sm_factions.txt" accept=".txt" onText={setFactionText} />
+        <div className="flex items-center justify-between text-[10px] text-slate-500">
+          <span>{files.length} queued</span>
+          <button onClick={() => { setFiles([]); setResult(null); setStatus('Sprite logo queue cleared.'); }} disabled={!files.length} className="text-slate-400 hover:text-slate-200 disabled:opacity-40">Clear</button>
+        </div>
+        <Button className="w-full h-8 text-xs gap-1.5" onClick={generate} disabled={!files.length}>
+          <Wand2 className="w-3.5 h-3.5" />
+          Generate sheets
+        </Button>
+        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={() => result?.blob && downloadBlob(result.blob, 'rtw_faction_logo_spritesheets.zip')} disabled={!result?.blob}>
+          <Download className="w-3.5 h-3.5" />
+          Download zip
+        </Button>
+        <p className="text-xs text-amber-300 whitespace-pre-wrap">{status}</p>
+      </div>
+
+      <div className="rounded border border-slate-700 bg-slate-950/60 p-3 min-h-[520px] overflow-auto">
+        {result?.sheets?.length ? (
+          <div className="grid grid-cols-2 gap-3">
+            {result.sheets.map(sheet => (
+              <div key={sheet.sheetName} className="space-y-1">
+                <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                  <span className="font-mono text-slate-300 truncate">{sheet.sheetName}</span>
+                  <span>{sheet.width}x{sheet.height}</span>
+                </div>
+                <div className="rounded border border-slate-700 bg-black/40 overflow-hidden">
+                  <img src={sheet.preview} alt={sheet.sheetName} className="w-full h-auto" style={{ imageRendering: 'pixelated' }} />
+                </div>
+                <p className="text-[9px] text-slate-600 font-mono">{sheet.xmlName} - {sheet.count} sprites</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="h-full grid place-items-center text-sm text-slate-500">Load PNG/TGA faction icons.</div>
+        )}
+      </div>
+
+      <div className="grid grid-rows-[1fr_1fr] gap-3 min-h-[520px]">
+        <textarea
+          value={result?.patchedText || factionText}
+          onChange={e => setFactionText(e.target.value)}
+          spellCheck={false}
+          className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 text-[10px] font-mono text-slate-200"
+          placeholder="descr_sm_factions.txt"
+        />
+        <pre className="min-h-0 overflow-auto rounded border border-slate-700 bg-black/30 p-3 text-[10px] text-slate-300 whitespace-pre-wrap">
+          {result?.report || 'Sprite sheet report appears here.'}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 function cloneDelimitedBlock(text, startRegex, stopRegex, transform) {
   const lines = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const start = lines.findIndex(line => startRegex.test(stripComment(line)));
@@ -1144,6 +1497,7 @@ export default function RomeTools() {
   const tabs = [
     ['importer', 'Unit Importer', FileText],
     ['recolor', 'Texture Recolorizer', Wand2],
+    ['sprite-logos', 'Sprite Logos', Image],
     ['dmb-slave', 'DMB Textures', FileText],
     ['duplicate', 'Duplicators', Copy],
   ];
@@ -1172,6 +1526,7 @@ export default function RomeTools() {
       <div className="flex-1 min-h-0 p-3 overflow-auto">
         {tab === 'importer' && <UnitImporterTab />}
         {tab === 'recolor' && <TextureRecolorTab />}
+        {tab === 'sprite-logos' && <SpriteLogoGeneratorTab />}
         {tab === 'dmb-slave' && <DmbSlaveTextureTab />}
         {tab === 'duplicate' && <DuplicatorsTab />}
       </div>

@@ -9,7 +9,7 @@
  *  - "Download All" → ZIP with proper folder structure
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Upload, Download, Wand2, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import JSZip from 'jszip';
@@ -23,7 +23,11 @@ function loadImageFromFile(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new window.Image();
-      img.onload = () => resolve(img);
+      img.onload = () => {
+        img._preview = e.target.result;
+        img._trimBounds = alphaBounds(img);
+        resolve(img);
+      };
       img.onerror = () => reject(new Error('Failed to decode image'));
       img.src = e.target.result;
     };
@@ -32,30 +36,54 @@ function loadImageFromFile(file) {
   });
 }
 
+function alphaBounds(img) {
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, img.width, img.height).data;
+  let minX = img.width, minY = img.height, maxX = -1, maxY = -1;
+  for (let y = 0; y < img.height; y++) {
+    for (let x = 0; x < img.width; x++) {
+      if (data[(y * img.width + x) * 4 + 3] <= 8) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < minX || maxY < minY) return null;
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
 // ---------------------------------------------------------------------------
 // Canvas / pixel helpers
 // ---------------------------------------------------------------------------
 
-function fittedRect(img, w, h, fitMode) {
-  if (fitMode === 'stretch') return { x: 0, y: 0, w, h };
+function fittedRect(img, w, h, fitMode, { trim = true, padding = 0 } = {}) {
+  const bounds = trim && img._trimBounds ? img._trimBounds : { x: 0, y: 0, w: img.width, h: img.height };
+  const innerW = Math.max(1, w - padding * 2);
+  const innerH = Math.max(1, h - padding * 2);
+  if (fitMode === 'stretch') return { sx: bounds.x, sy: bounds.y, sw: bounds.w, sh: bounds.h, dx: padding, dy: padding, dw: innerW, dh: innerH };
   if (fitMode === 'fit-width') {
-    const scale = w / img.width;
-    const dh = img.height * scale;
-    return { x: 0, y: (h - dh) / 2, w, h: dh };
+    const scale = innerW / bounds.w;
+    const dh = bounds.h * scale;
+    return { sx: bounds.x, sy: bounds.y, sw: bounds.w, sh: bounds.h, dx: padding, dy: padding + (innerH - dh) / 2, dw: innerW, dh };
   }
   if (fitMode === 'fit-height') {
-    const scale = h / img.height;
-    const dw = img.width * scale;
-    return { x: (w - dw) / 2, y: 0, w: dw, h };
+    const scale = innerH / bounds.h;
+    const dw = bounds.w * scale;
+    return { sx: bounds.x, sy: bounds.y, sw: bounds.w, sh: bounds.h, dx: padding + (innerW - dw) / 2, dy: padding, dw, dh: innerH };
   }
-  const scale = Math.min(w / img.width, h / img.height);
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  return { x: (w - dw) / 2, y: (h - dh) / 2, w: dw, h: dh };
+  const scale = Math.min(innerW / bounds.w, innerH / bounds.h);
+  const dw = bounds.w * scale;
+  const dh = bounds.h * scale;
+  return { sx: bounds.x, sy: bounds.y, sw: bounds.w, sh: bounds.h, dx: padding + (innerW - dw) / 2, dy: padding + (innerH - dh) / 2, dw, dh };
 }
 
 /** Draw src image into w×h canvas using supersampled browser resampling, returns ImageData */
-function drawToImageData(img, w, h, fitMode) {
+function drawToImageData(img, w, h, fitMode, options = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d');
@@ -71,13 +99,18 @@ function drawToImageData(img, w, h, fitMode) {
   wctx.clearRect(0, 0, work.width, work.height);
   wctx.imageSmoothingEnabled = true;
   wctx.imageSmoothingQuality = 'high';
-  const rect = fittedRect(img, w, h, fitMode);
+  const padding = options.padding ?? (options.trim === false || fitMode === 'stretch' ? 0 : Math.max(1, Math.round(Math.min(w, h) * 0.04)));
+  const rect = fittedRect(img, w, h, fitMode, { trim: options.trim !== false, padding });
   wctx.drawImage(
     img,
-    rect.x * sampleScale,
-    rect.y * sampleScale,
-    rect.w * sampleScale,
-    rect.h * sampleScale
+    rect.sx,
+    rect.sy,
+    rect.sw,
+    rect.sh,
+    rect.dx * sampleScale,
+    rect.dy * sampleScale,
+    rect.dw * sampleScale,
+    rect.dh * sampleScale
   );
   ctx.drawImage(work, 0, 0, work.width, work.height, 0, 0, w, h);
   return ctx.getImageData(0, 0, w, h);
@@ -92,7 +125,7 @@ function applyFilter(imageData, variant, maskImg, w, h) {
   // Get mask pixels if provided
   let maskData = null;
   if (maskImg) {
-    maskData = drawToImageData(maskImg, w, h, 'stretch').data;
+    maskData = drawToImageData(maskImg, w, h, 'stretch', { trim: false, padding: 0 }).data;
   }
 
   for (let i = 0; i < src.length; i += 4) {
@@ -122,6 +155,70 @@ function applyFilter(imageData, variant, maskImg, w, h) {
     dst[i] = r; dst[i + 1] = g; dst[i + 2] = b; dst[i + 3] = a;
   }
   return out;
+}
+
+function bleedTransparentEdges(imageData, iterations = 2) {
+  const { width, height, data } = imageData;
+  for (let pass = 0; pass < iterations; pass++) {
+    const previous = new Uint8ClampedArray(data);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = (y * width + x) * 4;
+        if (previous[index + 3] > 4) continue;
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            if (!ox && !oy) continue;
+            const nx = x + ox, ny = y + oy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            const ni = (ny * width + nx) * 4;
+            if (previous[ni + 3] <= 4) continue;
+            r += previous[ni];
+            g += previous[ni + 1];
+            b += previous[ni + 2];
+            count++;
+          }
+        }
+        if (!count) continue;
+        data[index] = Math.round(r / count);
+        data[index + 1] = Math.round(g / count);
+        data[index + 2] = Math.round(b / count);
+      }
+    }
+  }
+  return imageData;
+}
+
+function imageDataToDataUrl(imageData) {
+  const canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  canvas.getContext('2d').putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+function renderSymbolVariant(sourceImg, set, variant, setConfigs, fitMode, rollMask, selectMask) {
+  const { w, h } = setConfigs[set.key];
+  const base = drawToImageData(sourceImg, w, h, fitMode);
+  const mask = variant === 'roll' ? rollMask : variant === 'select' ? selectMask : null;
+  return bleedTransparentEdges(applyFilter(base, variant, mask, w, h));
+}
+
+function renderAllSymbols(sourceImg, setConfigs, fitMode, rollMask, selectMask) {
+  const result = {};
+  const frames = {};
+  for (const set of DEFAULT_SETS) {
+    const { w, h } = setConfigs[set.key];
+    const base = drawToImageData(sourceImg, w, h, fitMode);
+    for (const variant of set.variants) {
+      const id = `${set.key}_${variant}`;
+      const mask = variant === 'roll' ? rollMask : variant === 'select' ? selectMask : null;
+      const filtered = bleedTransparentEdges(applyFilter(base, variant, mask, w, h));
+      frames[id] = filtered;
+      result[id] = imageDataToDataUrl(filtered);
+    }
+  }
+  return { result, frames };
 }
 
 /** Encode ImageData as a 32-bit RGBA TGA Blob (preserves alpha) */
@@ -284,7 +381,7 @@ function SetConfig({ set, config, onChange }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function SymbolGenerator({ factionName }) {
+export default function SymbolGenerator({ factionName, onGeneratedSymbols }) {
   const [sourceImg, setSourceImg]     = useState(null);
   const [sourcePreview, setSourcePreview] = useState(null);
   const [generated, setGenerated]     = useState({});
@@ -292,6 +389,7 @@ export default function SymbolGenerator({ factionName }) {
   const [fitMode, setFitMode]         = useState('contain');
   const [rollMask, setRollMask]       = useState(null);   // HTMLImageElement + _preview
   const [selectMask, setSelectMask]   = useState(null);
+  const generatedFramesRef = useRef({});
 
   // Per-set resolution configs
   const [setConfigs, setSetConfigs] = useState(() =>
@@ -300,62 +398,42 @@ export default function SymbolGenerator({ factionName }) {
 
   const fileRef = useRef();
 
+  useEffect(() => {
+    generatedFramesRef.current = {};
+    setGenerated({});
+  }, [sourceImg, fitMode, setConfigs, rollMask, selectMask]);
+
   const handleFile = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       const img = await loadImageFromFile(file);
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        img._preview = ev.target.result;
-        setSourceImg(img);
-        setSourcePreview(ev.target.result);
-        setGenerated({});
-      };
-      reader.readAsDataURL(file);
+      setSourceImg(img);
+      setSourcePreview(img._preview);
+      generatedFramesRef.current = {};
+      setGenerated({});
     } catch (err) { console.error(err.message); }
     e.target.value = '';
   }, []);
 
   const loadMask = useCallback(async (img, setter) => {
-    const reader = new FileReader();
-    // we already have the HTMLImageElement; we need a preview URL
-    // img._preview was set inside loadImageFromFile's reader callback for source
-    // For masks, wire it here:
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width; canvas.height = img.height;
-    canvas.getContext('2d').drawImage(img, 0, 0);
-    img._preview = canvas.toDataURL('image/png');
     setter(img);
   }, []);
 
   const generate = useCallback(async () => {
     if (!sourceImg) return;
     setGenerating(true);
-    const result = {};
-    for (const set of DEFAULT_SETS) {
-      const { w, h } = setConfigs[set.key];
-      for (const variant of set.variants) {
-        const id = `${set.key}_${variant}`;
-        const base = drawToImageData(sourceImg, w, h, fitMode);
-        const mask = variant === 'roll' ? rollMask : variant === 'select' ? selectMask : null;
-        const filtered = applyFilter(base, variant, mask, w, h);
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').putImageData(filtered, 0, 0);
-        result[id] = canvas.toDataURL('image/png');
-      }
-    }
+    const { result, frames } = renderAllSymbols(sourceImg, setConfigs, fitMode, rollMask, selectMask);
+    generatedFramesRef.current = frames;
     setGenerated(result);
+    onGeneratedSymbols?.(result);
     setGenerating(false);
-  }, [sourceImg, fitMode, setConfigs, rollMask, selectMask]);
+  }, [sourceImg, fitMode, setConfigs, rollMask, selectMask, onGeneratedSymbols]);
 
   const downloadOne = useCallback((set, variant) => {
     if (!sourceImg) return;
-    const { w, h } = setConfigs[set.key];
-    const mask = variant === 'roll' ? rollMask : variant === 'select' ? selectMask : null;
-    const base = drawToImageData(sourceImg, w, h, fitMode);
-    const filtered = applyFilter(base, variant, mask, w, h);
+    const id = `${set.key}_${variant}`;
+    const filtered = generatedFramesRef.current[id] || renderSymbolVariant(sourceImg, set, variant, setConfigs, fitMode, rollMask, selectMask);
     const blob = encodeRgbaTga(filtered);
     downloadBlob(blob, tgaFilename(factionName, set.key, variant));
   }, [sourceImg, factionName, setConfigs, fitMode, rollMask, selectMask]);
@@ -363,15 +441,15 @@ export default function SymbolGenerator({ factionName }) {
   const downloadAll = useCallback(async () => {
     if (!sourceImg) return;
     const zip = new JSZip();
+    const frames = Object.keys(generatedFramesRef.current).length
+      ? generatedFramesRef.current
+      : renderAllSymbols(sourceImg, setConfigs, fitMode, rollMask, selectMask).frames;
     for (const set of DEFAULT_SETS) {
-      const { w, h } = setConfigs[set.key];
       for (const variant of set.variants) {
         const id = `${set.key}_${variant}`;
-        if (!generated[id]) continue;
-        const mask = variant === 'roll' ? rollMask : variant === 'select' ? selectMask : null;
-        const base = drawToImageData(sourceImg, w, h, fitMode);
-        const filtered = applyFilter(base, variant, mask, w, h);
-        const buf = tgaArrayBuffer(filtered);
+        const frame = frames[id];
+        if (!generated[id] || !frame) continue;
+        const buf = tgaArrayBuffer(frame);
         const fname = tgaFilename(factionName, set.key, variant);
         zip.file(`${set.folder}/${fname}`, buf);
       }

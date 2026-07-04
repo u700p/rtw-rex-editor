@@ -28,6 +28,30 @@ function defaultAdjective(displayName) {
   return displayName;
 }
 
+function upsertTextLocEntries(existingEntries, incomingEntries) {
+  const out = [];
+  const indexByKey = new Map();
+  for (const entry of existingEntries || []) {
+    const key = normalizeLocKey(entry.key);
+    if (!key) continue;
+    indexByKey.set(key.toUpperCase(), out.length);
+    out.push({ key, value: entry.value ?? '' });
+  }
+  for (const entry of incomingEntries || []) {
+    const key = normalizeLocKey(entry.key);
+    if (!key) continue;
+    const normalized = { key, value: entry.value ?? '' };
+    const index = indexByKey.get(key.toUpperCase());
+    if (index === undefined) {
+      indexByKey.set(key.toUpperCase(), out.length);
+      out.push(normalized);
+    } else {
+      out[index] = normalized;
+    }
+  }
+  return out;
+}
+
 export default function DescriptionsTab({ factionName }) {
   const [localizationEntries, setLocalizationEntries] = useState([]);
   const [allEntries, setAllEntries] = useState([]);
@@ -39,12 +63,16 @@ export default function DescriptionsTab({ factionName }) {
       key: normalizeLocKey(entry.key),
       value: entry.value ?? '',
     })).filter(entry => entry.key);
+    const serializedRawText = serializeTextLocEntries(normalizedEntries, { rawText: nextRawText, preserveMissing: true });
+    const storedEntries = textLocMapToEntries(parseTextLocFile(serializedRawText))
+      .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }));
     updateTextLocalizationFile(EXPANDED_BI_FILE, {
-      entries: normalizedEntries,
-      rawText: nextRawText,
+      entries: storedEntries,
+      rawText: serializedRawText,
       sourceFormat: 'txt',
     });
-    try { localStorage.setItem(GLOBAL_STRINGS_KEY, JSON.stringify({ entries: normalizedEntries, rawText: nextRawText })); } catch {}
+    setRawText(serializedRawText);
+    try { localStorage.setItem(GLOBAL_STRINGS_KEY, JSON.stringify({ entries: storedEntries, rawText: serializedRawText })); } catch {}
   }, [rawText]);
 
   const loadLocalizationText = useCallback(async (e) => {
@@ -63,7 +91,7 @@ export default function DescriptionsTab({ factionName }) {
 
   const exportLocalizationText = () => {
     if (allEntries.length === 0) return;
-    const blob = textBlob(serializeTextLocEntries(allEntries, { rawText }));
+    const blob = textBlob(serializeTextLocEntries(allEntries, { rawText, preserveMissing: true }));
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'expanded_bi.txt';
@@ -195,8 +223,7 @@ export default function DescriptionsTab({ factionName }) {
       heirTitle,
     });
 
-    const filtered = allEntries.filter(e => !e.key?.toUpperCase().includes(dstUpper));
-    const updated = [...filtered, ...newEntries];
+    const updated = upsertTextLocEntries(allEntries, newEntries);
     setAllEntries(updated);
     setLocalizationEntries(newEntries);
     persistExpandedEntries(updated);

@@ -1,18 +1,63 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Section } from './UnitStatRow';
 import { Upload, X, Download, Copy } from 'lucide-react';
 import { decodeTgaToDataUrl } from '../shared/tgaDecoder';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function findImage(unitImages, key) {
-  if (!unitImages) return null;
-  if (unitImages[key]) return unitImages[key];
+function findMatchingKey(map, key) {
+  if (!map || !key) return null;
   const lower = key.toLowerCase();
-  for (const k of Object.keys(unitImages)) {
-    if (k.toLowerCase() === lower) return unitImages[k];
+  if (Object.prototype.hasOwnProperty.call(map, key)) return key;
+  for (const k of Object.keys(map)) {
+    const kl = k.toLowerCase();
+    if (kl === lower || kl.endsWith(`/${lower}`)) return k;
   }
   return null;
+}
+
+function findImageSource(unitImages, key) {
+  const images = { ...(typeof window !== 'undefined' ? window._m2tw_unit_images || {} : {}), ...(unitImages || {}) };
+  const imageKey = findMatchingKey(images, key);
+  if (imageKey && images[imageKey]) return { key: imageKey, dataUrl: images[imageKey] };
+
+  const files = typeof window !== 'undefined' ? window._m2tw_unit_image_file_map || {} : {};
+  const fileKey = findMatchingKey(files, key);
+  if (fileKey && files[fileKey]) return { key: fileKey, file: files[fileKey] };
+
+  return null;
+}
+
+function unitImageKeys(unitImages) {
+  const keys = new Set(Object.keys(unitImages || {}));
+  if (typeof window !== 'undefined') {
+    for (const key of Object.keys(window._m2tw_unit_images || {})) keys.add(key);
+    for (const key of Object.keys(window._m2tw_unit_image_file_map || {})) keys.add(key);
+  }
+  return [...keys];
+}
+
+function decodeUnitImageFile(file) {
+  if (!file) return Promise.resolve(null);
+  if (typeof window === 'undefined') {
+    return file.arrayBuffer().then(buf => decodeTgaToDataUrl(buf));
+  }
+  if (!window._m2tw_unit_image_decode_promises) window._m2tw_unit_image_decode_promises = new WeakMap();
+  const cache = window._m2tw_unit_image_decode_promises;
+  if (!cache.has(file)) {
+    cache.set(file, file.arrayBuffer().then(buf => decodeTgaToDataUrl(buf)));
+  }
+  return cache.get(file);
+}
+
+function cacheDecodedUnitImage(file, key, dataUrl) {
+  if (typeof window === 'undefined' || !file || !dataUrl) return;
+  const images = { ...(window._m2tw_unit_images || {}) };
+  images[key] = dataUrl;
+  for (const [mapKey, mappedFile] of Object.entries(window._m2tw_unit_image_file_map || {})) {
+    if (mappedFile === file) images[mapKey] = dataUrl;
+  }
+  window._m2tw_unit_images = images;
 }
 
 // Encode canvas → TGA bytes (BGRA, uncompressed)
@@ -61,9 +106,8 @@ const SLOT_SIZES = { card: [48, 56], info: [260, 350] };
  * and extract path segments that indicate sub-variants.
  */
 function detectVariants(unitImages, dictLower) {
-  if (!unitImages) return [];
   const variants = new Set();
-  for (const key of Object.keys(unitImages)) {
+  for (const key of unitImageKeys(unitImages)) {
     const kl = key.toLowerCase();
     // Match patterns like: .../something/unit_name or unit_name_info
     const bare = dictLower.replace(/^#/, '');
@@ -83,10 +127,32 @@ function detectVariants(unitImages, dictLower) {
 
 // ── UnitImageSlot ────────────────────────────────────────────────────────────
 
-function UnitImageSlot({ label, imageKey, img, onUpload, onDelete, targetSize }) {
+function UnitImageSlot({ label, imageKey, source, onUpload, onDelete, targetSize }) {
   const fileRef = useRef();
   const [preview, setPreview] = useState(null);
+  const [loadedImg, setLoadedImg] = useState(source?.dataUrl || null);
+  const [loading, setLoading] = useState(false);
   const [tw, th] = targetSize;
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadedImg(source?.dataUrl || null);
+    setLoading(false);
+
+    if (!source?.file || source.dataUrl) return () => { cancelled = true; };
+
+    setLoading(true);
+    decodeUnitImageFile(source.file)
+      .then(dataUrl => {
+        if (cancelled || !dataUrl) return;
+        setLoadedImg(dataUrl);
+        cacheDecodedUnitImage(source.file, source.key, dataUrl);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [source?.key, source?.file, source?.dataUrl]);
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
@@ -128,9 +194,9 @@ function UnitImageSlot({ label, imageKey, img, onUpload, onDelete, targetSize })
             <button onClick={() => setPreview(null)} className="text-[9px] text-muted-foreground hover:text-destructive px-1">✕</button>
           </div>
         </div>
-      ) : img ? (
+      ) : loadedImg ? (
         <div className="relative">
-          <img src={img} alt={label} className="border border-border rounded bg-black object-contain"
+          <img src={loadedImg} alt={label} className="border border-border rounded bg-black object-contain"
             style={{ imageRendering: 'pixelated', maxWidth: tw * 2, maxHeight: th * 1.5 }} />
           <button
             className="absolute -top-1 -right-1 bg-destructive/80 hover:bg-destructive rounded-full w-3.5 h-3.5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -142,7 +208,12 @@ function UnitImageSlot({ label, imageKey, img, onUpload, onDelete, targetSize })
             onClick={() => fileRef.current?.click()} title="Replace">↑</button>
           <button
             className="absolute bottom-0 left-0 bg-black/60 rounded-tr text-[8px] text-white px-1 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={() => downloadTGA(img, `${imageKey.replace(/^#/, '')}.tga`, tw, th)} title="Export .tga">↓</button>
+            onClick={() => downloadTGA(loadedImg, `${imageKey.replace(/^#/, '')}.tga`, tw, th)} title="Export .tga">↓</button>
+        </div>
+      ) : loading ? (
+        <div className="border border-border rounded flex items-center justify-center text-[9px] text-muted-foreground bg-black/20"
+          style={{ width: Math.min(tw, 80), height: Math.min(th, 96) }}>
+          Loading…
         </div>
       ) : (
         <button onClick={() => fileRef.current?.click()}
@@ -167,15 +238,15 @@ function ImagesPanel({ dictLower, variant, unitImages, onImageUpload, onImageDel
   const cardKey = variant ? `units/${variant}/#${dictLower}` : `#${dictLower}`;
   const infoKey = variant ? `unit_info/${variant}/${dictLower}_info` : `${dictLower}_info`;
 
-  const cardImg = findImage(unitImages, cardKey) || findImage(unitImages, `#${dictLower}`);
-  const infoImg = findImage(unitImages, infoKey) || findImage(unitImages, `${dictLower}_info`);
+  const cardSource = findImageSource(unitImages, cardKey) || findImageSource(unitImages, `#${dictLower}`);
+  const infoSource = findImageSource(unitImages, infoKey) || findImageSource(unitImages, `${dictLower}_info`);
 
   return (
     <div className="flex items-end justify-center gap-8 py-4 border border-border rounded-lg bg-card/40">
       <UnitImageSlot
         label="Unit Card"
         imageKey={cardKey}
-        img={cardImg}
+        source={cardSource}
         onUpload={onImageUpload}
         onDelete={onImageDelete}
         targetSize={SLOT_SIZES.card}
@@ -183,7 +254,7 @@ function ImagesPanel({ dictLower, variant, unitImages, onImageUpload, onImageDel
       <UnitImageSlot
         label="Unit Info"
         imageKey={infoKey}
-        img={infoImg}
+        source={infoSource}
         onUpload={onImageUpload}
         onDelete={onImageDelete}
         targetSize={SLOT_SIZES.info}

@@ -125,7 +125,7 @@ export function textLocMapToEntries(map) {
     .map(([key, value]) => ({ key, value: String(value ?? '') }));
 }
 
-export function textLocEntriesToMap(entries, rawText = '') {
+export function textLocEntriesToMap(entries, rawText = '', { preserveMissing = false } = {}) {
   const map = rawText ? parseTextLocFile(rawText) : {};
   const keep = new Set();
 
@@ -136,15 +136,17 @@ export function textLocEntriesToMap(entries, rawText = '') {
     map[key] = String(entry.value ?? '');
   }
 
-  for (const key of Object.keys(map)) {
-    if (!keep.has(key)) delete map[key];
+  if (!preserveMissing) {
+    for (const key of Object.keys(map)) {
+      if (!keep.has(key)) delete map[key];
+    }
   }
 
   return map;
 }
 
-export function serializeTextLocEntries(entries, { rawText = '', header } = {}) {
-  return serializeTextLocFile(textLocEntriesToMap(entries, rawText), { header });
+export function serializeTextLocEntries(entries, { rawText = '', header, preserveMissing = false } = {}) {
+  return serializeTextLocFile(textLocEntriesToMap(entries, rawText, { preserveMissing }), { header });
 }
 
 export function serializeTextLocFile(map, { header } = {}) {

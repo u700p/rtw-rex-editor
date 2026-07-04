@@ -7,6 +7,28 @@ export default function StringsTab({ factionName, onStringsUpdate }) {
   const [stringsData, setStringsData] = useState('');
   const fileRef = useRef();
 
+  const upsertStringEntries = useCallback((data, entries) => {
+    const lines = String(data || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const lineByKey = new Map();
+    lines.forEach((line, index) => {
+      const match = line.match(/^\{([^}]+)\}/);
+      if (match) lineByKey.set(match[1].toUpperCase(), index);
+    });
+    for (const { key, value } of entries || []) {
+      if (!value || !String(value).trim()) continue;
+      const normalizedKey = String(key || '').replace(/^\{/, '').replace(/\}$/, '');
+      if (!normalizedKey) continue;
+      const nextLine = `{${normalizedKey}}${value}`;
+      const index = lineByKey.get(normalizedKey.toUpperCase());
+      if (index === undefined) {
+        lines.push(nextLine);
+      } else {
+        lines[index] = nextLine;
+      }
+    }
+    return `${lines.join('\n').replace(/\n+$/, '')}\n`;
+  }, []);
+
   const loadStrings = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -40,33 +62,14 @@ export default function StringsTab({ factionName, onStringsUpdate }) {
   useEffect(() => {
     const handleStringsUpdate = (e) => {
       if (e.detail?.factionName === factionName && e.detail?.entries) {
-        // Build strings from entries
-        let newData = stringsData || '';
-        const factionNameUpper = factionName.toUpperCase();
-        
-        // Remove existing entries for this faction
-        const lines = newData.split('\n').filter(line => {
-          const match = line.match(/^\{([^}]+)\}/);
-          if (!match) return true;
-          const key = match[1];
-          return !key.includes(factionNameUpper);
-        });
-        
-        // Add new entries
-        e.detail.entries.forEach(({ key, value }) => {
-          if (value && value.trim()) {
-            lines.push(`{${key}}${value}`);
-          }
-        });
-        
-        newData = lines.join('\n') + '\n';
+        const newData = upsertStringEntries(stringsData, e.detail.entries);
         setStringsData(newData);
         localStorage.setItem(`m2tw_strings_${factionName}`, newData);
       }
     };
     window.addEventListener('strings-update-request', handleStringsUpdate);
     return () => window.removeEventListener('strings-update-request', handleStringsUpdate);
-  }, [factionName, stringsData]);
+  }, [factionName, stringsData, upsertStringEntries]);
 
   const addEntry = (key, value) => {
     if (!value.trim()) return stringsData;
@@ -74,27 +77,8 @@ export default function StringsTab({ factionName, onStringsUpdate }) {
     return stringsData + newEntry;
   };
 
-  const removeEntriesForFaction = (data, factionNameUpper) => {
-    const lines = data.split('\n');
-    return lines.filter(line => {
-      if (!line.trim()) return false;
-      const match = line.match(/^\{([^}]+)\}/);
-      if (!match) return true;
-      const key = match[1];
-      return !key.includes(factionNameUpper);
-    }).join('\n');
-  };
-
   const handleUpdateStrings = (entries) => {
-    const factionNameUpper = factionName.toUpperCase();
-    let newData = stringsData ? removeEntriesForFaction(stringsData, factionNameUpper) : '';
-    
-    entries.forEach(({ key, value }) => {
-      if (value && value.trim()) {
-        newData += `{${key}}${value}\n`;
-      }
-    });
-    
+    const newData = upsertStringEntries(stringsData, entries);
     setStringsData(newData);
     localStorage.setItem(`m2tw_strings_${factionName}`, newData);
     
