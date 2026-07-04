@@ -386,6 +386,9 @@ function scoreSlaveUnit(unit, tokens) {
   return score;
 }
 
+const AUTO_UNIT_ASSIGNMENT_LIMIT = 6;
+const AUTO_UNIT_MATCH_THRESHOLD = 6;
+
 function getAssignmentStore() {
   try { return JSON.parse(localStorage.getItem(LS_UNIT_ASSIGNMENTS) || '{}'); } catch { return {}; }
 }
@@ -419,39 +422,23 @@ function assignSlaveUnitsToFaction(targetFaction, profileText, options = {}) {
   if (!dst || !raw) return { changed: false, count: 0, units: [] };
   const units = parseEDU(raw);
   const tokens = tokenizeProfile(`${profileText || ''} ${dst}`);
-  const targetCount = Math.max(1, Number(options.count) || 13);
+  const requestedCount = Math.max(1, Number(options.count) || AUTO_UNIT_ASSIGNMENT_LIMIT);
+  const targetCount = Math.min(requestedCount, Number(options.maxAutoUnits) || AUTO_UNIT_ASSIGNMENT_LIMIT);
+  const minScore = Number(options.minScore) || AUTO_UNIT_MATCH_THRESHOLD;
   const candidates = units
     .map((unit, index) => ({ unit, index, source: 'slave', owners: (unit.ownership || []).map((owner) => owner.toLowerCase()) }))
     .filter(({ owners }) => owners.includes('slave') && !owners.includes(dst.toLowerCase()) && !owners.includes('all'))
     .map((entry) => ({ ...entry, score: scoreSlaveUnit(entry.unit, tokens) }))
     .sort((a, b) => b.score - a.score || String(a.unit.type).localeCompare(String(b.unit.type)));
-  const fallbackGenerals = units
-    .map((unit, index) => {
-      const owners = (unit.ownership || []).map((owner) => owner.toLowerCase());
-      const source = owners.find((owner) => owner !== dst.toLowerCase() && owner !== 'all') || 'slave';
-      return { unit, index, owners, source, score: scoreSlaveUnit(unit, tokens) };
-    })
-    .filter(({ unit, owners }) => isGeneralUnit(unit) && !owners.includes(dst.toLowerCase()) && !owners.includes('all'))
-    .sort((a, b) => {
-      const slaveDelta = Number(b.owners.includes('slave')) - Number(a.owners.includes('slave'));
-      return slaveDelta || b.score - a.score || String(a.unit.type).localeCompare(String(b.unit.type));
-    });
-  const positive = candidates.filter((entry) => entry.score > 0);
-  const pool = positive.length >= targetCount ? positive : candidates;
-  const general = pool.find((entry) => isGeneralUnit(entry.unit)) || candidates.find((entry) => isGeneralUnit(entry.unit)) || fallbackGenerals[0];
+  const matched = candidates.filter((entry) => entry.score >= minScore);
+  const general = matched.find((entry) => isGeneralUnit(entry.unit)) || candidates.find((entry) => isGeneralUnit(entry.unit));
   const selected = [];
   if (general) selected.push(general);
-  for (const entry of pool) {
+
+  for (const entry of matched) {
     if (selected.length >= targetCount) break;
     if (general && entry.index === general.index) continue;
     selected.push(entry);
-  }
-  if (selected.length < targetCount) {
-    for (const entry of candidates) {
-      if (selected.length >= targetCount) break;
-      if (selected.some((selectedEntry) => selectedEntry.index === entry.index)) continue;
-      selected.push(entry);
-    }
   }
   if (!selected.length) return { changed: false, count: 0, units: [] };
 
@@ -1075,13 +1062,13 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
             className="w-full h-16 bg-slate-700 border border-slate-600 rounded p-2 text-[10px] text-slate-100 resize-none"
           />
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] text-slate-500">Adds 13 EDU units when possible, preferring slave units and always pulling a general_unit fallback.</p>
+            <p className="text-[9px] text-slate-500">Adds up to {AUTO_UNIT_ASSIGNMENT_LIMIT} matching slave-owned EDU units. It will not pad the roster with unrelated rebel units.</p>
             <button
               type="button"
               onClick={runUnitAssignment}
               className="px-3 py-1 text-[10px] rounded border border-amber-700 text-amber-200 hover:bg-amber-900/30 shrink-0"
             >
-              Assign 13 Units
+              Assign Matching Units
             </button>
           </div>
           {unitAssignResult && (
@@ -1538,7 +1525,7 @@ export default function FactionsEditor() {
     setSelectedIdx(updated.length - 1);
     persistFactions(updated, { immediate: true });
     const characterCopied = copyDescrCharacterEntries('slave', newF.name);
-    const unitAssign = assignSlaveUnitsToFaction(newF.name, newF.name, { count: 13, packUi: true });
+    const unitAssign = assignSlaveUnitsToFaction(newF.name, newF.name, { count: AUTO_UNIT_ASSIGNMENT_LIMIT, packUi: true });
     applyFactionAutomation(newF.name, {
       displayName: newF.name,
       characterCopied,
@@ -1733,7 +1720,7 @@ export default function FactionsEditor() {
       ? copyDescrCharacterEntries(src.name, newFactionName, src.culture)
       : false;
     const unitAssign = duplicateOptions.assignSlaveUnits
-      ? assignSlaveUnitsToFaction(newFactionName, unitProfileText, { count: 13, packUi: duplicateOptions.packUnitCards })
+      ? assignSlaveUnitsToFaction(newFactionName, unitProfileText, { count: AUTO_UNIT_ASSIGNMENT_LIMIT, packUi: duplicateOptions.packUnitCards })
       : { count: 0 };
     const eduCopied = copyEduOwnershipFromFaction(src.name, newFactionName);
     const edbCopied = copyEdbFactionRequirements(src.name, newFactionName, src.culture);
@@ -1771,7 +1758,7 @@ export default function FactionsEditor() {
   };
 
   const handleAssignUnitsForFaction = (factionName, description) => {
-    const result = assignSlaveUnitsToFaction(factionName, description || factionName, { count: 13, packUi: true });
+    const result = assignSlaveUnitsToFaction(factionName, description || factionName, { count: AUTO_UNIT_ASSIGNMENT_LIMIT, packUi: true });
     if (result.changed) {
       try { setEduUnits(parseEduUnits(getEduRawText())); } catch {}
       applyFactionAutomation(factionName, {
@@ -2131,7 +2118,7 @@ export default function FactionsEditor() {
                   placeholder="e.g. Egyptian/Greek infantry with archers and light cavalry"
                   className="w-full h-16 bg-slate-700 border border-slate-600 rounded p-2 text-[10px] text-slate-100 resize-none"
                 />
-                <p className="text-[9px] text-slate-500 mt-1">Used to pick the 13 slave-owned units for this faction.</p>
+                <p className="text-[9px] text-slate-500 mt-1">Used to pick a small matched set of slave-owned units for this faction.</p>
               </div>
             </div>
           </div>
