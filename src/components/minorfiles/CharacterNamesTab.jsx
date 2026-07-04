@@ -72,6 +72,216 @@ const SECTIONS = [
   { key: 'females', label: 'Female First Names' },
 ];
 
+const DEFAULT_GENERATOR_CULTURES = ['hellenized', 'phoenician', 'arabic'];
+const DEFAULT_GENERATOR_COUNTS = { characters: 250, surnames: 35, females: 100 };
+const GENERATOR_COUNT_FIELDS = [
+  { key: 'characters', label: 'Men' },
+  { key: 'surnames', label: 'Surnames' },
+  { key: 'females', label: 'Women' },
+];
+
+const NAME_MODULES = {
+  arabic: {
+    label: 'Pre-Islamic Arabic',
+    theophoric: true,
+    male: [
+      'Malik','Salih','Dathan','Qaydar','Radif','Waddah','Hawmal','Zariq','Nasr','Lihyan','Amru','Harith','Hud','Shalaf','Thamim','Zamil','Raqim','Ghawth','Jadhima','Adnan','Nizar','Mudar','Rabi','Bahir','Kathir','Suwayb','Ablaq','Dhabin','Rufaq','Luqman','Hamdan','Nadir','Tayyi','Wabr','Kahf','Qusayy','Jasim','Rizam','Sabiq','Damir','Walid','Tarif','Nafis','Zafir','Rayyan','Sabur','Wathil','Qasim','Yazid','Zayd',
+      'Aws','Khazraj','Ghassan','Jafna','Mundhir','Numan','Imru','Qays','Kinda','Hujr','Akil','Adi','Ubayd','Utba','Shayba','Nawfal','Hakam','Hisham','Safwan','Umayya','Makhzum','Kilab','Murra','Tamim','Bakr','Taghlib','Shayban','Yashkur','Azd','Aamir','Mazim','Saad','Sadus','Asad','Kinanah','Khuzaa','Rabah','Rafi','Suhayl','Suhaym','Dhuwayb','Jundub','Ghalib','Hanzala','Ashath','Zuhayr','Labid','Antara','Urwa','Alqama','Nabigha','Tarafa','Mutalammis','Maysara','Shurahbil','Rabiah','Hawazin','Sulaym','Mazin','Mirdas','Dirar','Aqra','Asim','Khalid','Marwan','Abjar','Yashjub','Himyar','Saba','Dhu_Nuwas','Dhu_Yazan','Tubba','Qataban','Awsan','Mina','Madhij','Murad','Zubayd','Jarm','Judham','Kalb','Tanukh','Iyad','Anmar','Bajila','Sakhr','Fazara','Abs','Dhubyan','Murayrah','Rawaha','Habib','Ayyub','Safir','Rabah'
+    ],
+    female: [
+      'Labna','Hasna','Rima','Suhayla','Nashwa','Layla','Hind','Rawda','Ghusun','Dalila','Sabra','Nura','Wafa','Badra','Haifa','Thuraya','Asila','Khawla','Amina','Zahra','Afra','Samira','Lina','Tamara','Salma','Rahma','Wardah','Hana','Lubna','Maryam','Khadija','Nadia','Ruba','Dina','Haya','Abla','Tarfah','Shamsa','Nuha','Yasmin','Sawsan','Nabila','Raniya','Warda','Siham','Basma','Arwa','Nayla','Munia','Sawdah',
+      'Atika','Asma','Barrah','Jamila','Juwayriya','Ruqayya','Safiyya','Sukayna','Sumayya','Ummama','Rayhana','Maysun','Halah','Fakhita','Fariha','Qutayla','Ramlah','Rabab','Umaima','Raitah','Zaynab','Bahila','Qayla','Rumana','Sahar','Saba','Dhuha','Nawar','Maha','Mays','Hawla','Ghazala','Jumana','Hulda','Najma','Durra','Amra','Hindah','Saffana','Habiba','Jalila','Karima','Lamis','Muna','Sahba','Thubayta','Aaliyah','Ghaliya','Qamar','Rashida','Rufayda'
+    ],
+    roots: ['Salih','Datha','Qaydar','Lihyan','Adnan','Nizar','Mudar','Rabiah','Harith','Qusayy','Jadhima','Ghassan','Jafna','Kinda','Hujr','Qays','Tamim','Bakr','Taghlib','Shayban','Azd','Himyar','Saba','Madhij','Kalb','Tanukh','Abs','Dhubyan','Murra','Kilab','Makhzum'],
+    deities: ['Wadd','Allat','Uzza','Manat','Shams','Qays','Nasr','Ruda','Dushara','Hubal','Yaghuth','Suwai']
+  },
+  phoenician: {
+    label: 'Phoenician/Punic',
+    theophoric: true,
+    male: [
+      'Abibaal','Ahiram','Hiram','Ithobaal','Ittobaal','Ethbaal','Eshmunazar','Tabnit','Bodashtart','Yatonbaal','Baalyaton','Milkiram','Milkyaton','Mattan','Mattanbaal','Baalshillek','Baalhanno','Hannobaal','Hannibal','Hanno','Bostar','Bodmelqart','Bodon','Bomilcar','Hamilcar','Hasdrubal','Maharbal','Mago','Gisco','Gisgo','Himilco','Adonibaal','Abdmilk','Abdmelqart','Abdastart','Abdeshmun','Gerastart','Azimilk','Shipitbaal','Sakunbaal','Pumayyaton','Eshmunhalos','Baalazor','Elibaal','Sibitti','Aderbal','Safat','Saphon','Mahar','Ahirom','Astarton','Melqartshama','Baalram','Baalshamar','Maharbaal','Baalpilles','Eshmunyaton','Bodtanit','Abdtanit','Tanitbaal','Reshefazar','Abdreshef','Milkbaal','Yadaamilk','Yehawmilk','Baalhannos','Hannosh','Germelqart','Bodashmun','Abdhammon','Hammon','Baalhammon','Adonmelqart','Muthunbaal','Sikarbaal','Zimrida','Abiatar','Yaphur','Baalmalek','Malchus'
+    ],
+    female: [
+      'Elissa','Dido','Sophonisba','Arishat','Batnoam','Abiba','Astarte','Ashtart','Tanit','Amatastart','Baalat','Bodashtart','Eshmunit','Melqartia','Hanniba','Hannona','Salambo','Saponiba','Abdmilkia','Milkiramia','Yatonbaala','Adonia','Ahiroma','Astartia','Pumayyata','Mattanat','Tanitbaala','Reshefa','Ashtartia','Baalhanna','Gisgona','Hammonia','Bostarida','Magonissa','Himilka','Yehawmilka','Bodtanita','Saphona','Tabnita','Aderbala'
+    ],
+    roots: ['Baal','Melqart','Eshmun','Astarte','Tanit','Hanno','Mago','Hamilcar','Hasdrubal','Mattan','Hiram','Abibaal','Bodashtart','Yatonbaal','Gisco','Himilco','Bostar','Reshef','Hammon','Milk'],
+    deities: ['Baal','Melqart','Eshmun','Astarte','Tanit','Reshef','Hammon','Milk']
+  },
+  hellenized: {
+    label: 'Hellenized',
+    male: [
+      'Alexandros','Antiochos','Demetrios','Diodoros','Dionysios','Apollonios','Theodoros','Herakleides','Philinos','Philotas','Philoxenos','Nikandros','Nikanor','Nikarchos','Seleukos','Ptolemaios','Lysimachos','Menandros','Polyxenos','Artemidoros','Zenon','Zopyros','Kleon','Klearchos','Sostratos','Sosibios','Damon','Damasos','Timaios','Timarchos','Ariston','Aristoboulos','Aristokles','Hegesias','Hegemon','Krateros','Eumenes','Peukestas','Andronikos','Kallias','Kallikrates','Kleomenes','Leontios','Leonidas','Menedemos','Mithridates','Orophernes','Athenaios','Poseidonios','Heliodoros','Diogenes','Philokles','Straton','Doros','Nikomachos','Eukrates','Eupolemos','Theophilos','Zabdas','Zabdaios','Iamblichos','Malichos','Aretas','Obodas','Syllaios','Abgaros','Sampsigeramos','Sohaimos','Azizos','Monimos','Mannaios','Rabbilos','Gennaios','Kaisaros','Herodoros'
+    ],
+    female: [
+      'Berenike','Arsinoe','Kleopatra','Laodike','Apollonia','Diodora','Dionysia','Theodora','Nikaia','Philippa','Olympias','Stratonike','Eurydike','Kleonike','Kallisto','Kallistrate','Timandra','Aristomache','Phila','Philista','Philotera','Athenais','Heliodora','Nikomache','Eukleia','Euphemia','Damarete','Xenokleia','Zoe','Thais','Glaphyra','Nysa','Tryphaina','Basileia','Herakleia','Leontis','Melitta','Eirene','Agathonike','Eudokia'
+    ],
+    roots: ['Alexandros','Antiochos','Demetrios','Seleukos','Diodoros','Zenon','Apollonios','Theodoros','Aretas','Obodas','Malichos','Iamblichos','Zabdas','Abgaros','Syllaios','Azizos'],
+    deities: ['Apollo','Dionysos','Helios','Herakles','Zeus','Artemis']
+  },
+  hittite: {
+    label: 'Hittite',
+    male: ['Hattusili','Mursili','Suppiluliuma','Tudhaliya','Arnuwanda','Telipinu','Zidanta','Huzziya','Kantuzzili','Piyassili','Kurunta','Tuwanuwa','Zuwapi','Pithana','Anitta','Zita','Tarhunta','Arma','Hantili','Mashuiluwa','Manapa','Kupanta','Ura','Zalpa','Kukkuli','Ukkura','Zitana','Huzziyas','Muwatalli','Halpasulupi'],
+    female: ['Puduhepa','Tawananna','Nikkal','Asmunikal','Harapsili','Danuhepa','Gassulawiya','Malnigal','Ammuna','Kiluhepa','Ariya','Hepat','Azzari','Naptera','Ishara','Waliyanni'],
+    roots: ['Hatti','Tarhun','Arma','Tudhaliya','Mursili','Hattusili','Kurunta','Piyassili','Zalpa','Nerik'],
+    deities: ['Tarhun','Arma','Hepat','Telepinu','Ishara']
+  },
+  luwian: {
+    label: 'Luwian',
+    male: ['Tarkasnawa','Kupanta','Mira','Muwawalwi','Mashuiluwa','Manapa','Piyama','Runtiya','Tiwata','Walwaziti','Kukkunnis','Uhhaziti','Piyamaradu','Tarkhunta','Armaziti','Sarpedon','Glaukos','Lukka','Muksus','Zaparas','Tarkondemos','Walmus','Tarhundaradu','Ura-Tarhun','Atpa'],
+    female: ['Ariyawiya','Kupantaia','Miraia','Runtiya','Tiwati','Hepatia','Maliya','Katawata','Armaia','Tarhuntiya','Walwiya','Lukkia','Zaparaya','Astarpa','Piyamaia'],
+    roots: ['Tarhun','Runtiya','Mira','Lukka','Kupanta','Piyama','Muksus','Arma','Walwi','Tiwata'],
+    deities: ['Tarhun','Runtiya','Arma','Tiwat','Maliya']
+  },
+};
+
+function hashString(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function seededRandom(seed) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6D2B79F5;
+    let x = t;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function sanitizeName(value) {
+  return String(value || '')
+    .replace(/[^A-Za-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_{2,}/g, '_');
+}
+
+function uniqueNames(values) {
+  const seen = new Set();
+  const out = [];
+  for (const value of values || []) {
+    const clean = sanitizeName(value);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out;
+}
+
+function shuffled(values, seedText) {
+  const random = seededRandom(hashString(seedText));
+  const out = [...values];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function hellenizeSemiticName(name, suffix) {
+  const base = sanitizeName(name).replace(/y$/i, '').replace(/ah$/i, '').replace(/a$/i, '');
+  if (!base) return '';
+  if (/os$|es$|ios$/i.test(base)) return base;
+  return `${base}${suffix}`;
+}
+
+function expandGeneratedNames(base, modules, kind, seedText) {
+  const generated = [...base];
+  const roots = uniqueNames(modules.flatMap(m => m.roots || []));
+  const deities = uniqueNames(modules.filter(m => m.theophoric).flatMap(m => m.deities || []));
+  const maleRoots = uniqueNames(modules.flatMap(m => m.male || []));
+
+  if (kind === 'male') {
+    for (const deity of deities) {
+      generated.push(`Abd${deity}`, `Bod${deity}`, `Mattan${deity}`, `${deity}azar`);
+    }
+    for (const root of maleRoots) {
+      generated.push(hellenizeSemiticName(root, 'os'), hellenizeSemiticName(root, 'ios'), hellenizeSemiticName(root, 'es'));
+    }
+  }
+  if (kind === 'female') {
+    for (const root of roots) {
+      generated.push(`${root}ia`, `${root}a`, `Amat${root}`);
+    }
+    for (const deity of deities) {
+      generated.push(`Amat${deity}`, `${deity}ia`);
+    }
+  }
+  return shuffled(uniqueNames(generated), seedText);
+}
+
+function takeGenerated(values, count) {
+  return uniqueNames(values).slice(0, Math.max(0, count));
+}
+
+function displayForInternalName(name) {
+  return String(name || '')
+    .replace(/_/g, ' ')
+    .replace(/\bibn\b/gi, 'ibn')
+    .replace(/\bbar\b/gi, 'bar')
+    .replace(/\bof\b/gi, 'of');
+}
+
+function buildGeneratedNamelist({ faction, cultureKeys, maleCount, surnameCount, femaleCount }) {
+  const modules = cultureKeys.map(key => NAME_MODULES[key]).filter(Boolean);
+  const seed = `${faction}|${cultureKeys.join(',')}|${maleCount}|${surnameCount}|${femaleCount}`;
+  const maleBase = modules.flatMap(m => m.male || []);
+  const femaleBase = modules.flatMap(m => m.female || []);
+  const roots = modules.flatMap(m => m.roots || []);
+  const male = takeGenerated(expandGeneratedNames(maleBase, modules, 'male', `${seed}|male`), maleCount);
+  const female = takeGenerated(expandGeneratedNames(femaleBase, modules, 'female', `${seed}|female`), femaleCount);
+  const surnameBase = [
+    ...roots.map(root => `${root}_ibn_${male[hashString(root) % Math.max(1, male.length)] || 'Malik'}`),
+    ...roots.map(root => `bar_${root}`),
+    ...roots.map(root => `${root}_of_Hegra`),
+    ...roots.map(root => `${root}_of_Tyre`),
+    'Salih_ibn_Datha',
+    'Zayd',
+  ];
+  const surnames = takeGenerated(shuffled(uniqueNames(surnameBase), `${seed}|surnames`), surnameCount);
+  const displayNames = {};
+  for (const key of [...male, ...female, ...surnames]) displayNames[key] = displayForInternalName(key);
+  return {
+    faction,
+    names: { characters: male, surnames, females: female },
+    displayNames,
+  };
+}
+
+function mergeDisplayNamesForDescr(descrNames, displayNames) {
+  const next = { ...(displayNames || {}) };
+  for (const faction of Object.values(descrNames || {})) {
+    for (const key of [
+      ...(faction.characters || []),
+      ...(faction.surnames || []),
+      ...(faction.females || []),
+    ]) {
+      if (!key) continue;
+      if (next[key] === undefined || next[key] === '') next[key] = displayForInternalName(key);
+    }
+  }
+  return next;
+}
+
+function storeDescrNames(descrNames) {
+  const text = serializeDescrNames(descrNames);
+  try { localStorage.setItem('m2tw_names_file', text); } catch {}
+  try { sessionStorage.setItem('m2tw_descr_names_raw', text); } catch {}
+  return text;
+}
+
+function storeDisplayNames(displayNames) {
+  try { localStorage.setItem('rtw_names_text_entries', JSON.stringify(displayNames)); } catch {}
+  try { sessionStorage.setItem('m2tw_char_names_display', JSON.stringify(displayNames)); } catch {}
+}
+
 // ─── Inline editable name row ─────────────────────────────────────────────────
 function NameRow({ internalName, displayName, onDisplayChange, onRemoveInternal, onInternalChange }) {
   const [editInternal, setEditInternal] = useState(internalName);
@@ -112,6 +322,10 @@ export default function CharacterNamesTab() {
   const [search, setSearch] = useState('');
   const [factionSearch, setFactionSearch] = useState('');
   const [parseError, setParseError] = useState('');
+  const [generatorFaction, setGeneratorFaction] = useState('thamud_01');
+  const [generatorCultures, setGeneratorCultures] = useState(DEFAULT_GENERATOR_CULTURES);
+  const [generatorCounts, setGeneratorCounts] = useState(DEFAULT_GENERATOR_COUNTS);
+  const [generatorMessage, setGeneratorMessage] = useState('');
 
   const applyDescrNames = (raw) => {
     setParseError('');
@@ -215,6 +429,7 @@ export default function CharacterNamesTab() {
       setDisplayNames({});
       applyDescrNames(text);
       try { localStorage.setItem('m2tw_names_file', text); } catch {}
+      try { sessionStorage.setItem('m2tw_descr_names_raw', text); } catch {}
     };
     reader.readAsText(file, 'utf-8');
     e.target.value = '';
@@ -235,20 +450,80 @@ export default function CharacterNamesTab() {
   };
 
   const handleExportNamesText = () => {
-    downloadBlob(textBlob(serializeTextLocFile(displayNames)), 'names.txt');
+    const map = mergeDisplayNamesForDescr(descrNames, displayNames);
+    storeDisplayNames(map);
+    downloadBlob(textBlob(serializeTextLocFile(map)), 'names.txt');
+  };
+
+  const toggleGeneratorCulture = (key) => {
+    setGeneratorCultures(prev => {
+      if (prev.includes(key)) return prev.length === 1 ? prev : prev.filter(k => k !== key);
+      return [...prev, key];
+    });
+  };
+
+  const setGeneratorCount = (key, value) => {
+    const parsed = Number(value);
+    setGeneratorCounts(prev => ({
+      ...prev,
+      [key]: Number.isFinite(parsed) ? Math.max(0, Math.min(500, Math.floor(parsed))) : prev[key],
+    }));
+  };
+
+  const generateNamelist = () => {
+    const faction = sanitizeName(generatorFaction) || 'thamud_01';
+    const cultureKeys = generatorCultures.length ? generatorCultures : DEFAULT_GENERATOR_CULTURES;
+    const generated = buildGeneratedNamelist({
+      faction,
+      cultureKeys,
+      maleCount: generatorCounts.characters,
+      surnameCount: generatorCounts.surnames,
+      femaleCount: generatorCounts.females,
+    });
+    const replacing = Boolean(descrNames[faction]);
+
+    setDescrNames(prev => {
+      const next = { ...prev, [faction]: generated.names };
+      storeDescrNames(next);
+      return next;
+    });
+    setDisplayNames(prev => {
+      const next = { ...prev };
+      for (const [key, value] of Object.entries(generated.displayNames)) {
+        if (next[key] === undefined || next[key] === '') next[key] = value;
+      }
+      storeDisplayNames(next);
+      return next;
+    });
+
+    setGeneratorFaction(faction);
+    setSelectedFaction(faction);
+    setActiveSection('characters');
+    setSearch('');
+    setFactionSearch('');
+    setParseError('');
+    setGeneratorMessage(`${replacing ? 'Replaced' : 'Created'} ${faction}: ${generated.names.characters.length} men, ${generated.names.surnames.length} surnames, ${generated.names.females.length} women.`);
   };
 
   const updateSection = (newList) => {
-    setDescrNames(prev => ({
-      ...prev,
-      [selectedFaction]: { ...prev[selectedFaction], [activeSection]: newList }
-    }));
+    setDescrNames(prev => {
+      const next = {
+        ...prev,
+        [selectedFaction]: { ...prev[selectedFaction], [activeSection]: newList }
+      };
+      storeDescrNames(next);
+      return next;
+    });
   };
 
   const addName = () => {
     const newKey = `new_name_${Date.now()}`;
     updateSection([...currentNames, newKey]);
-    setDisplayNames(prev => ({ ...prev, [newKey]: '' }));
+    setDisplayNames(prev => {
+      const next = { ...prev, [newKey]: '' };
+      storeDisplayNames(next);
+      return next;
+    });
   };
 
   const sortNamesAZ = () => {
@@ -265,6 +540,7 @@ export default function CharacterNamesTab() {
     setDisplayNames(prev => {
       const next = { ...prev, [newKey]: prev[oldKey] ?? '' };
       delete next[oldKey];
+      storeDisplayNames(next);
       return next;
     });
   };
@@ -272,14 +548,18 @@ export default function CharacterNamesTab() {
   const setDisplay = (internalName, value) => {
     setDisplayNames(prev => {
       const next = { ...prev, [internalName]: value };
-      try { localStorage.setItem('rtw_names_text_entries', JSON.stringify(next)); } catch {}
+      storeDisplayNames(next);
       return next;
     });
   };
 
   const addFaction = () => {
     const name = `new_faction_${Date.now()}`;
-    setDescrNames(prev => ({ ...prev, [name]: { characters: [], surnames: [], females: [] } }));
+    setDescrNames(prev => {
+      const next = { ...prev, [name]: { characters: [], surnames: [], females: [] } };
+      storeDescrNames(next);
+      return next;
+    });
     setSelectedFaction(name);
   };
 
@@ -296,19 +576,24 @@ export default function CharacterNamesTab() {
   const confirmDuplicate = () => {
     if (!dupTargetFaction || !selectedFaction) return;
     const src = descrNames[selectedFaction];
-    setDescrNames(prev => ({
-      ...prev,
-      [dupTargetFaction]: {
-        characters: [...src.characters],
-        surnames: [...src.surnames],
-        females: [...src.females],
-      }
-    }));
+    setDescrNames(prev => {
+      const next = {
+        ...prev,
+        [dupTargetFaction]: {
+          characters: [...src.characters],
+          surnames: [...src.surnames],
+          females: [...src.females],
+        }
+      };
+      storeDescrNames(next);
+      return next;
+    });
     // Also copy display names for all internal name keys across all sections
     const allKeys = [...src.characters, ...src.surnames, ...src.females];
     setDisplayNames(prev => {
       const next = { ...prev };
       for (const k of allKeys) { if (prev[k] !== undefined) next[k] = prev[k]; }
+      storeDisplayNames(next);
       return next;
     });
     setSelectedFaction(dupTargetFaction);
@@ -317,6 +602,7 @@ export default function CharacterNamesTab() {
   };
 
   const noneLoaded = factionList.length === 0;
+  const exportDisplayNames = useMemo(() => mergeDisplayNamesForDescr(descrNames, displayNames), [descrNames, displayNames]);
 
   return (
     <div className="space-y-3">
@@ -334,10 +620,68 @@ export default function CharacterNamesTab() {
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
           <Download className="w-3 h-3" /> Export descr_names.txt
         </button>
-        <button onClick={handleExportNamesText} disabled={!Object.keys(displayNames).length}
+        <button onClick={handleExportNamesText} disabled={!Object.keys(exportDisplayNames).length}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/40 disabled:opacity-40 transition-colors">
           <Download className="w-3 h-3" /> Export names.txt
         </button>
+      </div>
+
+      <div className="rounded border border-slate-700/70 bg-slate-900/60 p-3 space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="min-w-44 flex-1 space-y-1">
+            <span className="block text-[9px] text-slate-500 uppercase font-semibold tracking-wider">Faction</span>
+            <input
+              value={generatorFaction}
+              onChange={e => setGeneratorFaction(e.target.value)}
+              list="namelist-generator-factions"
+              placeholder="thamud_01"
+              className="w-full h-7 px-2 text-[11px] bg-slate-800 border border-slate-600/60 rounded text-slate-200 font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500"
+            />
+            <datalist id="namelist-generator-factions">
+              {[...new Set([...factionNames, ...factionList])].sort().map(f => <option key={f} value={f} />)}
+            </datalist>
+          </label>
+          {GENERATOR_COUNT_FIELDS.map(field => (
+            <label key={field.key} className="w-24 space-y-1">
+              <span className="block text-[9px] text-slate-500 uppercase font-semibold tracking-wider">{field.label}</span>
+              <input
+                type="number"
+                min="0"
+                max="500"
+                value={generatorCounts[field.key]}
+                onChange={e => setGeneratorCount(field.key, e.target.value)}
+                className="w-full h-7 px-2 text-[11px] bg-slate-800 border border-slate-600/60 rounded text-slate-200 focus:outline-none focus:border-amber-500"
+              />
+            </label>
+          ))}
+          <button
+            onClick={generateNamelist}
+            className="h-7 flex items-center gap-1 px-3 rounded text-[11px] bg-amber-600/25 border border-amber-500/40 text-amber-300 hover:bg-amber-600/40 transition-colors">
+            <Plus className="w-3 h-3" /> Generate Namelist
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(NAME_MODULES).map(([key, module]) => {
+            const active = generatorCultures.includes(key);
+            return (
+              <button
+                key={key}
+                onClick={() => toggleGeneratorCulture(key)}
+                className={`px-2 py-1 rounded text-[10px] border transition-colors ${
+                  active
+                    ? 'bg-blue-600/25 border-blue-500/40 text-blue-300'
+                    : 'border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500'
+                }`}>
+                {module.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-slate-500">
+          Builds RTW-ready <span className="font-mono">descr_names.txt</span> blocks with modular culture mixing. Existing names.txt text entries are preserved.
+          <span className="ml-1 text-slate-600">names.txt export has {Object.keys(exportDisplayNames).length} strings ready.</span>
+          {generatorMessage && <span className="ml-2 text-emerald-400">{generatorMessage}</span>}
+        </p>
       </div>
 
       {parseError && (
