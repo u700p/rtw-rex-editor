@@ -468,12 +468,19 @@ function materialProtectionType(r, g, b, hsl, protectMaterials) {
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
   const skinLike = hsl.h >= 4 && hsl.h <= 52 && hsl.s >= 0.12 && hsl.s <= 0.78 &&
     hsl.l >= 0.20 && hsl.l <= 0.86 && r >= g * 0.78 && r > b * 1.12 && g > b * 0.70;
+  const paleSkinLike = hsl.h >= 8 && hsl.h <= 48 && hsl.s >= 0.08 && hsl.s <= 0.42 &&
+    hsl.l >= 0.58 && hsl.l <= 0.91 && r >= g * 0.92 && g >= b * 0.80 && r > b * 1.08;
   const darkHairLeather = hsl.h >= 10 && hsl.h <= 48 && hsl.s >= 0.10 &&
     hsl.l >= 0.035 && hsl.l <= 0.46 && r >= g * 0.68 && g >= b * 0.45;
   const steelOrIron = (hsl.s <= 0.16 || spread <= 30) && hsl.l >= 0.10 && hsl.l <= 0.92;
+  const whiteArmorOrLinen = hsl.l >= 0.62 && hsl.s <= 0.34 && spread <= 72 &&
+    r >= 138 && g >= 132 && b >= 118;
+  const ivoryHighlight = hsl.l >= 0.72 && hsl.s <= 0.46 && spread <= 86 &&
+    r >= 165 && g >= 150 && b >= 125;
   const bronzeOrGold = hsl.h >= 30 && hsl.h <= 62 && hsl.s >= 0.18 && hsl.s <= 0.82 &&
     hsl.l >= 0.18 && hsl.l <= 0.80 && r > b * 1.24 && g > b * 0.94;
-  if (skinLike) return 'skin';
+  if (skinLike || paleSkinLike) return 'skin';
+  if (whiteArmorOrLinen || ivoryHighlight) return 'white_armor';
   if (steelOrIron) return 'metal';
   if (darkHairLeather) return 'leather';
   if (bronzeOrGold) return 'bronze';
@@ -550,7 +557,7 @@ function recolorImageData(imageData, settingsOrPlan) {
     }
 
     const protectedType = materialProtectionType(r, g, b, hsl, protectMaterials);
-    if (protectedType === 'skin' || protectedType === 'metal') continue;
+    if (protectedType === 'skin' || protectedType === 'metal' || protectedType === 'white_armor') continue;
     if (protectedType && bestScore < 0.84) continue;
     const satMask = hsl.s >= minSat ? 1 : 0.38;
     const detailMask = protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;

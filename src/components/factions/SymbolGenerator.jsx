@@ -20,20 +20,24 @@ import JSZip from 'jszip';
 
 function loadImageFromFile(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new window.Image();
-      img.onload = () => {
-        img._preview = e.target.result;
-        img._trimBounds = alphaBounds(img);
-        resolve(img);
-      };
-      img.onerror = () => reject(new Error('Failed to decode image'));
-      img.src = e.target.result;
+    const url = URL.createObjectURL(file);
+    const img = new window.Image();
+    img.onload = () => {
+      img._preview = url;
+      img._previewObjectUrl = url;
+      img._trimBounds = alphaBounds(img);
+      resolve(img);
     };
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to decode image'));
+    };
+    img.src = url;
   });
+}
+
+function revokeImagePreview(img) {
+  if (img?._previewObjectUrl) URL.revokeObjectURL(img._previewObjectUrl);
 }
 
 function alphaBounds(img) {
@@ -403,6 +407,10 @@ export default function SymbolGenerator({ factionName, onGeneratedSymbols }) {
     setGenerated({});
   }, [sourceImg, fitMode, setConfigs, rollMask, selectMask]);
 
+  useEffect(() => () => revokeImagePreview(sourceImg), [sourceImg]);
+  useEffect(() => () => revokeImagePreview(rollMask), [rollMask]);
+  useEffect(() => () => revokeImagePreview(selectMask), [selectMask]);
+
   const handleFile = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -423,11 +431,15 @@ export default function SymbolGenerator({ factionName, onGeneratedSymbols }) {
   const generate = useCallback(async () => {
     if (!sourceImg) return;
     setGenerating(true);
-    const { result, frames } = renderAllSymbols(sourceImg, setConfigs, fitMode, rollMask, selectMask);
-    generatedFramesRef.current = frames;
-    setGenerated(result);
-    onGeneratedSymbols?.(result);
-    setGenerating(false);
+    try {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const { result, frames } = renderAllSymbols(sourceImg, setConfigs, fitMode, rollMask, selectMask);
+      generatedFramesRef.current = frames;
+      setGenerated(result);
+      onGeneratedSymbols?.(result);
+    } finally {
+      setGenerating(false);
+    }
   }, [sourceImg, fitMode, setConfigs, rollMask, selectMask, onGeneratedSymbols]);
 
   const downloadOne = useCallback((set, variant) => {

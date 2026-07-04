@@ -106,11 +106,15 @@ const SLOT_SIZES = { card: [48, 56], info: [260, 350] };
  * and extract path segments that indicate sub-variants.
  */
 function detectVariants(unitImages, dictLower) {
+  const bare = dictLower.replace(/^#/, '');
+  if (typeof window !== 'undefined') {
+    const indexed = window._m2tw_unit_image_variant_index?.[bare];
+    if (indexed?.length) return [...indexed].sort();
+  }
   const variants = new Set();
   for (const key of unitImageKeys(unitImages)) {
     const kl = key.toLowerCase();
     // Match patterns like: .../something/unit_name or unit_name_info
-    const bare = dictLower.replace(/^#/, '');
     if (!kl.includes(bare)) continue;
     // Extract subfolder: split by /
     const parts = kl.split('/');

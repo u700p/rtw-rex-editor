@@ -16,8 +16,8 @@ import romeHero from '../assets/rome/rome-hero.jpg';
 import romeLogo from '../assets/rome/rome-logo.png';
 import romeUi from '../assets/rome/rome-ui.jpg';
 import {
-  Swords, FolderOpen, CheckCircle2, AlertCircle, Clock,
-  FileText, Package, ArrowRight, Info, Castle, Image, Map } from
+  CheckCircle2, AlertCircle, Clock,
+  Package, Info, Castle } from
 'lucide-react';
 
 function decodeTgaToDataUrl(buffer) {
@@ -193,6 +193,14 @@ function mergeFilesByPath(existing = [], incoming = []) {
 
 function registerUnitImageFiles(files) {
   const fileMap = { ...(window._m2tw_unit_image_file_map || {}) };
+  const variantIndex = { ...(window._m2tw_unit_image_variant_index || {}) };
+  const addVariant = (unitKey, folder) => {
+    if (!unitKey || !folder) return;
+    const key = unitKey.replace(/^#/, '').replace(/_info$/i, '').toLowerCase();
+    const current = new Set(variantIndex[key] || []);
+    current.add(folder);
+    variantIndex[key] = [...current].sort();
+  };
   for (const file of files || []) {
     const bareName = file.name.replace(/\.tga$/i, '').toLowerCase();
     const relPath = (file.webkitRelativePath || file.name)
@@ -203,8 +211,16 @@ function registerUnitImageFiles(files) {
     fileMap[relPath] = file;
     const uiIndex = relPath.indexOf('/ui/');
     if (uiIndex >= 0) fileMap[relPath.slice(uiIndex + 4)] = file;
+
+    const parts = relPath.split('/').filter(Boolean);
+    const filename = parts[parts.length - 1] || bareName;
+    const unitsIndex = parts.lastIndexOf('units');
+    const infoIndex = parts.lastIndexOf('unit_info');
+    if (unitsIndex >= 0 && parts[unitsIndex + 1]) addVariant(filename, parts[unitsIndex + 1]);
+    if (infoIndex >= 0 && parts[infoIndex + 1]) addVariant(filename, parts[infoIndex + 1]);
   }
   window._m2tw_unit_image_file_map = fileMap;
+  window._m2tw_unit_image_variant_index = variantIndex;
   window._m2tw_unit_image_files = mergeFilesByPath(window._m2tw_unit_image_files || [], files || []);
   return fileMap;
 }
@@ -216,6 +232,7 @@ async function mapWithLimit(items, limit, mapper) {
     while (index < items.length) {
       const current = index++;
       results[current] = await mapper(items[current], current);
+      if (current % 8 === 7) await yieldToBrowser();
     }
   });
   await Promise.all(workers);
@@ -224,7 +241,7 @@ async function mapWithLimit(items, limit, mapper) {
 
 async function decodeTgaFiles(files) {
   const cpuCount = typeof window !== 'undefined' ? window.navigator?.hardwareConcurrency || 8 : 8;
-  const limit = Math.max(8, Math.min(16, cpuCount * 2));
+  const limit = Math.max(2, Math.min(4, Math.floor(cpuCount / 2) || 2));
   return mapWithLimit(files, limit, async (file) => {
     const buf = await file.arrayBuffer();
     const dataUrl = decodeTgaToDataUrl(buf);
@@ -896,17 +913,11 @@ export default function Home() {
     e.target.value = '';
     if (files.length === 0) return;
     setFileStatus((prev) => ({ ...prev, unit_images: 'loading' }));
-    const images = {};
-    for (const item of await decodeTgaFiles(files)) {
-      if (item) {
-        // Strip .tga, lowercase; keep filename only (not path)
-        const key = item.file.name.replace(/\.tga$/i, '').toLowerCase();
-        images[key] = item.dataUrl;
-      }
-    }
-    window._m2tw_unit_images = images;
-    window.dispatchEvent(new CustomEvent('load-unit-images', { detail: images }));
-    setUnitImgCount(Object.keys(images).length);
+    registerUnitImageFiles(files);
+    window._m2tw_unit_images = { ...(window._m2tw_unit_images || {}) };
+    window.dispatchEvent(new CustomEvent('unit-image-files-loaded'));
+    window.dispatchEvent(new CustomEvent('load-unit-images', { detail: { images: window._m2tw_unit_images } }));
+    setUnitImgCount(Object.keys(window._m2tw_unit_image_file_map || {}).length);
     setFileStatus((prev) => ({ ...prev, unit_images: 'ok' }));
   };
 

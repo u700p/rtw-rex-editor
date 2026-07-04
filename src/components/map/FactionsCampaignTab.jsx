@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Info, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { Info, ChevronDown, ChevronRight, Search, Plus } from 'lucide-react';
 import { parseWinConditions } from './stratParser';
 
 const AI_LABELS = ['default', 'slave_faction'];
@@ -30,6 +30,16 @@ const MILITARY_AI_INFO = {
   caesar: 'Roman-style combined arms.',
   subotai: 'Mounted archer preference.',
 };
+
+function sanitizeFactionName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_{2,}/g, '_');
+}
 
 function InfoTooltip({ text }) {
   const [show, setShow] = useState(false);
@@ -530,6 +540,8 @@ export default function FactionsCampaignTab({
 }) {
   const [subTab, setSubTab] = useState('factions');
   const [search, setSearch] = useState('');
+  const [newFactionName, setNewFactionName] = useState('');
+  const [newFactionStatus, setNewFactionStatus] = useState('nonplayable');
 
   const allFactionNames = useMemo(() => {
     const from = (stratData?.factions || []).map(f => f.name).filter(Boolean);
@@ -545,6 +557,42 @@ export default function FactionsCampaignTab({
 
   const handleMoviesChange = (factionName, movies) => {
     onFactionMoviesChange?.({ ...(factionMovies || {}), [factionName]: movies });
+  };
+
+  const handleAddFaction = () => {
+    if (!stratData) return;
+    const name = sanitizeFactionName(newFactionName);
+    if (!name || allFactionNames.includes(name)) return;
+    const nextFaction = {
+      name,
+      economicAI: '',
+      militaryAI: '',
+      aiLabel: name === 'slave' ? 'slave_faction' : 'default',
+      treasury: 0,
+      kingsPurse: 0,
+      deadUntilResurrected: false,
+      deadUntilEmerged: false,
+      reEmergent: false,
+      undiscovered: false,
+      settlements: [],
+      characters: [],
+      characterRecords: [],
+      relatives: [],
+    };
+    const withoutName = (arr) => (arr || []).filter(f => f !== name);
+    const next = {
+      ...stratData,
+      factions: [...(stratData.factions || []), nextFaction],
+      playable: withoutName(stratData.playable),
+      unlockable: withoutName(stratData.unlockable),
+      nonplayable: withoutName(stratData.nonplayable),
+    };
+    if (newFactionStatus && newFactionStatus !== 'none') {
+      next[newFactionStatus] = [...next[newFactionStatus], name];
+    }
+    onStratDataChange(next);
+    setNewFactionName('');
+    setSearch(name);
   };
 
   const filteredFactions = useMemo(() =>
@@ -570,6 +618,33 @@ export default function FactionsCampaignTab({
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {subTab === 'factions' && (
           <>
+            <div className="rounded border border-slate-700/50 bg-slate-900/40 p-2 space-y-1.5">
+              <p className="text-[9px] text-slate-500 uppercase font-semibold">Add Faction Field</p>
+              <div className="flex gap-1.5">
+                <input
+                  value={newFactionName}
+                  onChange={e => setNewFactionName(e.target.value)}
+                  placeholder="faction_name"
+                  className="flex-1 h-6 px-2 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-slate-200 font-mono placeholder-slate-600"
+                />
+                <select
+                  value={newFactionStatus}
+                  onChange={e => setNewFactionStatus(e.target.value)}
+                  className="h-6 px-1.5 text-[10px] bg-slate-800 border border-slate-600/40 rounded text-slate-300"
+                >
+                  <option value="playable">playable</option>
+                  <option value="unlockable">unlockable</option>
+                  <option value="nonplayable">nonplayable</option>
+                  <option value="none">not listed</option>
+                </select>
+                <button
+                  onClick={handleAddFaction}
+                  disabled={!sanitizeFactionName(newFactionName) || allFactionNames.includes(sanitizeFactionName(newFactionName))}
+                  className="h-6 flex items-center gap-1 px-2 rounded text-[10px] bg-amber-600/20 border border-amber-500/35 text-amber-300 hover:bg-amber-600/35 disabled:opacity-40 transition-colors">
+                  <Plus className="w-3 h-3" /> Add
+                </button>
+              </div>
+            </div>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search factions…"
               className="w-full h-6 px-2 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-slate-200 placeholder-slate-600" />
             {filteredFactions.length === 0 && <p className="text-[10px] text-slate-600 italic text-center py-2">No faction blocks in descr_strat.txt</p>}

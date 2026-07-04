@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import JSZip from 'jszip';
-import { Download, Plus, Trash2, ExternalLink, Search, Info, RefreshCw, X, Image, ChevronDown, ChevronRight, CheckSquare, Square, Zap, FileText, AlertCircle } from 'lucide-react';
+import { Download, Plus, Trash2, ExternalLink, Search, Info, RefreshCw, X, Image, ChevronDown, CheckSquare, Square, Zap, FileText, AlertCircle } from 'lucide-react';
 import { parseEDU } from '../components/units/EDUParser';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { getEduRawText } from '@/lib/eduStorage';
@@ -8,6 +8,7 @@ import { getEduRawText } from '@/lib/eduStorage';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'm2tw_unitcard_entries';
+const EDU_PICKER_RENDER_LIMIT = 300;
 
 export const POSE_PRESETS = [
   { id: 5,   label: 'Infantry — Standing (basic)',   category: 'infantry' },
@@ -407,7 +408,7 @@ function EntryForm({ entry, factions, onSave, onCancel }) {
 
 // ─── EDU Unit Picker Panel ─────────────────────────────────────────────────────
 
-function EduPickerPanel({ eduUnits, existingPortraits, onImport, onClose }) {
+function EduPickerPanel({ eduUnits, existingPortraits, onImport, onClose, loading, loadError, onRefresh }) {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(new Set());
   const [filter, setFilter] = useState('all'); // all | infantry | cavalry | missile | new
@@ -424,6 +425,7 @@ function EduPickerPanel({ eduUnits, existingPortraits, onImport, onClose }) {
       return true;
     });
   }, [eduUnits, filter, search, existingSet]);
+  const visibleFiltered = useMemo(() => filtered.slice(0, EDU_PICKER_RENDER_LIMIT), [filtered]);
 
   const allSelected = filtered.length > 0 && filtered.every(u => selected.has(u.type));
 
@@ -449,7 +451,10 @@ function EduPickerPanel({ eduUnits, existingPortraits, onImport, onClose }) {
       <div className="px-3 py-2 border-b border-slate-700/50 shrink-0 space-y-1.5">
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-semibold text-foreground">Select EDU Units to Import</p>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300"><X className="w-3.5 h-3.5" /></button>
+          <div className="flex items-center gap-1.5">
+            <button onClick={onRefresh} disabled={loading} className="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-40">Refresh</button>
+            <button onClick={onClose} className="text-slate-500 hover:text-slate-300"><X className="w-3.5 h-3.5" /></button>
+          </div>
         </div>
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500 pointer-events-none" />
@@ -476,7 +481,14 @@ function EduPickerPanel({ eduUnits, existingPortraits, onImport, onClose }) {
 
       {/* Unit list */}
       <div className="flex-1 overflow-y-auto">
-        {eduUnits.length === 0 ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-600 px-4 text-center">
+            <RefreshCw className="w-5 h-5 opacity-40 animate-spin" />
+            <p className="text-[10px]">Loading EDU units…</p>
+          </div>
+        ) : loadError ? (
+          <div className="p-4 text-center text-[10px] text-red-400">{loadError}</div>
+        ) : eduUnits.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-600 px-4 text-center">
             <FileText className="w-6 h-6 opacity-30" />
             <p className="text-[10px]">No EDU loaded. Load <code className="bg-slate-800 px-1 rounded">export_descr_unit.txt</code> in the Unit Editor first.</p>
@@ -484,7 +496,13 @@ function EduPickerPanel({ eduUnits, existingPortraits, onImport, onClose }) {
         ) : filtered.length === 0 ? (
           <p className="text-[10px] text-slate-600 text-center py-6">No units match the filter.</p>
         ) : (
-          filtered.map(unit => {
+          <>
+          {filtered.length > EDU_PICKER_RENDER_LIMIT && (
+            <div className="px-3 py-1 text-[9px] text-slate-500 bg-slate-900/70 border-b border-slate-800">
+              Showing {EDU_PICKER_RENDER_LIMIT}/{filtered.length}. Use search or filters to narrow the list.
+            </div>
+          )}
+          {visibleFiltered.map(unit => {
             const isSelected = selected.has(unit.type);
             const alreadyIn  = existingSet.has(unit.type);
             return (
@@ -502,7 +520,8 @@ function EduPickerPanel({ eduUnits, existingPortraits, onImport, onClose }) {
                 {alreadyIn && <span className="text-[8px] text-green-500 shrink-0" title="Already imported">✓</span>}
               </div>
             );
-          })
+          })}
+          </>
         )}
       </div>
 
@@ -542,20 +561,39 @@ export default function UnitCardGenerator() {
 
   const factions  = useMemo(() => parseFactionList(), []);
 
-  const [eduUnitsLive, setEduUnitsLive] = useState(() => loadEduUnits());
+  const [eduUnitsLive, setEduUnitsLive] = useState([]);
+  const [eduLoading, setEduLoading] = useState(false);
+  const [eduLoadError, setEduLoadError] = useState('');
+
+  const refreshEduUnits = useCallback(() => {
+    setEduLoading(true);
+    setEduLoadError('');
+    window.setTimeout(() => {
+      try {
+        setEduUnitsLive(loadEduUnits());
+      } catch (err) {
+        setEduLoadError(`EDU load failed: ${err.message}`);
+      } finally {
+        setEduLoading(false);
+      }
+    }, 0);
+  }, []);
 
   // Re-load whenever EDU is saved to localStorage (same tab or other tab)
   useEffect(() => {
-    const reload = () => setEduUnitsLive(loadEduUnits());
     // cross-tab: storage event fires when another tab writes to localStorage
-    window.addEventListener('storage', reload);
+    window.addEventListener('storage', refreshEduUnits);
     // same-tab: Unit Editor dispatches this custom event after writing EDU to localStorage
-    window.addEventListener('edu-file-loaded', reload);
+    window.addEventListener('edu-file-loaded', refreshEduUnits);
     return () => {
-      window.removeEventListener('storage', reload);
-      window.removeEventListener('edu-file-loaded', reload);
+      window.removeEventListener('storage', refreshEduUnits);
+      window.removeEventListener('edu-file-loaded', refreshEduUnits);
     };
-  }, []);
+  }, [refreshEduUnits]);
+
+  useEffect(() => {
+    if (showPicker && eduUnitsLive.length === 0 && !eduLoading) refreshEduUnits();
+  }, [showPicker, eduUnitsLive.length, eduLoading, refreshEduUnits]);
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); } catch {}
@@ -683,10 +721,17 @@ export default function UnitCardGenerator() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
             className="h-6 pl-6 pr-2 w-40 text-[10px] bg-slate-800 border border-slate-600/40 rounded text-slate-200 placeholder-slate-600" />
         </div>
-        <button onClick={() => { setShowPicker(v => !v); setEditEntry(null); }}
+        <button onClick={() => {
+          setShowPicker(v => {
+            const next = !v;
+            if (next && eduUnitsLive.length === 0 && !eduLoading) refreshEduUnits();
+            return next;
+          });
+          setEditEntry(null);
+        }}
           className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors ${showPicker ? 'bg-amber-600/20 border-amber-500/40 text-amber-400' : 'border-slate-600/40 text-slate-400 hover:text-slate-200 hover:border-slate-500'}`}>
           <RefreshCw className="w-3 h-3" /> Import from EDU
-          {eduUnitsLive.length > 0 && <span className="text-[8px] text-slate-500 ml-0.5">({eduUnitsLive.length})</span>}
+          {eduLoading ? <span className="text-[8px] text-slate-500 ml-0.5">(loading)</span> : eduUnitsLive.length > 0 && <span className="text-[8px] text-slate-500 ml-0.5">({eduUnitsLive.length})</span>}
         </button>
         <button onClick={() => { setEditEntry(newEntry()); setShowPicker(false); }}
           className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border border-amber-500/30 text-amber-400 hover:bg-amber-600/20 transition-colors">
@@ -721,6 +766,9 @@ export default function UnitCardGenerator() {
               existingPortraits={existingPortraitNames}
               onImport={handleImportUnits}
               onClose={() => setShowPicker(false)}
+              loading={eduLoading}
+              loadError={eduLoadError}
+              onRefresh={refreshEduUnits}
             />
           </div>
         )}

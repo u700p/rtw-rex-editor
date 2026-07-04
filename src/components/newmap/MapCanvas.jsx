@@ -59,6 +59,94 @@ function ZoomController({ disabled }) {
   return null;
 }
 
+function imageDataToObjectUrl(imageData) {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    canvas.getContext('2d').putImageData(imageData, 0, 0);
+    if (!canvas.toBlob) {
+      resolve(canvas.toDataURL('image/png'));
+      return;
+    }
+    canvas.toBlob((blob) => {
+      resolve(blob ? URL.createObjectURL(blob) : canvas.toDataURL('image/png'));
+    }, 'image/png');
+  });
+}
+
+function revokeOverlayUrl(url) {
+  if (typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url);
+}
+
+function useOverlayUrls(layers, historicOverlays) {
+  const [overlayUrls, setOverlayUrls] = useState({ layers: {}, historic: {} });
+  const cacheRef = useRef({ layers: {}, historic: {} });
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const nextCache = { layers: {}, historic: {} };
+      const jobs = [];
+
+      const queue = (kind, id, imageData) => {
+        const cached = cacheRef.current[kind][id];
+        if (cached?.src === imageData) {
+          nextCache[kind][id] = cached;
+          return;
+        }
+        jobs.push(
+          imageDataToObjectUrl(imageData).then((url) => ({ kind, id, src: imageData, url }))
+        );
+      };
+
+      for (const [id, layer] of Object.entries(layers)) {
+        if (layer?.imageData && layer.visible !== false) queue('layers', id, layer.imageData);
+      }
+      for (const [id, imageData] of Object.entries(historicOverlays)) {
+        if (imageData) queue('historic', id, imageData);
+      }
+
+      Promise.all(jobs).then((results) => {
+        if (cancelled) {
+          for (const item of results) revokeOverlayUrl(item.url);
+          return;
+        }
+        for (const item of results) nextCache[item.kind][item.id] = item;
+
+        const keptUrls = new Set([
+          ...Object.values(nextCache.layers).map(item => item.url),
+          ...Object.values(nextCache.historic).map(item => item.url),
+        ]);
+        for (const group of Object.values(cacheRef.current)) {
+          for (const item of Object.values(group)) {
+            if (!keptUrls.has(item.url)) revokeOverlayUrl(item.url);
+          }
+        }
+
+        cacheRef.current = nextCache;
+        setOverlayUrls({
+          layers: Object.fromEntries(Object.entries(nextCache.layers).map(([id, item]) => [id, item.url])),
+          historic: Object.fromEntries(Object.entries(nextCache.historic).map(([id, item]) => [id, item.url])),
+        });
+      });
+    }, 40);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [layers, historicOverlays]);
+
+  useEffect(() => () => {
+    for (const group of Object.values(cacheRef.current)) {
+      for (const item of Object.values(group)) revokeOverlayUrl(item.url);
+    }
+  }, []);
+
+  return overlayUrls;
+}
+
 // Map event handler
 function MapEventHandler({ onMouseDown, onMouseMove, onMouseUp, onCoordsChange, selectionMode, onSelectionUpdate }) {
   const selecting = useRef(false);
@@ -106,6 +194,7 @@ export default function MapCanvas({
 }) {
   const isPainting = useRef(false);
   const [dragDisabled, setDragDisabled] = useState(false);
+  const overlayUrls = useOverlayUrls(layers, historicOverlays);
 
   const isPaintTool = activeTool === 'brush' || activeTool === 'eraser' || activeTool === 'river' || activeTool === 'fill';
 
@@ -126,30 +215,29 @@ export default function MapCanvas({
       const copy = new ImageData(new Uint8ClampedArray(layer.imageData.data), iw, ih);
       floodFill(copy, px, py, [r, g, b, 255]);
       onLayerUpdate(activeLayerId, { ...layer, imageData: copy, dirty: true });
-    } else if (activeTool === 'river') {
-      // Direct pixel write — 1px
-      const copy = new ImageData(new Uint8ClampedArray(layer.imageData.data), iw, ih);
-      const i = (py * iw + px) * 4;
-      copy.data[i] = r; copy.data[i+1] = g; copy.data[i+2] = b; copy.data[i+3] = 255;
-      onLayerUpdate(activeLayerId, { ...layer, imageData: copy, dirty: true });
     } else {
-      // brush / eraser — draw circle on canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = iw; canvas.height = ih;
-      const ctx = canvas.getContext('2d');
-      ctx.putImageData(layer.imageData, 0, 0);
-      const radius = Math.max(1, brushSize / 2);
-      if (activeTool === 'eraser') {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = 'rgb(0,0,0)';
-      } else {
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
+      const copy = new ImageData(new Uint8ClampedArray(layer.imageData.data), iw, ih);
+      const radius = activeTool === 'river' ? 0 : Math.max(1, brushSize / 2);
+      const radiusSq = radius * radius;
+      const x0 = Math.max(0, Math.floor(px - radius));
+      const x1 = Math.min(iw - 1, Math.ceil(px + radius));
+      const y0 = Math.max(0, Math.floor(py - radius));
+      const y1 = Math.min(ih - 1, Math.ceil(py + radius));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          if (radius > 0) {
+            const dx = x - px;
+            const dy = y - py;
+            if (dx * dx + dy * dy > radiusSq) continue;
+          }
+          const i = (y * iw + x) * 4;
+          copy.data[i] = r;
+          copy.data[i + 1] = g;
+          copy.data[i + 2] = b;
+          copy.data[i + 3] = 255;
+        }
       }
-      ctx.beginPath();
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fill();
-      const updated = ctx.getImageData(0, 0, iw, ih);
-      onLayerUpdate(activeLayerId, { ...layer, imageData: updated, dirty: true });
+      onLayerUpdate(activeLayerId, { ...layer, imageData: copy, dirty: true });
     }
   }, [activeTool, brushSize, color, layers, activeLayerId, onLayerUpdate, bboxBounds]);
 
@@ -194,16 +282,6 @@ export default function MapCanvas({
     }
   }, [applyPaint]);
 
-  const getLayerDataURL = (layerId) => {
-    const layer = layers[layerId];
-    if (!layer?.imageData || layer.visible === false) return null;
-    const canvas = document.createElement('canvas');
-    canvas.width = layer.imageData.width; canvas.height = layer.imageData.height;
-    const ctx = canvas.getContext('2d');
-    ctx.putImageData(layer.imageData, 0, 0);
-    return canvas.toDataURL();
-  };
-
   const layerBounds = bboxBounds
     ? [[bboxBounds.south, bboxBounds.west], [bboxBounds.north, bboxBounds.east]]
     : [[-85.051129, -180], [85.051129, 180]];
@@ -231,7 +309,7 @@ export default function MapCanvas({
 
       {Object.entries(layers).map(([id, layer]) => {
         if (!layer?.imageData || layer.visible === false) return null;
-        const url = getLayerDataURL(id);
+        const url = overlayUrls.layers[id];
         if (!url) return null;
         return (
           <ImageOverlay key={id} url={url} bounds={layerBounds}
@@ -244,11 +322,10 @@ export default function MapCanvas({
       {/* Historic tag overlays (show/hide from sidebar) */}
       {Object.entries(historicOverlays).map(([key, imageData]) => {
         if (!imageData) return null;
-        const canvas = document.createElement('canvas');
-        canvas.width = imageData.width; canvas.height = imageData.height;
-        canvas.getContext('2d').putImageData(imageData, 0, 0);
+        const url = overlayUrls.historic[key];
+        if (!url) return null;
         return (
-          <ImageOverlay key={`historic-${key}`} url={canvas.toDataURL()} bounds={layerBounds}
+          <ImageOverlay key={`historic-${key}`} url={url} bounds={layerBounds}
             opacity={0.9} className="pixelated-overlay" />
         );
       })}

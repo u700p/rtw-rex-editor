@@ -548,6 +548,43 @@ function generateSettlementBlock(s, indent = '') {
   return lines;
 }
 
+function generateFactionHeader(faction) {
+  let line = `faction\t${faction.name}`;
+  if (faction.economicAI && faction.militaryAI) line += `, ${faction.economicAI} ${faction.militaryAI}`;
+  if (faction.shadowing) line += `, shadowing ${faction.shadowing}`;
+  if (faction.shadowedBy) line += `, shadowed_by ${faction.shadowedBy}`;
+  return line;
+}
+
+function generateFactionStubBlock(faction) {
+  const lines = [
+    generateFactionHeader(faction),
+    `\tai_label\t${faction.aiLabel || 'default'}`,
+  ];
+  if (faction.deadUntilResurrected) lines.push('\tdead_until_resurrected');
+  if (faction.deadUntilEmerged) lines.push('\tdead_until_emerged');
+  if (faction.reEmergent) lines.push('\tre_emergent');
+  if (faction.undiscovered) lines.push('\tundiscovered');
+  lines.push(`\tdenari\t${faction.treasury || 0}`);
+  lines.push(`\tdenari_kings_purse\t${faction.kingsPurse || 0}`);
+  return lines;
+}
+
+function findTopLevelPostFactionIndex(lines) {
+  let braceDepth = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const fl = lines[i].replace(/;.*$/, '').trim();
+    if (braceDepth === 0 && /^(faction_standings|action_relationships|faction_relationships)\b/i.test(fl)) return i;
+    if (braceDepth === 0 && /^region\s+\S/i.test(fl)) return i;
+    if (braceDepth === 0 && /^script\s*$/i.test(fl)) return i;
+    for (const ch of lines[i]) {
+      if (ch === '{') braceDepth++;
+      else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+    }
+  }
+  return lines.length;
+}
+
 export function serializeDescrStrat(stratData, overlayItems, editedSettlements = {}) {
   if (!stratData?.raw) return '';
   const lines = stratData.raw.split('\n');
@@ -592,6 +629,7 @@ export function serializeDescrStrat(stratData, overlayItems, editedSettlements =
 
   // ── Patch faction blocks (ai_label, denari, treasury, dead flags) ──────────
   if (stratData.factions?.length) {
+    const patchedFactionNames = new Set();
     for (const faction of stratData.factions) {
       // Find the faction line in the file
       const factionLineIdx = lines.findIndex(l => {
@@ -601,6 +639,7 @@ export function serializeDescrStrat(stratData, overlayItems, editedSettlements =
           cl.startsWith(`faction ${faction.name} `);
       });
       if (factionLineIdx < 0) continue;
+      patchedFactionNames.add(faction.name);
 
       // Find end of this faction block
       let factionEnd = lines.length;
@@ -616,11 +655,7 @@ export function serializeDescrStrat(stratData, overlayItems, editedSettlements =
       }
 
       // Rewrite faction header line with correct economicAI/militaryAI
-      const headerParts = [`faction\t${faction.name}`];
-      if (faction.economicAI && faction.militaryAI) headerParts[0] += `, ${faction.economicAI} ${faction.militaryAI}`;
-      if (faction.shadowing) headerParts[0] += `, shadowing ${faction.shadowing}`;
-      if (faction.shadowedBy) headerParts[0] += `, shadowed_by ${faction.shadowedBy}`;
-      lines[factionLineIdx] = headerParts[0];
+      lines[factionLineIdx] = generateFactionHeader(faction);
 
       // Patch or add ai_label
       const aiIdx = lines.findIndex((l, i) => i > factionLineIdx && i < factionEnd && /^\s*ai_label\b/i.test(l.replace(/;.*$/, '')));
@@ -707,6 +742,17 @@ export function serializeDescrStrat(stratData, overlayItems, editedSettlements =
           lines.splice(factionEnd, 0, ...relLines);
         }
       }
+    }
+
+    const newFactions = stratData.factions.filter(f => f?.name && !patchedFactionNames.has(f.name));
+    if (newFactions.length) {
+      const insertIdx = findTopLevelPostFactionIndex(lines);
+      const newLines = [];
+      for (const faction of newFactions) {
+        if (newLines.length && newLines[newLines.length - 1] !== '') newLines.push('');
+        newLines.push(...generateFactionStubBlock(faction), '');
+      }
+      lines.splice(insertIdx, 0, ...newLines);
     }
   }
 

@@ -230,6 +230,29 @@ export default function CampaignMap() {
   // ── Save/Revert snapshot ───────────────────────────────────────────────────
   // savedSnapshot holds deep copies of layers pixel data + overlayItems at last save
   const savedSnapshot = useRef(null);
+  const bitmapRefreshTimers = useRef({});
+
+  const scheduleLayerBitmap = useCallback((layerId, data, width, height, delay = 0) => {
+    if (!data || !width || !height) return;
+    if (bitmapRefreshTimers.current[layerId]) {
+      clearTimeout(bitmapRefreshTimers.current[layerId]);
+    }
+    bitmapRefreshTimers.current[layerId] = setTimeout(() => {
+      delete bitmapRefreshTimers.current[layerId];
+      createImageBitmap(new ImageData(data, width, height)).then(bitmap => {
+        setLayers(prev => {
+          const layer = prev[layerId];
+          if (!layer || layer.data !== data) return prev;
+          return { ...prev, [layerId]: { ...layer, bitmap, data, width, height } };
+        });
+      });
+    }, delay);
+  }, []);
+
+  useEffect(() => () => {
+    for (const timer of Object.values(bitmapRefreshTimers.current)) clearTimeout(timer);
+    bitmapRefreshTimers.current = {};
+  }, []);
 
   // Auto-load files pre-staged from Home page (keep them in window for re-navigation)
   React.useEffect(() => {
@@ -528,10 +551,7 @@ export default function CampaignMap() {
         setPaintState(ps => ({ ...ps, paintColor: color }));
         return prev;
       }
-      // Rebuild bitmap
-      createImageBitmap(new ImageData(newData, layer.width, layer.height)).then(bitmap => {
-        setLayers(p => ({ ...p, [layerId]: { ...p[layerId], bitmap, data: newData } }));
-      });
+      scheduleLayerBitmap(layerId, newData, layer.width, layer.height, type === 'pencil' ? 48 : 0);
       return { ...prev, [layerId]: { ...layer, data: newData } };
     });
     if (type !== 'pipette') {
@@ -558,16 +578,59 @@ export default function CampaignMap() {
     setLayers(prev => {
       const regLayer = prev['regions'];
       if (!regLayer?.data) return prev;
+      if (rx < 0 || ry < 0 || rx >= regLayer.width || ry >= regLayer.height) return prev;
       const newData = new Uint8ClampedArray(regLayer.data);
       const idx = (ry * regLayer.width + rx) * 4;
       newData[idx] = r; newData[idx + 1] = g; newData[idx + 2] = b;
-      createImageBitmap(new ImageData(newData, regLayer.width, regLayer.height)).then(bitmap => {
-        setLayers(p => ({ ...p, regions: { ...p['regions'], bitmap, data: newData } }));
-      });
+      scheduleLayerBitmap('regions', newData, regLayer.width, regLayer.height, 16);
       return { ...prev, regions: { ...regLayer, data: newData } };
     });
     setDirtyLayers(prev => new Set([...prev, 'regions']));
-  }, []);
+  }, [scheduleLayerBitmap]);
+
+  const moveRegionMarkerOnRegions = useCallback((rx, ry, type, regionInfo) => {
+    setLayers(prev => {
+      const regLayer = prev['regions'];
+      if (!regLayer?.data) return prev;
+      if (rx < 0 || ry < 0 || rx >= regLayer.width || ry >= regLayer.height) return prev;
+      const { r: rr, g: rg, b: rb } = regionInfo || {};
+      const newData = new Uint8ClampedArray(regLayer.data);
+      const marker = type === 'city' ? 0 : 255;
+      const threshold = type === 'city' ? 5 : 250;
+
+      if (regionInfo) {
+        outer:
+        for (let py = 0; py < regLayer.height; py++) {
+          for (let px = 0; px < regLayer.width; px++) {
+            const idx = (py * regLayer.width + px) * 4;
+            const isTarget = type === 'city'
+              ? (newData[idx] < threshold && newData[idx + 1] < threshold && newData[idx + 2] < threshold)
+              : (newData[idx] > threshold && newData[idx + 1] > threshold && newData[idx + 2] > threshold);
+            if (!isTarget) continue;
+            for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+              const nx = px + dx, ny = py + dy;
+              if (nx < 0 || ny < 0 || nx >= regLayer.width || ny >= regLayer.height) continue;
+              const ni = (ny * regLayer.width + nx) * 4;
+              if (newData[ni] === rr && newData[ni + 1] === rg && newData[ni + 2] === rb) {
+                newData[idx] = rr;
+                newData[idx + 1] = rg;
+                newData[idx + 2] = rb;
+                break outer;
+              }
+            }
+          }
+        }
+      }
+
+      const newIdx = (ry * regLayer.width + rx) * 4;
+      newData[newIdx] = marker;
+      newData[newIdx + 1] = marker;
+      newData[newIdx + 2] = marker;
+      scheduleLayerBitmap('regions', newData, regLayer.width, regLayer.height, 16);
+      return { ...prev, regions: { ...regLayer, data: newData } };
+    });
+    setDirtyLayers(prev => new Set([...prev, 'regions']));
+  }, [scheduleLayerBitmap]);
 
   // ── Finalize new region (must be defined before handlers that reference it) ─
   const finalizeNewRegion = useCallback((draft, cityX, cityY, portX, portY) => {
@@ -703,39 +766,7 @@ export default function CampaignMap() {
     // Handle pending relocate (city or port pixel)
     if (pendingRelocate) {
       const { type, regionInfo, settlement } = pendingRelocate;
-      const regLayer = layers['regions'];
-      if (regLayer?.data && regionInfo) {
-        // Find and replace old pixel: scan for old city/port adjacent to this region
-        const { r: rr, g: rg, b: rb } = regionInfo;
-        const { data, width, height } = regLayer;
-        const oldColor = type === 'city' ? 0 : 255; // black for city, white for port
-        const threshold = type === 'city' ? 5 : 250;
-        for (let py = 0; py < height; py++) {
-          for (let px = 0; px < width; px++) {
-            const idx = (py * width + px) * 4;
-            const isTarget = type === 'city'
-              ? (data[idx] < threshold && data[idx + 1] < threshold && data[idx + 2] < threshold)
-              : (data[idx] > threshold && data[idx + 1] > threshold && data[idx + 2] > threshold);
-            if (!isTarget) continue;
-            // Check adjacency to region
-            for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-              const nx = px + dx, ny = py + dy;
-              if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-              const ni = (ny * width + nx) * 4;
-              if (data[ni] === rr && data[ni + 1] === rg && data[ni + 2] === rb) {
-                // Replace old pixel with region color
-                placePixelOnRegions(px, py, rr, rg, rb);
-                break;
-              }
-            }
-          }
-        }
-      }
-      // Place new pixel
-      const newR = type === 'city' ? 0 : 255;
-      const newG = type === 'city' ? 0 : 255;
-      const newB = type === 'city' ? 0 : 255;
-      placePixelOnRegions(rx, ry, newR, newG, newB);
+      moveRegionMarkerOnRegions(rx, ry, type, regionInfo);
       // Update settlement overlay position if it's a city relocation
       if (type === 'city' && settlement) {
         const stratY = mapH > 0 ? mapH - 1 - ry : ry;
@@ -810,7 +841,7 @@ export default function CampaignMap() {
         }
       });
     }
-  }, [pendingCoordPick, pendingPlace, pendingRelocate, mapH, regionsData, layers, regionWizard, placePixelOnRegions, finalizeNewRegion, overlayItems]);
+  }, [pendingCoordPick, pendingPlace, pendingRelocate, mapH, regionsData, layers, regionWizard, placePixelOnRegions, moveRegionMarkerOnRegions, finalizeNewRegion, overlayItems]);
 
   // Handle relocate pixel request from SettlementRow
   const handleRelocatePixel = useCallback((settlement, type, regionInfo) => {
@@ -879,14 +910,11 @@ export default function CampaignMap() {
         }
       }
       if (count === 0) return prev;
-      // Rebuild bitmap
-      createImageBitmap(new ImageData(newData, regLayer.width, regLayer.height)).then(bitmap => {
-        setLayers(p => ({ ...p, regions: { ...p['regions'], bitmap, data: newData } }));
-      });
+      scheduleLayerBitmap('regions', newData, regLayer.width, regLayer.height, 0);
       return { ...prev, regions: { ...regLayer, data: newData } };
     });
     setDirtyLayers(prev => new Set([...prev, 'regions']));
-  }, []);
+  }, [scheduleLayerBitmap]);
 
   // ── Add brand-new region — start paint wizard ───────────────────────────
   const handleAddNewRegion = useCallback((draft) => {
@@ -911,9 +939,7 @@ export default function CampaignMap() {
       if (!layer?.data) {
         // No heights layer loaded — create one from the coastline data
         const newData = new Uint8ClampedArray(coastlineImageData.data);
-        createImageBitmap(new ImageData(newData, coastlineImageData.width, coastlineImageData.height)).then(bitmap => {
-          setLayers(p => ({ ...p, [layerId]: { ...p[layerId], bitmap, data: newData, width: coastlineImageData.width, height: coastlineImageData.height } }));
-        });
+        scheduleLayerBitmap(layerId, newData, coastlineImageData.width, coastlineImageData.height, 0);
         return { ...prev, [layerId]: { ...prev[layerId], data: newData, width: coastlineImageData.width, height: coastlineImageData.height } };
       }
       // Merge: paint only non-transparent coastline pixels on top of existing data
@@ -924,13 +950,11 @@ export default function CampaignMap() {
           newData[i] = cd[i]; newData[i + 1] = cd[i + 1]; newData[i + 2] = cd[i + 2]; newData[i + 3] = 255;
         }
       }
-      createImageBitmap(new ImageData(newData, layer.width, layer.height)).then(bitmap => {
-        setLayers(p => ({ ...p, [layerId]: { ...p[layerId], bitmap, data: newData } }));
-      });
+      scheduleLayerBitmap(layerId, newData, layer.width, layer.height, 0);
       return { ...prev, [layerId]: { ...layer, data: newData } };
     });
     setDirtyLayers(prev => new Set([...prev, layerId]));
-  }, []);
+  }, [scheduleLayerBitmap]);
 
   const handleToggleCategory = (catId) => {
     setVisibleCategories(prev => {

@@ -55,6 +55,14 @@ function mergeFilesByPath(existing = [], incoming = []) {
 
 function registerUnitImageFiles(files) {
   const fileMap = { ...(window._m2tw_unit_image_file_map || {}) };
+  const variantIndex = { ...(window._m2tw_unit_image_variant_index || {}) };
+  const addVariant = (unitKey, folder) => {
+    if (!unitKey || !folder) return;
+    const key = unitKey.replace(/^#/, '').replace(/_info$/i, '').toLowerCase();
+    const current = new Set(variantIndex[key] || []);
+    current.add(folder);
+    variantIndex[key] = [...current].sort();
+  };
   for (const file of files || []) {
     const bareName = file.name.replace(/\.tga$/i, '').toLowerCase();
     const relPath = (file.webkitRelativePath || file.name)
@@ -65,8 +73,16 @@ function registerUnitImageFiles(files) {
     fileMap[relPath] = file;
     const uiIndex = relPath.indexOf('/ui/');
     if (uiIndex >= 0) fileMap[relPath.slice(uiIndex + 4)] = file;
+
+    const parts = relPath.split('/').filter(Boolean);
+    const filename = parts[parts.length - 1] || bareName;
+    const unitsIndex = parts.lastIndexOf('units');
+    const infoIndex = parts.lastIndexOf('unit_info');
+    if (unitsIndex >= 0 && parts[unitsIndex + 1]) addVariant(filename, parts[unitsIndex + 1]);
+    if (infoIndex >= 0 && parts[infoIndex + 1]) addVariant(filename, parts[infoIndex + 1]);
   }
   window._m2tw_unit_image_file_map = fileMap;
+  window._m2tw_unit_image_variant_index = variantIndex;
   window._m2tw_unit_image_files = mergeFilesByPath(window._m2tw_unit_image_files || [], files || []);
   return fileMap;
 }

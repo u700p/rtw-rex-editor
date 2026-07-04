@@ -221,6 +221,38 @@ function takeGenerated(values, count) {
   return uniqueNames(values).slice(0, Math.max(0, count));
 }
 
+function ensureGeneratedCount(values, count, modules, kind, seedText) {
+  const out = uniqueNames(values);
+  if (out.length >= count) return shuffled(out, seedText);
+
+  const roots = uniqueNames(modules.flatMap(m => m.roots || []));
+  const maleRoots = uniqueNames(modules.flatMap(m => m.male || []));
+  const femaleRoots = uniqueNames(modules.flatMap(m => m.female || []));
+  const baseRoots = roots.length ? roots : uniqueNames([...maleRoots, ...femaleRoots]);
+  const places = ['Hegra', 'Dumatha', 'Tyre', 'Sidon', 'Petra', 'Tayma', 'Dedan', 'Palmyra'];
+  const candidates = [];
+
+  for (let i = 0; i < Math.max(count * 4, 80); i++) {
+    const a = baseRoots[i % Math.max(1, baseRoots.length)] || 'Malik';
+    const b = baseRoots[(i * 7 + 3) % Math.max(1, baseRoots.length)] || 'Salih';
+    const m = maleRoots[(i * 5 + 1) % Math.max(1, maleRoots.length)] || a;
+    const place = places[i % places.length];
+    if (kind === 'male') {
+      const suffixes = ['os', 'ios', 'es', 'an', 'on', 'ar', 'aios', 'ides'];
+      candidates.push(hellenizeSemiticName(`${a}${b}`, suffixes[i % suffixes.length]));
+      candidates.push(hellenizeSemiticName(`${a}`, suffixes[(i + 3) % suffixes.length]));
+    } else if (kind === 'female') {
+      const suffixes = ['a', 'ia', 'ina', 'ana', 'ene', 'is', 'at', 'aya'];
+      candidates.push(`${a}${suffixes[i % suffixes.length]}`, `${b}${suffixes[(i + 2) % suffixes.length]}`);
+      candidates.push(`Amat${a}`);
+    } else {
+      candidates.push(`${a}_ibn_${m}`, `bar_${a}`, `${a}_of_${place}`, `${a}_${b}`);
+    }
+  }
+
+  return shuffled(uniqueNames([...out, ...candidates]), seedText);
+}
+
 function displayForInternalName(name) {
   return String(name || '')
     .replace(/_/g, ' ')
@@ -235,8 +267,8 @@ function buildGeneratedNamelist({ faction, cultureKeys, maleCount, surnameCount,
   const maleBase = modules.flatMap(m => m.male || []);
   const femaleBase = modules.flatMap(m => m.female || []);
   const roots = modules.flatMap(m => m.roots || []);
-  const male = takeGenerated(expandGeneratedNames(maleBase, modules, 'male', `${seed}|male`), maleCount);
-  const female = takeGenerated(expandGeneratedNames(femaleBase, modules, 'female', `${seed}|female`), femaleCount);
+  const male = takeGenerated(ensureGeneratedCount(expandGeneratedNames(maleBase, modules, 'male', `${seed}|male`), maleCount, modules, 'male', `${seed}|male-fill`), maleCount);
+  const female = takeGenerated(ensureGeneratedCount(expandGeneratedNames(femaleBase, modules, 'female', `${seed}|female`), femaleCount, modules, 'female', `${seed}|female-fill`), femaleCount);
   const surnameBase = [
     ...roots.map(root => `${root}_ibn_${male[hashString(root) % Math.max(1, male.length)] || 'Malik'}`),
     ...roots.map(root => `bar_${root}`),
@@ -245,7 +277,7 @@ function buildGeneratedNamelist({ faction, cultureKeys, maleCount, surnameCount,
     'Salih_ibn_Datha',
     'Zayd',
   ];
-  const surnames = takeGenerated(shuffled(uniqueNames(surnameBase), `${seed}|surnames`), surnameCount);
+  const surnames = takeGenerated(ensureGeneratedCount(shuffled(uniqueNames(surnameBase), `${seed}|surnames`), surnameCount, modules, 'surname', `${seed}|surname-fill`), surnameCount);
   const displayNames = {};
   for (const key of [...male, ...female, ...surnames]) displayNames[key] = displayForInternalName(key);
   return {
@@ -342,18 +374,14 @@ export default function CharacterNamesTab() {
   const applyNamesText = (raw) => {
     const map = parseTextLocFile(raw);
     setDisplayNames(map);
-    try {
-      localStorage.setItem('rtw_names_text_entries', JSON.stringify(map));
-    } catch {}
+    storeDisplayNames(map);
   };
 
   const applyNamesTextEntries = (entries) => {
     const map = {};
     for (const { key, value } of entries) if (key) map[key] = value;
     setDisplayNames(map);
-    try {
-      localStorage.setItem('rtw_names_text_entries', JSON.stringify(map));
-    } catch {}
+    storeDisplayNames(map);
   };
 
   // Auto-restore from localStorage / localization store on mount
