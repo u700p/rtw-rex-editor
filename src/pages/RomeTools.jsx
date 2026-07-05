@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
-import { Download, FileText, Image, Upload, Wand2, Copy, Search, CheckCircle2 } from 'lucide-react';
+import { Clipboard, Download, FileText, Image, Upload, Wand2, Copy, Search, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { inferSiegeEngine, parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { parseDescrSmFactions, serializeDescrSmFactions } from '@/lib/descrSmFactionsCodec';
@@ -408,6 +408,10 @@ function hexToRgb(hex) {
   const normalized = normalizeColorInput(hex) || '#a01e1e';
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(normalized);
   return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r: 160, g: 30, b: 30 };
+}
+
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`;
 }
 
 function rgbToHsl(r, g, b) {
@@ -842,6 +846,29 @@ function imageDataUrl(imageData) {
   return canvas.toDataURL('image/png');
 }
 
+async function decodeBrowserImageBlob(blob) {
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  return imageData;
+}
+
+async function readClipboardImageData() {
+  if (!navigator.clipboard?.read) throw new Error('Clipboard image reads are not available. Use the screenshot upload button instead.');
+  const items = await navigator.clipboard.read();
+  for (const item of items) {
+    const imageType = item.types.find(type => type.startsWith('image/'));
+    if (!imageType) continue;
+    return decodeBrowserImageBlob(await item.getType(imageType));
+  }
+  throw new Error('No image found on the clipboard. Press Print Screen, then try Paste screenshot.');
+}
+
 function imageDataToCanvas(imageData) {
   const canvas = document.createElement('canvas');
   canvas.width = imageData.width;
@@ -996,30 +1023,124 @@ const BEST_RECOLOR_SETTINGS = {
   tertiaryEnabled: false,
 };
 
+const AI_RECOLOR_TARGETS = [
+  ['source', 'Source'],
+  ['target', 'Target'],
+  ['secondarySource', '2nd source'],
+  ['secondaryTarget', '2nd target'],
+  ['tertiarySource', '3rd source'],
+  ['tertiaryTarget', '3rd target'],
+];
+
+function detectFactionColorCandidates(imageData, maxCandidates = 5) {
+  if (!imageData?.data) return [];
+  const { data, width, height } = imageData;
+  const buckets = new Map();
+  const total = width * height;
+  const step = Math.max(1, Math.floor(total / 120000));
+
+  for (let pixel = 0; pixel < total; pixel += step) {
+    const i = pixel * 4;
+    const a = data[i + 3];
+    if (a < 16) continue;
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const hsl = rgbToHsl(r, g, b);
+    if (hsl.s < 0.18 || hsl.l < 0.07 || hsl.l > 0.90) continue;
+    if (materialProtectionType(r, g, b, hsl, true)) continue;
+    const key = `${Math.round(hsl.h / 8)}:${Math.round(hsl.s * 12)}:${Math.round(hsl.l * 10)}`;
+    const bucket = buckets.get(key) || { r: 0, g: 0, b: 0, count: 0, sat: 0, light: 0 };
+    bucket.r += r;
+    bucket.g += g;
+    bucket.b += b;
+    bucket.sat += hsl.s;
+    bucket.light += hsl.l;
+    bucket.count += 1;
+    buckets.set(key, bucket);
+  }
+
+  return Array.from(buckets.values())
+    .filter(bucket => bucket.count >= 8)
+    .map(bucket => {
+      const r = bucket.r / bucket.count;
+      const g = bucket.g / bucket.count;
+      const b = bucket.b / bucket.count;
+      const sat = bucket.sat / bucket.count;
+      const light = bucket.light / bucket.count;
+      return {
+        hex: rgbToHex(r, g, b),
+        count: bucket.count,
+        score: bucket.count * (0.45 + sat) * (1 - Math.abs(light - 0.52) * 0.65),
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxCandidates);
+}
+
+function buildUvLockedPrompt(settings, brief, textureName = 'RTW texture') {
+  const source = settings.source?.toUpperCase?.() || '#9E1A1A';
+  const target = settings.target?.toUpperCase?.() || '#2F6FC0';
+  const extra = String(brief || '').trim();
+  return [
+    `Image-to-image edit for "${textureName}".`,
+    'Use the uploaded image as the exact UV texture reference. Preserve the same canvas size, UV islands, seams, silhouettes, alpha/transparency, borders, icons, folds, scratches, dirt, baked shadows, and small painted details.',
+    `Recolor only the faction-colored cloth, shields, banners, painted trim, and tunic areas from ${source} toward ${target}.`,
+    settings.secondaryEnabled ? `Also map secondary faction color ${settings.secondarySource?.toUpperCase?.()} toward ${settings.secondaryTarget?.toUpperCase?.()}.` : '',
+    settings.tertiaryEnabled ? `Also map tertiary faction color ${settings.tertiarySource?.toUpperCase?.()} toward ${settings.tertiaryTarget?.toUpperCase?.()}.` : '',
+    'Do not alter skin, faces, hair, leather, metal armor, white/linen armor, weapons, transparent pixels, UV placement, or the texture layout. Avoid adding new objects or changing the design.',
+    extra ? `Style/detail request: ${extra}` : 'Style/detail request: keep it historically plausible and game-ready for Rome Total War.',
+    'Output should look like the same texture file after a careful faction recolor, not a new illustration.'
+  ].filter(Boolean).join('\n');
+}
+
 function TextureRecolorTab() {
   const [files, setFiles] = useState([]);
   const [settings, setSettings] = useState(BEST_RECOLOR_SETTINGS);
   const [preview, setPreview] = useState(null);
   const [status, setStatus] = useState('');
+  const [sampler, setSampler] = useState(null);
+  const [samplerTarget, setSamplerTarget] = useState('source');
+  const [aiBrief, setAiBrief] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const previewCacheRef = useRef({ file: null, imageData: null, dataUrl: '' });
+  const previewRunRef = useRef(0);
 
   const update = (key, value) => setSettings(prev => ({ ...prev, [key]: value }));
+
+  const getPreviewOriginal = async (file) => {
+    const cached = previewCacheRef.current;
+    if (cached.file === file && cached.imageData) return cached;
+    const imageData = await decodeImageFile(file);
+    const dataUrl = imageDataUrl(imageData);
+    previewCacheRef.current = { file, imageData, dataUrl };
+    return previewCacheRef.current;
+  };
 
   const loadPreview = async (fileList, activeSettings = settings) => {
     const first = fileList[0];
     if (!first) return;
+    const runId = ++previewRunRef.current;
     try {
       const plan = buildRecolorPlan(activeSettings);
-      const original = await decodeImageFile(first);
-      const processed = recolorImageData(original, plan);
-      setPreview({ name: first.name, before: imageDataUrl(original), after: imageDataUrl(processed) });
+      const original = await getPreviewOriginal(first);
+      const processed = recolorImageData(original.imageData, plan);
+      if (runId === previewRunRef.current) setPreview({ name: first.name, before: original.dataUrl, after: imageDataUrl(processed) });
     } catch (err) {
       setStatus(`Preview failed: ${err.message}`);
     }
   };
 
+  useEffect(() => {
+    if (!files.length) return;
+    const timer = setTimeout(() => {
+      loadPreview(files, settings);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [settings, files]);
+
   const handleFiles = async (e) => {
     const list = Array.from(e.target.files || []).filter(file => /\.(tga|dds|png|jpe?g)$/i.test(file.name));
     e.target.value = '';
+    previewCacheRef.current = { file: null, imageData: null, dataUrl: '' };
     setFiles(list);
     setStatus(`${list.length} texture files queued.`);
     await loadPreview(list);
@@ -1035,7 +1156,84 @@ function TextureRecolorTab() {
   const clearQueue = () => {
     setFiles([]);
     setPreview(null);
+    previewCacheRef.current = { file: null, imageData: null, dataUrl: '' };
     setStatus('Texture queue cleared.');
+  };
+
+  const applySmartRecolor = async () => {
+    const first = files[0];
+    if (!first) {
+      setStatus('Load a texture first, then use AI smart recolor.');
+      return;
+    }
+    try {
+      const original = await getPreviewOriginal(first);
+      const candidates = detectFactionColorCandidates(original.imageData);
+      if (!candidates.length) {
+        setStatus('No strong faction-color candidates detected. Try using the screenshot/color sampler.');
+        return;
+      }
+      const next = {
+        ...settings,
+        source: candidates[0].hex,
+        tolerance: 26,
+        rgbTolerance: 155,
+        strength: 88,
+        minSat: 18,
+        useSource: true,
+        exactTarget: true,
+        preserveLight: true,
+        protectExtremes: true,
+        protectMaterials: true,
+        secondaryEnabled: candidates.length > 1,
+        secondarySource: candidates[1]?.hex || settings.secondarySource,
+      };
+      setSettings(next);
+      setStatus(`AI smart recolor detected source colors: ${candidates.map(c => c.hex.toUpperCase()).join(', ')}`);
+      await loadPreview(files, next);
+    } catch (err) {
+      setStatus(`AI smart recolor failed: ${err.message}`);
+    }
+  };
+
+  const loadSamplerImageData = (imageData, name = 'screenshot') => {
+    setSampler({ name, imageData, src: imageDataUrl(imageData) });
+    setStatus(`Loaded ${name} for color sampling.`);
+  };
+
+  const handleSamplerUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      loadSamplerImageData(await decodeImageFile(file), file.name);
+    } catch (err) {
+      setStatus(`Screenshot load failed: ${err.message}`);
+    }
+  };
+
+  const pasteSamplerScreenshot = async () => {
+    try {
+      loadSamplerImageData(await readClipboardImageData(), 'clipboard screenshot');
+    } catch (err) {
+      setStatus(`Paste screenshot failed: ${err.message}`);
+    }
+  };
+
+  const handleSamplerPick = (hex) => {
+    update(samplerTarget, hex);
+    setStatus(`Picked ${hex.toUpperCase()} for ${AI_RECOLOR_TARGETS.find(([key]) => key === samplerTarget)?.[1] || samplerTarget}.`);
+  };
+
+  const generateAiPrompt = async () => {
+    const prompt = buildUvLockedPrompt(settings, aiBrief, files[0]?.name || preview?.name || 'RTW texture');
+    setAiPrompt(prompt);
+    try {
+      await navigator.clipboard?.writeText(prompt);
+      setStatus('Copied UV-locked image-to-image prompt.');
+    } catch {
+      setStatus('Generated UV-locked image-to-image prompt.');
+    }
   };
 
   const exportZip = async () => {
@@ -1095,6 +1293,10 @@ function TextureRecolorTab() {
           <span>{files.length} queued</span>
           <button onClick={clearQueue} disabled={!files.length} className="text-slate-400 hover:text-slate-200 disabled:opacity-40">Clear</button>
         </div>
+        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={applySmartRecolor} disabled={!files.length}>
+          <Wand2 className="w-3.5 h-3.5" />
+          AI smart recolor
+        </Button>
         <Swatch label="Source faction color" value={settings.source} onChange={v => update('source', v)} />
         <Swatch label="Target faction color" value={settings.target} onChange={v => update('target', v)} />
         <label className="flex items-center gap-2 text-xs text-slate-300">
@@ -1160,15 +1362,43 @@ function TextureRecolorTab() {
       </div>
       <div className="rounded border border-slate-700 bg-slate-950/60 p-3 min-h-[420px]">
         {preview ? (
-          <div className="grid grid-cols-2 gap-3">
-            <PreviewImage label={`${preview.name} original`} src={preview.before} />
-            <PreviewImage label="recolored output" src={preview.after} />
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <PreviewImage label={`${preview.name} original`} src={preview.before} />
+              <PreviewImage label="recolored output" src={preview.after} />
+            </div>
+            <div className="rounded border border-slate-800 bg-slate-900/40 p-2">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-[10px] uppercase text-slate-500">UV-locked image-to-image prompt</span>
+                <Button variant="outline" className="h-6 px-2 text-[10px]" onClick={generateAiPrompt}>
+                  <Copy className="w-3 h-3 mr-1" />
+                  Copy prompt
+                </Button>
+              </div>
+              <textarea
+                value={aiBrief}
+                onChange={e => setAiBrief(e.target.value)}
+                placeholder="Optional description for Bing-style image-to-image generation..."
+                className="w-full h-16 resize-none rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200"
+              />
+              {aiPrompt && <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap text-[10px] text-slate-400">{aiPrompt}</pre>}
+            </div>
           </div>
         ) : (
           <div className="h-full grid place-items-center text-sm text-slate-500">Load textures to preview recolor results.</div>
         )}
       </div>
-      <pre className="rounded border border-slate-700 bg-black/30 p-2 text-[10px] text-slate-300 whitespace-pre-wrap overflow-auto">{status || 'Supports true-color/RLE TGA, DXT1/DXT3/DXT5 DDS, and browser image formats. Output uses 32-bit TGA and uncompressed 32-bit DDS for cleaner results.'}</pre>
+      <div className="space-y-3">
+        <ColorSampler
+          sampler={sampler}
+          activeTarget={samplerTarget}
+          onTargetChange={setSamplerTarget}
+          onUpload={handleSamplerUpload}
+          onPaste={pasteSamplerScreenshot}
+          onPick={handleSamplerPick}
+        />
+        <pre className="rounded border border-slate-700 bg-black/30 p-2 text-[10px] text-slate-300 whitespace-pre-wrap overflow-auto max-h-[360px]">{status || 'Supports true-color/RLE TGA, DXT1/DXT3/DXT5 DDS, browser image formats, screenshot sampling, and UV-locked AI prompt export.'}</pre>
+      </div>
     </div>
   );
 }
@@ -1189,26 +1419,20 @@ function Swatch({ label, value, onChange }) {
   };
 
   return (
-    <label className="block space-y-1">
+    <div className="block space-y-1">
       <span className="flex items-center justify-between gap-2 text-[10px] uppercase text-slate-500">
         <span className="truncate">{label}</span>
         <span className="font-mono text-[9px] text-slate-600">{normalized.toUpperCase()}</span>
       </span>
-      <div className="grid grid-cols-[2rem_1fr] items-center gap-1.5">
-        <span
-          className="relative h-7 rounded border border-slate-600 shadow-inner cursor-crosshair overflow-hidden focus-within:ring-1 focus-within:ring-amber-400"
-          style={{ background: normalized }}
-          title="Pick exact color"
-        >
-          <input
-            type="color"
-            value={normalized}
-            onChange={e => onChange(e.target.value)}
-            className="absolute inset-0 h-full w-full opacity-0 cursor-crosshair"
-            aria-label={`${label} color picker`}
-          />
-          <span className="pointer-events-none absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80 shadow-[0_0_0_1px_rgba(0,0,0,0.8)]" />
-        </span>
+      <div className="grid grid-cols-[2.25rem_1fr] items-center gap-1.5">
+        <input
+          type="color"
+          value={normalized}
+          onChange={e => onChange(e.target.value)}
+          className="h-7 w-9 rounded border border-slate-600 bg-slate-900 p-0.5 cursor-pointer"
+          aria-label={`${label} color picker`}
+          title="Open native color picker"
+        />
         <input
           value={draft}
           onChange={e => setDraft(e.target.value)}
@@ -1219,7 +1443,73 @@ function Swatch({ label, value, onChange }) {
           className={`h-7 min-w-0 px-2 text-[11px] font-mono bg-slate-900 border rounded cursor-text focus:outline-none focus:ring-1 ${draftIsValid ? 'border-slate-700 focus:border-amber-400 focus:ring-amber-400/40' : 'border-red-700/70 text-red-300 focus:border-red-500 focus:ring-red-500/40'}`}
         />
       </div>
-    </label>
+    </div>
+  );
+}
+
+function ColorSampler({ sampler, activeTarget, onTargetChange, onUpload, onPaste, onPick }) {
+  const imgRef = useRef(null);
+  const [hover, setHover] = useState(null);
+
+  const sampleAt = (event, commit = false) => {
+    if (!sampler?.imageData || !imgRef.current) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(sampler.imageData.width - 1, Math.floor((event.clientX - rect.left) * sampler.imageData.width / rect.width)));
+    const y = Math.max(0, Math.min(sampler.imageData.height - 1, Math.floor((event.clientY - rect.top) * sampler.imageData.height / rect.height)));
+    const i = (y * sampler.imageData.width + x) * 4;
+    const data = sampler.imageData.data;
+    const hex = rgbToHex(data[i], data[i + 1], data[i + 2]);
+    setHover({ x, y, hex });
+    if (commit) onPick(hex);
+  };
+
+  return (
+    <div className="rounded border border-slate-700 bg-slate-900/60 p-2 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase text-slate-500">Screenshot color sampler</span>
+        {hover && <span className="font-mono text-[10px] text-slate-300">{hover.hex.toUpperCase()} @ {hover.x},{hover.y}</span>}
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        <Button variant="outline" className="h-7 text-[10px] gap-1" onClick={onPaste}>
+          <Clipboard className="w-3 h-3" />
+          Paste screenshot
+        </Button>
+        <label className="h-7 rounded border border-slate-700 bg-slate-950/60 hover:border-amber-500/60 px-2 flex items-center justify-center gap-1 text-[10px] text-slate-200 cursor-pointer">
+          <Upload className="w-3 h-3" />
+          Upload image
+          <input type="file" accept=".png,.jpg,.jpeg,.webp,.tga,.dds" className="hidden" onChange={onUpload} />
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {AI_RECOLOR_TARGETS.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onTargetChange(key)}
+            className={`h-6 px-2 rounded border text-[10px] ${activeTarget === key ? 'border-amber-500 bg-amber-500/15 text-amber-200' : 'border-slate-700 bg-slate-950/50 text-slate-400 hover:text-slate-200'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {sampler ? (
+        <div className="rounded border border-slate-800 bg-black/40 overflow-hidden">
+          <img
+            ref={imgRef}
+            src={sampler.src}
+            alt={sampler.name}
+            onMouseMove={sampleAt}
+            onClick={event => sampleAt(event, true)}
+            className="w-full max-h-56 object-contain image-render-pixelated cursor-crosshair"
+            draggable={false}
+          />
+        </div>
+      ) : (
+        <div className="rounded border border-dashed border-slate-700 bg-slate-950/40 p-3 text-[10px] text-slate-500">
+          Press Print Screen, then Paste screenshot, or upload an image. Click a pixel to set the selected source/target color.
+        </div>
+      )}
+    </div>
   );
 }
 

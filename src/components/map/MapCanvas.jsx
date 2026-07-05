@@ -88,6 +88,14 @@ function getCanvasSize(layers) {
   return { w, h };
 }
 
+function mapToLayerPixel(mapX, mapY, layer, mapW, mapH) {
+  if (!layer?.data || mapW <= 0 || mapH <= 0) return null;
+  const lx = Math.floor(mapX * (layer.width / mapW));
+  const ly = Math.floor(mapY * (layer.height / mapH));
+  if (lx < 0 || ly < 0 || lx >= layer.width || ly >= layer.height) return null;
+  return { lx, ly };
+}
+
 export function floodFillRGB(data, width, height, sx, sy, nr, ng, nb, tolerance = 4) {
   if (!data || width <= 0 || height <= 0) return;
   sx = Math.trunc(sx);
@@ -312,12 +320,8 @@ export default function MapCanvas({
     const sx = clientX - rect.left, sy = clientY - rect.top;
     const mapX = (sx - transform.x) / transform.scale;
     const mapY = (sy - transform.y) / transform.scale;
-    const layer = layers[layerId];
-    if (!layer?.data) return null;
-    const lx = Math.round(mapX * (layer.width  / mapW));
-    const ly = Math.round(mapY * (layer.height / mapH));
-    if (lx < 0 || ly < 0 || lx >= layer.width || ly >= layer.height) return null;
-    return { lx, ly, mapX: Math.round(mapX), mapY: Math.round(mapY) };
+    const coords = mapToLayerPixel(mapX, mapY, layers[layerId], mapW, mapH);
+    return coords ? { ...coords, mapX: Math.floor(mapX), mapY: Math.floor(mapY) } : null;
   }, [transform, layers, mapW, mapH]);
 
   const doPencil = useCallback((clientX, clientY) => {
@@ -382,28 +386,26 @@ export default function MapCanvas({
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-    const regLayer = layers['regions'];
-    let dispX = 0, dispY = 0;
-    if (regLayer?.width) {
-      dispX = Math.round((sx - transform.x) / transform.scale * (regLayer.width  / mapW));
-      dispY = Math.round((sy - transform.y) / transform.scale * (regLayer.height / mapH));
-    } else {
-      dispX = Math.round((sx - transform.x) / transform.scale);
-      dispY = Math.round((sy - transform.y) / transform.scale);
-    }
-    const mapX = Math.round((sx - transform.x) / transform.scale);
-    const mapY = Math.round((sy - transform.y) / transform.scale);
+    const mapX = (sx - transform.x) / transform.scale;
+    const mapY = (sy - transform.y) / transform.scale;
     if (mapX < 0 || mapY < 0 || mapX >= mapW || mapY >= mapH) { setProbe(null); return; }
+    const regLayer = layers['regions'];
+    const probeLayer = regLayer?.data ? regLayer : { data: true, width: mapW, height: mapH };
+    const probeCoord = mapToLayerPixel(mapX, mapY, probeLayer, mapW, mapH);
+    if (!probeCoord) { setProbe(null); return; }
+    const dispX = probeCoord.lx;
+    const sourceY = probeCoord.ly;
+    const dispY = probeLayer.height - 1 - sourceY;
     const pixelData = {};
     for (const def of LAYER_DEFS) {
       const state = layers[def.id];
       if (!state?.data) continue;
-      const nx = Math.round(mapX * (state.width / mapW));
-      const ny = Math.round(mapY * (state.height / mapH));
-      const idx = (ny * state.width + nx) * 4;
+      const layerCoord = mapToLayerPixel(mapX, mapY, state, mapW, mapH);
+      if (!layerCoord) continue;
+      const idx = (layerCoord.ly * state.width + layerCoord.lx) * 4;
       pixelData[def.id] = { r: state.data[idx], g: state.data[idx+1], b: state.data[idx+2], a: state.data[idx+3] };
     }
-    setProbe({ x: dispX, y: dispY, screenX: sx, screenY: sy, pixelData });
+    setProbe({ x: dispX, y: dispY, sourceX: dispX, sourceY, screenX: sx, screenY: sy, pixelData });
   }, [paintState, doPencil, layers, transform, mapW, mapH, showTooltip]);
 
   const handleMouseUp = useCallback((e) => {
@@ -418,9 +420,8 @@ export default function MapCanvas({
       const mapX = (sx - transform.x) / transform.scale;
       const mapY = (sy - transform.y) / transform.scale;
       const regL = layers['regions'];
-      const rx = Math.floor(mapX * ((regL?.width || mapW) / mapW));
-      const ry = Math.floor(mapY * ((regL?.height || mapH) / mapH));
-      onRegionClick(rx, ry);
+      const coords = mapToLayerPixel(mapX, mapY, regL?.data ? regL : { data: true, width: mapW, height: mapH }, mapW, mapH);
+      if (coords) onRegionClick(coords.lx, coords.ly);
     }
   }, [mapW, onRegionClick, transform, layers]);
 
