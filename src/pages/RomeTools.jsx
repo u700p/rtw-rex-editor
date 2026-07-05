@@ -1032,6 +1032,77 @@ const AI_RECOLOR_TARGETS = [
   ['tertiaryTarget', '3rd target'],
 ];
 
+const AI_IMAGE_STYLE_PRESETS = {
+  unit: [
+    'RTW unit texture repaint',
+    'historical bronze age realism',
+    'Hellenistic linen and bronze',
+    'desert frontier militia',
+    'elite royal guard',
+    'weathered campaign veteran',
+  ],
+  symbol: [
+    'RTW faction medallion',
+    'clean heraldic emblem',
+    'engraved bronze icon',
+    'painted shield symbol',
+    'stone seal relief',
+    'high-contrast UI icon',
+  ],
+};
+
+const AI_IDEA_PARTS = {
+  unitRoles: ['royal spearmen', 'desert archers', 'camel scouts', 'harbor militia', 'sacred guard', 'citizen cavalry', 'hill skirmishers', 'temple bodyguards'],
+  symbolMotifs: ['crescent and star', 'palm and spear', 'bull horn crown', 'ship prow', 'lion over waves', 'sun disk', 'sacred mountain', 'bronze horse head'],
+  materials: ['bronze, linen, dyed wool', 'painted leather and dark iron', 'ivory cloth with bronze trim', 'red wool and polished bronze', 'sea-blue enamel and silver', 'black leather with gold paint'],
+  moods: ['disciplined and ancient', 'weathered but elite', 'sacred and royal', 'frontier-born and practical', 'maritime and wealthy', 'nomadic and fast-moving'],
+};
+
+function randomPick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function buildBingStylePrompt(form, referenceName = 'uploaded reference') {
+  const isSymbol = form.mode === 'symbol';
+  const faction = form.faction || 'new faction';
+  const culture = form.culture || 'ancient Mediterranean';
+  const colors = form.colors || 'historically plausible faction colors';
+  const subject = isSymbol ? (form.subject || 'faction symbol') : (form.subject || 'unit texture');
+  const style = form.style || (isSymbol ? 'RTW faction medallion' : 'RTW unit texture repaint');
+  const details = form.details || 'high quality, game-ready, historically plausible';
+
+  return [
+    `Image-to-image edit using "${referenceName}" as the strict reference.`,
+    isSymbol
+      ? `Create a faction symbol/icon for ${faction}, ${culture}. Subject: ${subject}.`
+      : `Create a unit image/texture for ${faction}, ${culture}. Unit: ${subject}.`,
+    `Style: ${style}. Palette/materials: ${colors}. Details: ${details}.`,
+    isSymbol
+      ? 'Preserve the uploaded icon composition, transparent background, centered silhouette, circular symbol framing if present, exact readable shape, and strong contrast at 256, 128, 48, and 24 pixel sizes.'
+      : 'Preserve the uploaded UV layout, canvas size, alpha, seams, body part placement, folds, baked shadows, silhouettes, and every small texture island. Keep the exact same pose/card framing if the reference is a unit card.',
+    'Do not crop, rotate, change UV island positions, add text, invent unrelated objects, alter skin/face pixels unless asked, or repaint metal/white armor unless it is part of the requested faction color change.',
+    form.negative ? `Avoid: ${form.negative}.` : 'Avoid modern fantasy, glowing effects, blurry edges, new backgrounds, and layout drift.',
+    'Output should look like the same game asset after a careful AI-assisted art pass, not a new unrelated illustration.'
+  ].join('\n');
+}
+
+function generateAiImageIdeas({ mode, faction, culture, colors }) {
+  const ideas = [];
+  const count = 8;
+  for (let i = 0; i < count; i++) {
+    const material = colors || randomPick(AI_IDEA_PARTS.materials);
+    const mood = randomPick(AI_IDEA_PARTS.moods);
+    if (mode === 'symbol') {
+      const motif = randomPick(AI_IDEA_PARTS.symbolMotifs);
+      ideas.push(`${faction || 'Faction'} symbol: ${motif}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, readable at tiny UI sizes`);
+    } else {
+      const role = randomPick(AI_IDEA_PARTS.unitRoles);
+      ideas.push(`${faction || 'Faction'} ${role}: ${culture || 'ancient mixed culture'}, ${material}, ${mood}, preserve RTW UV/card layout`);
+    }
+  }
+  return ideas;
+}
+
 function detectFactionColorCandidates(imageData, maxCandidates = 5) {
   if (!imageData?.data) return [];
   const { data, width, height } = imageData;
@@ -1737,6 +1808,173 @@ function SpriteLogoGeneratorTab() {
   );
 }
 
+function AiImageWorkshopTab() {
+  const [form, setForm] = useState({
+    mode: 'unit',
+    faction: 'thamud_01',
+    culture: 'Hellenized Phoenician pre-Islamic Arabic',
+    subject: 'elite desert spearman unit texture',
+    colors: 'deep red cloth, warm bronze, ivory linen, dark leather',
+    style: AI_IMAGE_STYLE_PRESETS.unit[0],
+    details: 'sharper cloth folds, cleaner trim, historically plausible weathering',
+    negative: '',
+  });
+  const [reference, setReference] = useState(null);
+  const [prompt, setPrompt] = useState('');
+  const [ideas, setIdeas] = useState([]);
+  const [status, setStatus] = useState('');
+
+  const update = (key, value) => {
+    setForm(prev => {
+      const next = { ...prev, [key]: value };
+      if (key === 'mode') {
+        next.style = AI_IMAGE_STYLE_PRESETS[value][0];
+        next.subject = value === 'symbol' ? 'crescent, palm, and spear faction emblem' : 'elite desert spearman unit texture';
+      }
+      return next;
+    });
+  };
+
+  const handleReference = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const imageData = await decodeImageFile(file);
+      setReference({ name: file.name, width: imageData.width, height: imageData.height, src: imageDataUrl(imageData) });
+      setStatus(`Loaded ${file.name} (${imageData.width}x${imageData.height}).`);
+    } catch (err) {
+      setStatus(`Reference load failed: ${err.message}`);
+    }
+  };
+
+  const generatePrompt = async () => {
+    const next = buildBingStylePrompt(form, reference?.name || 'uploaded reference');
+    setPrompt(next);
+    try {
+      await navigator.clipboard?.writeText(next);
+      setStatus('Copied image-to-image prompt.');
+    } catch {
+      setStatus('Generated image-to-image prompt.');
+    }
+  };
+
+  const generateIdeas = async () => {
+    const next = generateAiImageIdeas(form);
+    setIdeas(next);
+    const text = next.map((idea, i) => `${i + 1}. ${idea}`).join('\n');
+    try {
+      await navigator.clipboard?.writeText(text);
+      setStatus('Generated and copied ideas.');
+    } catch {
+      setStatus('Generated ideas.');
+    }
+  };
+
+  const downloadKit = () => {
+    const kit = {
+      mode: form.mode,
+      reference: reference ? { name: reference.name, width: reference.width, height: reference.height } : null,
+      prompt: prompt || buildBingStylePrompt(form, reference?.name || 'uploaded reference'),
+      ideas,
+      settings: form,
+    };
+    downloadBlob(new Blob([JSON.stringify(kit, null, 2)], { type: 'application/json' }), `ai_img2img_${form.mode}_kit.json`);
+  };
+
+  return (
+    <div className="grid grid-cols-[320px_1fr_360px] gap-3 min-h-0">
+      <div className="space-y-3">
+        <label className="block">
+          <span className="text-[10px] uppercase text-slate-500">Mode</span>
+          <select value={form.mode} onChange={e => update('mode', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
+            <option value="unit">Unit img2img</option>
+            <option value="symbol">Faction symbol/icon img2img</option>
+          </select>
+        </label>
+        <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
+          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg,.webp" className="hidden" onChange={handleReference} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load reference image</span>
+        </label>
+        <TextField label="Faction" value={form.faction} onChange={value => update('faction', value)} />
+        <TextField label="Culture combo" value={form.culture} onChange={value => update('culture', value)} />
+        <TextField label={form.mode === 'symbol' ? 'Symbol subject' : 'Unit subject'} value={form.subject} onChange={value => update('subject', value)} />
+        <TextField label="Palette/materials" value={form.colors} onChange={value => update('colors', value)} />
+        <label className="block">
+          <span className="text-[10px] uppercase text-slate-500">Style preset</span>
+          <select value={form.style} onChange={e => update('style', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
+            {AI_IMAGE_STYLE_PRESETS[form.mode].map(style => <option key={style} value={style}>{style}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase text-slate-500">Extra description</span>
+          <textarea value={form.details} onChange={e => update('details', e.target.value)} className="w-full h-20 mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs" />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase text-slate-500">Avoid</span>
+          <textarea value={form.negative} onChange={e => update('negative', e.target.value)} className="w-full h-16 mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs" />
+        </label>
+        <Button className="w-full h-8 text-xs gap-1.5" onClick={generatePrompt}>
+          <Wand2 className="w-3.5 h-3.5" />
+          Generate img2img prompt
+        </Button>
+        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={generateIdeas}>
+          <Search className="w-3.5 h-3.5" />
+          Generate ideas
+        </Button>
+        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={downloadKit}>
+          <Download className="w-3.5 h-3.5" />
+          Download kit
+        </Button>
+        <p className="text-xs text-amber-300 whitespace-pre-wrap">{status}</p>
+      </div>
+
+      <div className="rounded border border-slate-700 bg-slate-950/60 p-3 min-h-[520px] overflow-auto">
+        {reference ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+              <span className="font-mono text-slate-300 truncate">{reference.name}</span>
+              <span>{reference.width}x{reference.height}</span>
+            </div>
+            <div className="rounded border border-slate-700 bg-black/40 overflow-hidden">
+              <img src={reference.src} alt={reference.name} className="w-full h-auto image-render-pixelated" />
+            </div>
+          </div>
+        ) : (
+          <div className="h-full grid place-items-center text-sm text-slate-500">Load a unit texture, unit card, symbol128, symbol48, or icon reference.</div>
+        )}
+      </div>
+
+      <div className="grid grid-rows-[1fr_1fr] gap-3 min-h-[520px]">
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          spellCheck={false}
+          className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 text-[11px] text-slate-200"
+          placeholder="Generated Bing/Copilot-style image-to-image prompt appears here."
+        />
+        <div className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 overflow-auto">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] uppercase text-slate-500">Idea generator</span>
+            <button onClick={() => navigator.clipboard?.writeText(ideas.map((idea, i) => `${i + 1}. ${idea}`).join('\n'))} disabled={!ideas.length} className="text-[10px] text-slate-400 hover:text-slate-100 disabled:opacity-40">Copy</button>
+          </div>
+          {ideas.length ? (
+            <div className="space-y-2">
+              {ideas.map((idea, i) => (
+                <button key={`${idea}-${i}`} onClick={() => update('subject', idea)} className="w-full text-left rounded border border-slate-800 bg-slate-900/50 p-2 text-[11px] text-slate-300 hover:border-amber-500/50">
+                  {i + 1}. {idea}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="h-full grid place-items-center text-xs text-slate-500">Generate ideas for units or faction symbols.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function cloneDelimitedBlock(text, startRegex, stopRegex, transform) {
   const lines = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const start = lines.findIndex(line => startRegex.test(stripComment(line)));
@@ -1888,6 +2126,7 @@ export default function RomeTools() {
   const tabs = [
     ['importer', 'Unit Importer', FileText],
     ['recolor', 'Texture Recolorizer', Wand2],
+    ['ai-img2img', 'AI Img2Img', Image],
     ['sprite-logos', 'Sprite Logos', Image],
     ['dmb-slave', 'DMB Textures', FileText],
     ['duplicate', 'Duplicators', Copy],
@@ -1917,6 +2156,7 @@ export default function RomeTools() {
       <div className="flex-1 min-h-0 p-3 overflow-auto">
         {tab === 'importer' && <UnitImporterTab />}
         {tab === 'recolor' && <TextureRecolorTab />}
+        {tab === 'ai-img2img' && <AiImageWorkshopTab />}
         {tab === 'sprite-logos' && <SpriteLogoGeneratorTab />}
         {tab === 'dmb-slave' && <DmbSlaveTextureTab />}
         {tab === 'duplicate' && <DuplicatorsTab />}
