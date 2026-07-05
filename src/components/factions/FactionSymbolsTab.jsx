@@ -47,6 +47,7 @@ const GENERATED_SYMBOL_SLOTS = {
 
 export const FACTION_SYMBOLS_UPDATED_EVENT = 'm2tw-faction-symbols-updated';
 export const FACTION_SYMBOL_PREVIEW_KEY = 'm2tw_faction_symbol_previews';
+export const FACTION_SYMBOL_ALIAS_KEY = 'm2tw_faction_symbol_aliases';
 
 export function normalizeFactionName(factionName) {
   return String(factionName || '').trim().toLowerCase();
@@ -59,6 +60,18 @@ export function normalizeImageStem(name) {
     .pop()
     .replace(/\.(tga|png|jpe?g|bmp)$/i, '')
     .toLowerCase();
+}
+
+function unique(items) {
+  return [...new Set((items || []).map(normalizeFactionName).filter(Boolean))];
+}
+
+function persistSymbolStore(store) {
+  if (typeof window === 'undefined') return;
+  window._m2tw_faction_symbol_previews = store || {};
+  const raw = JSON.stringify(window._m2tw_faction_symbol_previews);
+  try { sessionStorage.setItem(FACTION_SYMBOL_PREVIEW_KEY, raw); } catch {}
+  try { localStorage.setItem(FACTION_SYMBOL_PREVIEW_KEY, raw); } catch {}
 }
 
 function getSymbolStore() {
@@ -85,10 +98,148 @@ export function storeFactionSymbols(factionName, images) {
   if (!factionKey) return;
   const store = getSymbolStore();
   store[factionKey] = { ...(store[factionKey] || {}), ...(images || {}) };
-  window._m2tw_faction_symbol_previews = store;
-  try { sessionStorage.setItem(FACTION_SYMBOL_PREVIEW_KEY, JSON.stringify(store)); } catch {}
-  try { localStorage.setItem(FACTION_SYMBOL_PREVIEW_KEY, JSON.stringify(store)); } catch {}
+  persistSymbolStore(store);
   window.dispatchEvent(new CustomEvent(FACTION_SYMBOLS_UPDATED_EVENT, { detail: { factionName, images: store[factionKey] } }));
+}
+
+export function storeFactionSymbolsBulk(imagesByFaction) {
+  if (typeof window === 'undefined') return 0;
+  const store = getSymbolStore();
+  let changed = 0;
+  for (const [factionName, images] of Object.entries(imagesByFaction || {})) {
+    const factionKey = normalizeFactionName(factionName);
+    const entries = Object.entries(images || {}).filter(([, url]) => !!url);
+    if (!factionKey || entries.length === 0) continue;
+    store[factionKey] = { ...(store[factionKey] || {}), ...Object.fromEntries(entries) };
+    changed += entries.length;
+  }
+  if (!changed) return 0;
+  persistSymbolStore(store);
+  for (const [factionName, images] of Object.entries(imagesByFaction || {})) {
+    const factionKey = normalizeFactionName(factionName);
+    if (factionKey && store[factionKey]) {
+      window.dispatchEvent(new CustomEvent(FACTION_SYMBOLS_UPDATED_EVENT, { detail: { factionName: factionKey, images: store[factionKey] } }));
+    }
+  }
+  return changed;
+}
+
+export function clearFactionSymbols(factionName) {
+  if (typeof window === 'undefined') return false;
+  const factionKey = normalizeFactionName(factionName);
+  if (!factionKey) return false;
+  const store = getSymbolStore();
+  if (!store[factionKey]) return false;
+  delete store[factionKey];
+  persistSymbolStore(store);
+  window.dispatchEvent(new CustomEvent(FACTION_SYMBOLS_UPDATED_EVENT, { detail: { factionName: factionKey, images: {} } }));
+  return true;
+}
+
+function getAliasStore() {
+  if (typeof window === 'undefined') return {};
+  if (window._m2tw_faction_symbol_aliases) return window._m2tw_faction_symbol_aliases;
+  try {
+    const raw = sessionStorage.getItem(FACTION_SYMBOL_ALIAS_KEY) || localStorage.getItem(FACTION_SYMBOL_ALIAS_KEY) || '{}';
+    window._m2tw_faction_symbol_aliases = JSON.parse(raw);
+  } catch {
+    window._m2tw_faction_symbol_aliases = {};
+  }
+  return window._m2tw_faction_symbol_aliases;
+}
+
+function persistAliasStore(store) {
+  if (typeof window === 'undefined') return;
+  window._m2tw_faction_symbol_aliases = store || {};
+  const raw = JSON.stringify(window._m2tw_faction_symbol_aliases);
+  try { sessionStorage.setItem(FACTION_SYMBOL_ALIAS_KEY, raw); } catch {}
+  try { localStorage.setItem(FACTION_SYMBOL_ALIAS_KEY, raw); } catch {}
+}
+
+function defaultFactionAliases(factionName) {
+  const factionKey = normalizeFactionName(factionName);
+  const aliases = [factionKey];
+  if (factionKey.startsWith('romans_')) aliases.push(factionKey.slice('romans_'.length));
+  if (factionKey === 'roman_senate' || factionKey === 'romans_senate') aliases.push('senate');
+  return unique(aliases);
+}
+
+function aliasFromLogoPath(path) {
+  let stem = normalizeImageStem(path);
+  if (!stem) return '';
+  stem = stem
+    .replace(/^symbol(?:24|48|128)_/i, '')
+    .replace(/_(?:grey|roll|select)$/i, '');
+  return normalizeFactionName(stem);
+}
+
+export function storeFactionSymbolAliases(factions) {
+  const next = {};
+  for (const faction of factions || []) {
+    const name = normalizeFactionName(faction?.name || faction);
+    if (!name) continue;
+    const aliases = new Set(defaultFactionAliases(name));
+    const loadingAlias = aliasFromLogoPath(faction?.loading_logo);
+    if (loadingAlias) aliases.add(loadingAlias);
+    next[name] = unique([...aliases]);
+  }
+  persistAliasStore(next);
+  return next;
+}
+
+export function storeFactionSymbolAliasesFromText(text) {
+  const factions = [];
+  let current = null;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.replace(/;.*$/, '').trim();
+    if (!line) continue;
+    const factionMatch = line.match(/^faction\s+([^,\s]+)/i);
+    if (factionMatch) {
+      if (current) factions.push(current);
+      current = { name: factionMatch[1].trim(), loading_logo: '' };
+      continue;
+    }
+    if (!current) continue;
+    const logoMatch = line.match(/^loading_logo\s+(.+)/i);
+    if (logoMatch) current.loading_logo = logoMatch[1].trim();
+  }
+  if (current) factions.push(current);
+  return storeFactionSymbolAliases(factions);
+}
+
+export function getFactionSymbolAliases(factionName) {
+  const factionKey = normalizeFactionName(factionName);
+  if (!factionKey) return [];
+  return unique([...(getAliasStore()[factionKey] || []), ...defaultFactionAliases(factionKey)]);
+}
+
+export function resolveFactionSymbolOwners(alias) {
+  const normalizedAlias = normalizeFactionName(alias);
+  if (!normalizedAlias) return [];
+  const owners = [];
+  const store = getAliasStore();
+  for (const [factionName, aliases] of Object.entries(store || {})) {
+    if ((aliases || []).map(normalizeFactionName).includes(normalizedAlias)) owners.push(factionName);
+  }
+  return unique(owners);
+}
+
+export function repairFactionSymbolsFromAliases(factionName) {
+  if (typeof window === 'undefined') return { copied: 0, aliases: [] };
+  const factionKey = normalizeFactionName(factionName);
+  const aliases = getFactionSymbolAliases(factionKey).filter(alias => alias !== factionKey);
+  const store = getSymbolStore();
+  const incoming = {};
+  for (const alias of aliases) {
+    Object.assign(incoming, store[alias] || {});
+  }
+  const copied = Object.entries(incoming).filter(([key, url]) => url && !store[factionKey]?.[key]).length;
+  if (Object.keys(incoming).length) {
+    store[factionKey] = { ...(store[factionKey] || {}), ...incoming };
+    persistSymbolStore(store);
+    window.dispatchEvent(new CustomEvent(FACTION_SYMBOLS_UPDATED_EVENT, { detail: { factionName: factionKey, images: store[factionKey] } }));
+  }
+  return { copied, aliases };
 }
 
 export async function decodePreviewFile(file) {
@@ -114,6 +265,7 @@ async function mapWithLimit(items, limit, mapper) {
     while (index < items.length) {
       const current = index++;
       results[current] = await mapper(items[current], current);
+      if (current % 8 === 7) await new Promise((resolve) => setTimeout(resolve, 0));
     }
   });
   await Promise.all(workers);
@@ -121,16 +273,26 @@ async function mapWithLimit(items, limit, mapper) {
 }
 
 export function allSymbolSlots(factionName) {
+  const aliases = getFactionSymbolAliases(factionName);
   return SYMBOL_GROUPS.flatMap(group => group.slots.map(slot => ({
     ...slot,
     expectedStem: normalizeImageStem(slot.filename(factionName)),
+    expectedStems: unique([factionName, ...aliases]).map(alias => normalizeImageStem(slot.filename(alias))),
   })));
+}
+
+export function missingFactionSymbolKeys(factionName) {
+  const images = loadFactionSymbols(factionName);
+  return allSymbolSlots(factionName).filter(slot => !images[slot.key]).map(slot => slot.key);
 }
 
 export async function loadMatchingFactionSymbolFiles(factionName, files, limit = 3) {
   const usableFiles = Array.from(files || []).filter(file => /\.(tga|png|jpe?g|bmp)$/i.test(file.name));
   const slots = allSymbolSlots(factionName);
-  const byStem = new Map(slots.map(slot => [slot.expectedStem, slot]));
+  const byStem = new Map();
+  for (const slot of slots) {
+    for (const stem of slot.expectedStems || [slot.expectedStem]) byStem.set(stem, slot);
+  }
   const matched = [];
   for (const file of usableFiles) {
     const slot = byStem.get(normalizeImageStem(file.name));
@@ -192,6 +354,8 @@ export default function FactionSymbolsTab({ factionName }) {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [loadStatus, setLoadStatus] = useState('');
   const folderRef = useRef();
+  const aliases = getFactionSymbolAliases(factionName);
+  const missing = allSymbolSlots(factionName).filter(slot => !images[slot.key]);
 
   useEffect(() => {
     setImages(loadFactionSymbols(factionName));
@@ -231,16 +395,30 @@ export default function FactionSymbolsTab({ factionName }) {
     }
   }, [factionName]);
 
+  const repairFromCache = useCallback(() => {
+    const result = repairFactionSymbolsFromAliases(factionName);
+    setImages(loadFactionSymbols(factionName));
+    setLoadStatus(result.copied
+      ? `Repaired ${result.copied} logo slot${result.copied === 1 ? '' : 's'} from alias cache.`
+      : `No cached alias logos found${result.aliases.length ? ` for ${result.aliases.join(', ')}` : ''}.`);
+  }, [factionName]);
+
+  const clearCurrentLogos = useCallback(() => {
+    const cleared = clearFactionSymbols(factionName);
+    setImages({});
+    setLoadStatus(cleared ? 'Cleared cached logos for this faction.' : 'No cached logos to clear for this faction.');
+  }, [factionName]);
+
   const loadMatchingFiles = useCallback(async (e) => {
     const files = Array.from(e.target.files || []).filter(file => /\.(tga|png|jpe?g|bmp)$/i.test(file.name));
     e.target.value = '';
     if (!files.length) return;
 
     const slots = allSymbolSlots(factionName);
-    const expected = new Set(slots.map(slot => slot.expectedStem));
+    const expected = new Set(slots.flatMap(slot => slot.expectedStems || [slot.expectedStem]));
     const matchedCount = files.filter(file => expected.has(normalizeImageStem(file.name))).length;
     if (!matchedCount) {
-      setLoadStatus(`No matching symbol files found for ${factionName}.`);
+      setLoadStatus(`No matching symbol files found for ${factionName}${aliases.length > 1 ? ` or ${aliases.slice(1).join(', ')}` : ''}.`);
       return;
     }
 
@@ -259,7 +437,7 @@ export default function FactionSymbolsTab({ factionName }) {
     } finally {
       setBulkLoading(false);
     }
-  }, [factionName]);
+  }, [factionName, aliases]);
 
   return (
     <div className="space-y-5">
@@ -280,6 +458,22 @@ export default function FactionSymbolsTab({ factionName }) {
           {bulkLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
           Load Matching Logos
         </button>
+        <button
+          type="button"
+          onClick={repairFromCache}
+          disabled={bulkLoading}
+          className="h-7 px-2 rounded border border-slate-600 text-[10px] text-slate-300 hover:border-emerald-500 hover:text-emerald-300 disabled:opacity-50"
+        >
+          Repair Cache
+        </button>
+        <button
+          type="button"
+          onClick={clearCurrentLogos}
+          disabled={bulkLoading}
+          className="h-7 px-2 rounded border border-slate-600 text-[10px] text-slate-300 hover:border-red-500 hover:text-red-300 disabled:opacity-50"
+        >
+          Clear
+        </button>
         <input
           ref={folderRef}
           type="file"
@@ -290,8 +484,14 @@ export default function FactionSymbolsTab({ factionName }) {
           onChange={loadMatchingFiles}
         />
         <p className="text-[10px] text-slate-500 flex-1">
-          {loadStatus || `Matches symbol24_${factionName}.tga, symbol48_${factionName}.tga, and symbol128_${factionName}.tga.`}
+          {loadStatus || `Matches ${aliases.join(', ')} logo filenames.`}
         </p>
+      </div>
+
+      <div className="rounded border border-slate-800 bg-slate-950/40 px-2 py-1.5 text-[10px] text-slate-500">
+        <span className="text-slate-400">Aliases:</span> {aliases.join(', ') || factionName}
+        <span className="mx-2 text-slate-700">|</span>
+        <span className="text-slate-400">Missing:</span> {missing.length ? missing.map(slot => slot.key).join(', ') : 'none'}
       </div>
 
       {SYMBOL_GROUPS.map((group) => (

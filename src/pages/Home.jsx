@@ -12,7 +12,12 @@ import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
 import { saveLargeText } from '@/lib/largeTextStore';
 import DataFolderPicker from '../components/home/DataFolderPicker';
 import { BANNERS_GLOBAL_KEY } from '@/components/factions/BannersTab';
-import { FACTION_SYMBOL_PREVIEW_KEY, storeFactionSymbols } from '@/components/factions/FactionSymbolsTab';
+import {
+  FACTION_SYMBOL_PREVIEW_KEY,
+  resolveFactionSymbolOwners,
+  storeFactionSymbolAliasesFromText,
+  storeFactionSymbolsBulk,
+} from '@/components/factions/FactionSymbolsTab';
 import { decodeTgaToDataUrl as decodeSharedTgaToDataUrl } from '@/components/shared/tgaDecoder';
 import romeHero from '../assets/rome/rome-hero.jpg';
 import romeLogo from '../assets/rome/rome-logo.png';
@@ -220,14 +225,16 @@ async function loadFactionSymbolFiles(files) {
     try {
       const url = await decodeFactionSymbolFile(files[i]);
       if (!url) continue;
-      if (!byFaction[slot.faction]) byFaction[slot.faction] = {};
-      byFaction[slot.faction][slot.key] = url;
+      const targetFactions = resolveFactionSymbolOwners(slot.faction);
+      const owners = targetFactions.length ? targetFactions : [slot.faction];
+      for (const factionName of owners) {
+        if (!byFaction[factionName]) byFaction[factionName] = {};
+        byFaction[factionName][slot.key] = url;
+      }
       loaded++;
     } catch {}
   }
-  for (const [faction, images] of Object.entries(byFaction)) {
-    storeFactionSymbols(faction, images);
-  }
+  storeFactionSymbolsBulk(byFaction);
   return { loaded, factions: Object.keys(byFaction).length };
 }
 
@@ -796,6 +803,7 @@ export default function Home() {
             localStorage.setItem('m2tw_factions_file', text);
             localStorage.setItem('m2tw_factions_file_name', file.name);
           } catch {}
+          storeFactionSymbolAliasesFromText(text);
           window.dispatchEvent(new CustomEvent('factions-file-loaded'));
         }
         // Store resources in sessionStorage + localStorage
@@ -1208,6 +1216,7 @@ export default function Home() {
       window._m2tw_ground_textures = {};
       window._m2tw_aerial_ground_types = {};
       window._m2tw_faction_symbol_previews = {};
+      window._m2tw_faction_symbol_aliases = {};
       window.location.reload();
     } catch {}
   };

@@ -13,9 +13,15 @@ import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/componen
 import FactionSymbolsTab, {
   FACTION_SYMBOLS_UPDATED_EVENT,
   allSymbolSlots,
+  clearFactionSymbols,
+  getFactionSymbolAliases,
   loadFactionSymbols,
   loadMatchingFactionSymbolFiles,
+  missingFactionSymbolKeys,
   normalizeFactionName,
+  repairFactionSymbolsFromAliases,
+  storeFactionSymbolAliases,
+  storeFactionSymbolAliasesFromText,
 } from '@/components/factions/FactionSymbolsTab';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { parseTextLocFile, serializeTextLocEntries, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
@@ -523,10 +529,15 @@ async function addAssignedUnitUiFilesToZip(zip, included) {
   }
 }
 
-function symbolExportPath(slot, factionName) {
+function symbolExportPath(slot, faction) {
+  const factionName = normalizeFactionName(faction?.name || faction);
   const filename = slot.filename(factionName);
   if (slot.key.startsWith('symbol24')) return `data/menu/symbols/FE_buttons_24/${filename}`;
   if (slot.key.startsWith('symbol48')) return `data/menu/symbols/FE_buttons_48/${filename}`;
+  if (slot.key === 'loading_symbol128' && faction?.loading_logo) {
+    const normalized = String(faction.loading_logo).replace(/\\/g, '/').replace(/^data\//i, '').replace(/^\/+/, '');
+    if (/\.tga$/i.test(normalized)) return `data/${normalized}`;
+  }
   if (slot.key === 'loading_symbol128') return `data/loading_screen/symbols/${filename}`;
   return null;
 }
@@ -604,7 +615,7 @@ async function addFactionSymbolPreviewsToZip(zip, factionList, included) {
     for (const slot of allSymbolSlots(factionName)) {
       const dataUrl = images[slot.key];
       if (!dataUrl) continue;
-      const path = symbolExportPath(slot, factionName);
+      const path = symbolExportPath(slot, faction);
       if (!path || used.has(path)) continue;
       const imageData = await imageDataFromDataUrl(dataUrl);
       const sized = resizeImageData(imageData, symbolTargetSize(slot.key));
@@ -628,6 +639,7 @@ function saveFactionsRaw(text, filename = '') {
   try { localStorage.setItem('m2tw_factions_file', text); } catch {}
   try { localStorage.setItem('m2tw_factions_raw', text); } catch {}
   try { sessionStorage.setItem('m2tw_factions_raw', text); } catch {}
+  storeFactionSymbolAliasesFromText(text);
   if (filename) {
     try { localStorage.setItem('m2tw_factions_file_name', filename); } catch {}
   }
@@ -1071,6 +1083,8 @@ function FactionLogoLoader({ factionName, onLoaded }) {
   const [previews, setPreviews] = useState(() => loadFactionSymbols(factionName));
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
+  const aliases = getFactionSymbolAliases(factionName);
+  const missingKeys = missingFactionSymbolKeys(factionName);
 
   useEffect(() => {
     setPreviews(loadFactionSymbols(factionName));
@@ -1086,6 +1100,22 @@ function FactionLogoLoader({ factionName, onLoaded }) {
     return () => window.removeEventListener(FACTION_SYMBOLS_UPDATED_EVENT, handler);
   }, [factionName]);
 
+  const repairFromCache = () => {
+    const result = repairFactionSymbolsFromAliases(factionName);
+    const next = loadFactionSymbols(factionName);
+    setPreviews(next);
+    if (Object.keys(next).length) onLoaded?.(next);
+    setStatus(result.copied
+      ? `Repaired ${result.copied} logo slot${result.copied === 1 ? '' : 's'} from aliases.`
+      : `No cached alias logos found${result.aliases.length ? ` for ${result.aliases.join(', ')}` : ''}.`);
+  };
+
+  const clearCurrent = () => {
+    const cleared = clearFactionSymbols(factionName);
+    setPreviews({});
+    setStatus(cleared ? 'Cleared cached logos for this faction.' : 'No cached logos to clear.');
+  };
+
   const loadFiles = async (e) => {
     const files = Array.from(e.target.files || []);
     e.target.value = '';
@@ -1099,7 +1129,7 @@ function FactionLogoLoader({ factionName, onLoaded }) {
         onLoaded?.(result.images);
         setStatus(`Loaded ${result.loaded}/${result.matched} logo preview${result.matched === 1 ? '' : 's'}.`);
       } else {
-        setStatus(`No matching files for ${factionName}. Use symbol24_${factionName}.tga, symbol48_${factionName}.tga, or symbol128_${factionName}.tga.`);
+        setStatus(`No matching files for ${factionName}${aliases.length > 1 ? ` or ${aliases.slice(1).join(', ')}` : ''}.`);
       }
     } catch (err) {
       setStatus(`Logo load failed: ${err.message}`);
@@ -1135,11 +1165,30 @@ function FactionLogoLoader({ factionName, onLoaded }) {
           {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
           Folder
         </button>
+        <button
+          type="button"
+          onClick={repairFromCache}
+          disabled={loading}
+          className="h-7 px-2 rounded border border-slate-600 text-[10px] text-slate-200 hover:border-emerald-500 hover:text-emerald-300 disabled:opacity-50"
+        >
+          Repair
+        </button>
+        <button
+          type="button"
+          onClick={clearCurrent}
+          disabled={loading}
+          className="h-7 px-2 rounded border border-slate-600 text-[10px] text-slate-200 hover:border-red-500 hover:text-red-300 disabled:opacity-50"
+        >
+          Clear
+        </button>
         <input ref={fileRef} type="file" accept=".tga,image/png,image/jpeg,image/bmp" multiple className="hidden" onChange={loadFiles} />
         <input ref={folderRef} type="file" accept=".tga,image/png,image/jpeg,image/bmp" multiple webkitdirectory="" className="hidden" onChange={loadFiles} />
         <span className="text-[10px] text-slate-500 truncate flex-1">
-          {status || `Load matching logos for ${factionName}.`}
+          {status || `Aliases: ${aliases.join(', ') || factionName}`}
         </span>
+      </div>
+      <div className="text-[9px] text-slate-500">
+        Missing: {missingKeys.length ? missingKeys.join(', ') : 'none'}
       </div>
       <div className="grid grid-cols-3 gap-2">
         {previewItems.map(([key, label]) => (
@@ -1453,7 +1502,9 @@ export default function FactionsEditor() {
         const r = localStorage.getItem(LS_KEY) || localStorage.getItem('m2tw_factions_file') || sessionStorage.getItem('m2tw_factions_raw');
         if (r && r !== lastFactionsRawRef.current) {
           lastFactionsRawRef.current = r;
-          setFactions(parseDescrSmFactions(r));
+          const parsed = parseDescrSmFactions(r);
+          storeFactionSymbolAliases(parsed);
+          setFactions(parsed);
         }
       } catch {}
       try {
@@ -1503,6 +1554,7 @@ export default function FactionsEditor() {
     saveFactionsRaw(text, file.name);
     lastFactionsRawRef.current = text;
     const parsed = parseDescrSmFactions(text);
+    storeFactionSymbolAliases(parsed);
     setFactions(parsed);
     setSelectedIdx(parsed.length > 0 ? 0 : null);
     window.dispatchEvent(new CustomEvent('factions-file-loaded'));
