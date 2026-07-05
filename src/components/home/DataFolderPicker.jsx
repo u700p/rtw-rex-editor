@@ -5,8 +5,8 @@ import { FolderOpen, CheckCircle2, FileText, Image, ChevronDown, ChevronRight, L
 
 const CATEGORY_LABELS = {
   text:           { label: 'Game Data Files',         defaultOn: true,  icon: FileText },
-  images_ui:      { label: 'UI Images (data/ui/)',     defaultOn: false, icon: Image },
-  images_terrain: { label: 'Terrain Textures',         defaultOn: false, icon: Image },
+  images_ui:      { label: 'UI Images (data/ui/)',     defaultOn: true,  icon: Image },
+  images_terrain: { label: 'Terrain Textures',         defaultOn: true,  icon: Image },
   campaign:       { label: 'Campaign Map Files',       defaultOn: true,  icon: FileText },
   text_loc:       { label: 'Text Localization',         defaultOn: true,  icon: FileText },
 };
@@ -40,8 +40,9 @@ function categorizeFile(file) {
     return null;
   }
   if (name.endsWith('.tga')) {
+    if (framed.includes('/terrain/aerial_map/ground_types/')) return 'images_terrain';
+    if (framed.includes('/menu/symbols/') || framed.includes('/loading_screen/symbols/')) return 'images_ui';
     if (!framed.includes('/ui/')) return null;
-    if (framed.includes('/terrain/')) return 'images_terrain';
     return 'images_ui';
   }
   if (TEXT_FILENAMES.has(name)) return 'text';
@@ -264,7 +265,7 @@ export default function DataFolderPicker({ onLoad, loading }) {
     <div className="space-y-3">
       <label className="cursor-pointer">
         <input ref={inputRef} type="file" className="hidden"
-          webkitdirectory="" directory="" multiple onChange={handleFolderSelect} />
+          webkitdirectory="" multiple onChange={handleFolderSelect} />
         <Button asChild variant="outline"
           className="w-full h-11 border-primary/30 text-primary hover:bg-primary/10 pointer-events-none gap-2">
           <span>

@@ -12,6 +12,8 @@ import { getEduRawText, setEduRawText } from '@/lib/eduStorage';
 import { saveLargeText } from '@/lib/largeTextStore';
 import DataFolderPicker from '../components/home/DataFolderPicker';
 import { BANNERS_GLOBAL_KEY } from '@/components/factions/BannersTab';
+import { FACTION_SYMBOL_PREVIEW_KEY, storeFactionSymbols } from '@/components/factions/FactionSymbolsTab';
+import { decodeTgaToDataUrl as decodeSharedTgaToDataUrl } from '@/components/shared/tgaDecoder';
 import romeHero from '../assets/rome/rome-hero.jpg';
 import romeLogo from '../assets/rome/rome-logo.png';
 import romeUi from '../assets/rome/rome-ui.jpg';
@@ -145,6 +147,89 @@ const TEXT_LOCALIZATION_FILENAMES = new Set([
   'strat.txt',
   'tooltips.txt',
 ]);
+
+function statusFromTextLocalizationStore(store) {
+  const out = {};
+  const names = new Set(Object.keys(store || {}).map((name) => String(name).toLowerCase()));
+  if (names.has('export_buildings.txt')) out.txt = 'ok';
+  if (names.has('export_units.txt')) out.expunits = 'ok';
+  if (names.has('export_vnvs.txt')) out.vnvs = 'ok';
+  if (names.has('export_ancillaries.txt')) out.anctxt = 'ok';
+  return out;
+}
+
+function countStoredFactionSymbols() {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const raw = sessionStorage.getItem(FACTION_SYMBOL_PREVIEW_KEY) || localStorage.getItem(FACTION_SYMBOL_PREVIEW_KEY);
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw);
+    return Object.values(parsed || {}).reduce((sum, images) => sum + Object.keys(images || {}).length, 0);
+  } catch {
+    return 0;
+  }
+}
+
+function inferFactionSymbolSlot(file) {
+  const path = (file.webkitRelativePath || file.name).toLowerCase().replace(/\\/g, '/');
+  const stem = file.name.replace(/\.(tga|png|jpe?g|bmp)$/i, '').toLowerCase();
+  const readVariant = (base, prefix) => {
+    const suffixes = [
+      ['_select', `${prefix}_select`],
+      ['_grey', `${prefix}_grey`],
+      ['_roll', `${prefix}_roll`],
+    ];
+    for (const [suffix, key] of suffixes) {
+      if (base.endsWith(suffix)) return { faction: base.slice(0, -suffix.length), key };
+    }
+    return { faction: base, key: prefix };
+  };
+  if (path.includes('/menu/symbols/fe_buttons_24/') && stem.startsWith('symbol24_')) {
+    return readVariant(stem.slice('symbol24_'.length), 'symbol24');
+  }
+  if (path.includes('/menu/symbols/fe_buttons_48/') && stem.startsWith('symbol48_')) {
+    return readVariant(stem.slice('symbol48_'.length), 'symbol48');
+  }
+  if (path.includes('/loading_screen/symbols/') && stem.startsWith('symbol128_')) {
+    return { faction: stem.slice('symbol128_'.length), key: 'loading_symbol128' };
+  }
+  return null;
+}
+
+async function decodeFactionSymbolFile(file) {
+  if (/\.tga$/i.test(file.name)) {
+    return decodeSharedTgaToDataUrl(await file.arrayBuffer());
+  }
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close?.();
+  return canvas.toDataURL('image/png');
+}
+
+async function loadFactionSymbolFiles(files) {
+  const byFaction = {};
+  let loaded = 0;
+  for (let i = 0; i < files.length; i++) {
+    if (i % 8 === 0) await yieldToBrowser();
+    const slot = inferFactionSymbolSlot(files[i]);
+    if (!slot?.faction || !slot.key) continue;
+    try {
+      const url = await decodeFactionSymbolFile(files[i]);
+      if (!url) continue;
+      if (!byFaction[slot.faction]) byFaction[slot.faction] = {};
+      byFaction[slot.faction][slot.key] = url;
+      loaded++;
+    } catch {}
+  }
+  for (const [faction, images] of Object.entries(byFaction)) {
+    storeFactionSymbols(faction, images);
+  }
+  return { loaded, factions: Object.keys(byFaction).length };
+}
 
 
 
@@ -286,23 +371,26 @@ export default function Home() {
     const ls = (k) => {try {return !!localStorage.getItem(k);} catch {return false;}};
     const stringsStore = getTextLocalizationStore();
     const stringsCount = Object.keys(stringsStore).length;
+    const locStatus = statusFromTextLocalizationStore(stringsStore);
+    const factionSymbolCount = countStoredFactionSymbols();
     return {
       edb: ls('m2tw_edb_file') ? 'ok' : 'idle',
       fac: ls('m2tw_factions_file') ? 'ok' : 'idle',
       res: ls('m2tw_resources_file') ? 'ok' : 'idle',
       ev: ls('m2tw_events_file') ? 'ok' : 'idle',
       unit: getEduRawText() ? 'ok' : 'idle',
-      txt: ls('m2tw_edb_txt_file') ? 'ok' : 'idle',
+      txt: ls('m2tw_edb_txt_file') || locStatus.txt === 'ok' ? 'ok' : 'idle',
       traits: ls('m2tw_traits_file') ? 'ok' : 'idle',
       anc: ls('m2tw_anc_file') ? 'ok' : 'idle',
       guilds: ls('m2tw_guilds_file') ? 'ok' : 'idle',
-      vnvs: ls('m2tw_vnvs_file') ? 'ok' : 'idle',
-      anctxt: ls('m2tw_anctxt_file') ? 'ok' : 'idle',
-      expunits: ls('m2tw_export_units_file') ? 'ok' : 'idle',
+      vnvs: ls('m2tw_vnvs_file') || locStatus.vnvs === 'ok' ? 'ok' : 'idle',
+      anctxt: ls('m2tw_anctxt_file') || locStatus.anctxt === 'ok' ? 'ok' : 'idle',
+      expunits: ls('m2tw_export_units_file') || locStatus.expunits === 'ok' ? 'ok' : 'idle',
       aerial_ground_types: ls('m2tw_aerial_ground_types') ? 'ok' : 'idle',
       text_loc: stringsCount > 0 ? 'ok' : 'idle',
       anc_images: 'idle',
       unit_images: 'idle',
+      faction_logos: factionSymbolCount > 0 ? 'ok' : 'idle',
       cultures: ls('m2tw_cultures_file') ? 'ok' : 'idle',
       names: ls('m2tw_names_file') ? 'ok' : 'idle',
       rebel_fac: ls('m2tw_rebel_factions_file') ? 'ok' : 'idle',
@@ -330,6 +418,7 @@ export default function Home() {
   const [unitImgCount, setUnitImgCount] = useState(0);
   const [bldImgCount, setBldImgCount] = useState(0);
   const [groundTexCount, setGroundTexCount] = useState(0);
+  const [factionLogoCount, setFactionLogoCount] = useState(() => countStoredFactionSymbols());
   const [campaignName, setCampaignName] = useState('');
   const [campaignError, setCampaignError] = useState('');
   const [loadingData, setLoadingData] = useState(false);
@@ -442,6 +531,7 @@ export default function Home() {
     const baseMapFiles = [];
     const groundTypeTgaFiles = [];
     const resourceTgaFiles = [];
+    const factionSymbolFiles = [];
     const religionPipFiles = [];
     const eventPicFiles = [];
     const textLocFiles = {};
@@ -520,7 +610,13 @@ export default function Home() {
       const inBaseWorldPath = pathFramed.includes('/maps/base/') || pathFramed.includes('/world/base/');
 
       if (name.endsWith('.tga')) {
-        if (pathFramed.includes('/ui/ancillaries/')) {
+        if (
+          pathFramed.includes('/menu/symbols/fe_buttons_24/') ||
+          pathFramed.includes('/menu/symbols/fe_buttons_48/') ||
+          pathFramed.includes('/loading_screen/symbols/')
+        ) {
+          factionSymbolFiles.push(file);
+        } else if (pathFramed.includes('/ui/ancillaries/')) {
           ancTgaFiles.push(file);
         } else if (pathFramed.includes('/ui/units/') || pathFramed.includes('/ui/unit_info/')) {
           unitTgaFiles.push(file);
@@ -744,7 +840,7 @@ export default function Home() {
       }
       window.dispatchEvent(new CustomEvent('text-localization-updated', { detail: { bulk: true } }));
       setTextLocCount(Object.keys(merged).length);
-      setFileStatus((prev) => ({ ...prev, text_loc: 'ok' }));
+      setFileStatus((prev) => ({ ...prev, ...statusFromTextLocalizationStore(merged), text_loc: 'ok' }));
     }
 
     // Auto-load ancillary images
@@ -770,6 +866,17 @@ export default function Home() {
       window.dispatchEvent(new CustomEvent('load-unit-images', { detail: { images: window._m2tw_unit_images } }));
       setUnitImgCount(Object.keys(window._m2tw_unit_image_file_map || {}).length);
       setFileStatus((prev) => ({ ...prev, unit_images: 'ok' }));
+    }
+
+    // Auto-load faction logos from data\menu\symbols\FE_buttons_* and data\loading_screen\symbols.
+    if (factionSymbolFiles.length > 0) {
+      setFileStatus((prev) => ({ ...prev, faction_logos: 'loading' }));
+      runInBackground(async () => {
+        const result = await loadFactionSymbolFiles(factionSymbolFiles);
+        const total = countStoredFactionSymbols();
+        setFactionLogoCount(total || result.loaded);
+        setFileStatus((prev) => ({ ...prev, faction_logos: result.loaded > 0 ? 'ok' : 'idle' }));
+      });
     }
 
     // Auto-load religion pip images
@@ -1066,7 +1173,7 @@ export default function Home() {
       setTextLocalizationStore(merged);
       window.dispatchEvent(new CustomEvent('text-localization-updated', { detail: { bulk: true } }));
       setTextLocCount(Object.keys(merged).length);
-      setFileStatus((prev) => ({ ...prev, text_loc: 'ok' }));
+      setFileStatus((prev) => ({ ...prev, ...statusFromTextLocalizationStore(merged), text_loc: 'ok' }));
     }
 
     const relevant = files.filter((f) => {
@@ -1100,6 +1207,7 @@ export default function Home() {
       window._m2tw_unit_image_files = [];
       window._m2tw_ground_textures = {};
       window._m2tw_aerial_ground_types = {};
+      window._m2tw_faction_symbol_previews = {};
       window.location.reload();
     } catch {}
   };
@@ -1226,6 +1334,11 @@ export default function Home() {
                 label="Unit UI Images"
                 hint={fileStatus.unit_images === 'ok' ? `${unitImgCount} images loaded` : 'data\\ui\\units\\ + unit_info\\'}
                 status={fileStatus.unit_images} />
+
+              <FileStatus
+                label="Faction Logos"
+                hint={fileStatus.faction_logos === 'ok' ? `${factionLogoCount} symbol previews loaded` : 'data\\menu\\symbols\\ + loading_screen\\symbols\\'}
+                status={fileStatus.faction_logos || 'idle'} />
 
               <FileStatus
                 label="Building Images"

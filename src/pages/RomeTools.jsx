@@ -471,10 +471,10 @@ function materialProtectionType(r, g, b, hsl, protectMaterials) {
   const paleSkinLike = hsl.h >= 8 && hsl.h <= 48 && hsl.s >= 0.08 && hsl.s <= 0.42 &&
     hsl.l >= 0.58 && hsl.l <= 0.91 && r >= g * 0.92 && g >= b * 0.80 && r > b * 1.08;
   const darkHairLeather = hsl.h >= 10 && hsl.h <= 48 && hsl.s >= 0.10 &&
-    hsl.l >= 0.035 && hsl.l <= 0.46 && r >= g * 0.68 && g >= b * 0.45;
-  const steelOrIron = (hsl.s <= 0.16 || spread <= 30) && hsl.l >= 0.10 && hsl.l <= 0.92;
-  const whiteArmorOrLinen = hsl.l >= 0.62 && hsl.s <= 0.34 && spread <= 72 &&
-    r >= 138 && g >= 132 && b >= 118;
+    hsl.l >= 0.035 && hsl.l <= 0.50 && r >= g * 0.68 && g >= b * 0.45;
+  const steelOrIron = (hsl.s <= 0.18 || spread <= 34) && hsl.l >= 0.10 && hsl.l <= 0.92;
+  const whiteArmorOrLinen = hsl.l >= 0.56 && hsl.s <= 0.38 && spread <= 82 &&
+    r >= 126 && g >= 122 && b >= 112;
   const ivoryHighlight = hsl.l >= 0.72 && hsl.s <= 0.46 && spread <= 86 &&
     r >= 165 && g >= 150 && b >= 125;
   const bronzeOrGold = hsl.h >= 30 && hsl.h <= 62 && hsl.s >= 0.18 && hsl.s <= 0.82 &&
@@ -549,7 +549,7 @@ function recolorImageData(imageData, settingsOrPlan) {
       const hueMask = Math.max(0, 1 - hueDistance(hsl.h, pass.src.h) / tolerance);
       if (hueMask <= 0 && bestScore > 0) continue;
       const rgbMask = Math.max(0, 1 - colorDistanceRgb(r, g, b, pass.srcRgb) / rgbTolerance);
-      const score = Math.sqrt(hueMask * rgbMask);
+      const score = hueMask * Math.sqrt(rgbMask);
       if (score > bestScore) {
         best = pass;
         bestScore = score;
@@ -558,10 +558,11 @@ function recolorImageData(imageData, settingsOrPlan) {
 
     const protectedType = materialProtectionType(r, g, b, hsl, protectMaterials);
     if (protectedType === 'skin' || protectedType === 'metal' || protectedType === 'white_armor') continue;
-    if (protectedType && bestScore < 0.84) continue;
+    if (protectedType && bestScore < 0.92) continue;
+    if (useSource && bestScore < 0.12) continue;
     const satMask = hsl.s >= minSat ? 1 : 0.38;
     const detailMask = protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;
-    const materialMask = protectedType ? 0.25 : 1;
+    const materialMask = protectedType ? 0.38 : 1;
     const mask = clamp01(smoothMask(bestScore * satMask * detailMask * materialMask) * strength);
     if (mask <= 0) continue;
     const targetSat = clamp01(hsl.s * (1 - exactMix) + best.tgt.s * exactMix);
@@ -947,6 +948,10 @@ function updateFactionLogoIndexes(text, mapping) {
   return { text: toCRLF(lines.join('\n')), patched };
 }
 
+function yieldToBrowser() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 async function mapWithLimit(items, limit, mapper) {
   const results = new Array(items.length);
   let index = 0;
@@ -955,6 +960,7 @@ async function mapWithLimit(items, limit, mapper) {
     while (index < items.length) {
       const current = index++;
       results[current] = await mapper(items[current], current);
+      if (current % 8 === 7) await yieldToBrowser();
     }
   });
   await Promise.all(workers);
@@ -966,27 +972,43 @@ function textureWorkerLimit(count) {
   return Math.min(count, Math.max(2, Math.min(4, Math.floor(cores / 2) || 2)));
 }
 
+const BEST_RECOLOR_SETTINGS = {
+  source: '#9e1a1a',
+  target: '#2f6fc0',
+  tolerance: 30,
+  rgbTolerance: 145,
+  strength: 84,
+  minSat: 24,
+  secondarySource: '#d7c04a',
+  secondaryTarget: '#e4e4e4',
+  tertiarySource: '#2d6d37',
+  tertiaryTarget: '#8c2f2f',
+  lightnessShift: 0,
+  suffix: '_recolor',
+  outputFormat: 'both',
+  useSource: true,
+  preserveLight: true,
+  recolorNeutrals: false,
+  protectExtremes: true,
+  protectMaterials: true,
+  exactTarget: true,
+  secondaryEnabled: false,
+  tertiaryEnabled: false,
+};
+
 function TextureRecolorTab() {
   const [files, setFiles] = useState([]);
-  const [settings, setSettings] = useState({
-    source: '#9e1a1a', target: '#2f6fc0', tolerance: 38, rgbTolerance: 190, strength: 88, minSat: 18,
-    secondarySource: '#d7c04a', secondaryTarget: '#e4e4e4',
-    tertiarySource: '#2d6d37', tertiaryTarget: '#8c2f2f',
-    lightnessShift: 0,
-    suffix: '_recolor', outputFormat: 'both',
-    useSource: true, preserveLight: true, recolorNeutrals: false, protectExtremes: true,
-    protectMaterials: true, exactTarget: true, secondaryEnabled: false, tertiaryEnabled: false,
-  });
+  const [settings, setSettings] = useState(BEST_RECOLOR_SETTINGS);
   const [preview, setPreview] = useState(null);
   const [status, setStatus] = useState('');
 
   const update = (key, value) => setSettings(prev => ({ ...prev, [key]: value }));
 
-  const loadPreview = async (fileList) => {
+  const loadPreview = async (fileList, activeSettings = settings) => {
     const first = fileList[0];
     if (!first) return;
     try {
-      const plan = buildRecolorPlan(settings);
+      const plan = buildRecolorPlan(activeSettings);
       const original = await decodeImageFile(first);
       const processed = recolorImageData(original, plan);
       setPreview({ name: first.name, before: imageDataUrl(original), after: imageDataUrl(processed) });
@@ -1004,6 +1026,12 @@ function TextureRecolorTab() {
   };
 
   const refreshPreview = () => loadPreview(files);
+  const applyBestSettings = async () => {
+    const next = { ...BEST_RECOLOR_SETTINGS };
+    setSettings(next);
+    setStatus('Applied best RTW recolor settings.');
+    if (files.length) await loadPreview(files, next);
+  };
   const clearQueue = () => {
     setFiles([]);
     setPreview(null);
@@ -1123,6 +1151,7 @@ function TextureRecolorTab() {
             {label}
           </label>
         ))}
+        <Button variant="outline" className="w-full h-8 text-xs" onClick={applyBestSettings}>Best settings</Button>
         <Button variant="outline" className="w-full h-8 text-xs" onClick={refreshPreview} disabled={!files.length}>Refresh preview</Button>
         <Button className="w-full h-8 text-xs gap-1.5" onClick={exportZip} disabled={!files.length}>
           <Download className="w-3.5 h-3.5" />

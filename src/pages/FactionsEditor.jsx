@@ -12,6 +12,7 @@ import DescriptionsTab from '@/components/factions/DescriptionsTab';
 import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/components/factions/MiscTab';
 import FactionSymbolsTab, {
   FACTION_SYMBOLS_UPDATED_EVENT,
+  allSymbolSlots,
   loadFactionSymbols,
   loadMatchingFactionSymbolFiles,
   normalizeFactionName,
@@ -522,6 +523,100 @@ async function addAssignedUnitUiFilesToZip(zip, included) {
   }
 }
 
+function symbolExportPath(slot, factionName) {
+  const filename = slot.filename(factionName);
+  if (slot.key.startsWith('symbol24')) return `data/menu/symbols/FE_buttons_24/${filename}`;
+  if (slot.key.startsWith('symbol48')) return `data/menu/symbols/FE_buttons_48/${filename}`;
+  if (slot.key === 'loading_symbol128') return `data/loading_screen/symbols/${filename}`;
+  return null;
+}
+
+function symbolTargetSize(slotKey) {
+  if (String(slotKey).startsWith('symbol24')) return 24;
+  if (String(slotKey).startsWith('symbol48')) return 48;
+  return 128;
+}
+
+function imageDataFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      resolve(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    };
+    img.onerror = () => reject(new Error('Failed to decode cached faction logo'));
+    img.src = dataUrl;
+  });
+}
+
+function resizeImageData(imageData, size) {
+  if (imageData.width === size && imageData.height === size) return imageData;
+  const src = document.createElement('canvas');
+  src.width = imageData.width;
+  src.height = imageData.height;
+  src.getContext('2d').putImageData(imageData, 0, 0);
+  const dst = document.createElement('canvas');
+  dst.width = size;
+  dst.height = size;
+  const ctx = dst.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, size, size);
+  return ctx.getImageData(0, 0, size, size);
+}
+
+function encodeSymbolTga(imageData) {
+  const { width, height, data } = imageData;
+  const header = new Uint8Array(18);
+  header[2] = 2;
+  header[12] = width & 0xff;
+  header[13] = (width >> 8) & 0xff;
+  header[14] = height & 0xff;
+  header[15] = (height >> 8) & 0xff;
+  header[16] = 32;
+  header[17] = 0x28;
+  const pixels = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    pixels[i * 4] = data[i * 4 + 2];
+    pixels[i * 4 + 1] = data[i * 4 + 1];
+    pixels[i * 4 + 2] = data[i * 4];
+    pixels[i * 4 + 3] = data[i * 4 + 3];
+  }
+  const out = new Uint8Array(18 + pixels.length);
+  out.set(header, 0);
+  out.set(pixels, 18);
+  return out;
+}
+
+async function addFactionSymbolPreviewsToZip(zip, factionList, included) {
+  const used = new Set(included);
+  let count = 0;
+  for (const faction of factionList || []) {
+    const factionName = normalizeFactionName(faction?.name || faction);
+    if (!factionName) continue;
+    const images = loadFactionSymbols(factionName);
+    if (!Object.keys(images).length) continue;
+    for (const slot of allSymbolSlots(factionName)) {
+      const dataUrl = images[slot.key];
+      if (!dataUrl) continue;
+      const path = symbolExportPath(slot, factionName);
+      if (!path || used.has(path)) continue;
+      const imageData = await imageDataFromDataUrl(dataUrl);
+      const sized = resizeImageData(imageData, symbolTargetSize(slot.key));
+      zip.file(path, encodeSymbolTga(sized));
+      included.push(path);
+      used.add(path);
+      count++;
+    }
+  }
+  return count;
+}
+
 const VANILLA_FACTION_LIMIT = 31;
 const LS_KEY = 'm2tw_sm_factions_raw';
 const LS_CULT = 'm2tw_cultures_list';
@@ -636,7 +731,7 @@ function buildFactionSetupManifest(included) {
     ...(missing.length ? missing.map((path) => `- ${path}`) : ['- All checklist files that the editor can export were included.']),
     '',
     'Still manual:',
-    '- Graphical assets: faction symbols, loading screens, UI cards, models, banners, standards, and any new CAS/TGA/DDS files.',
+    '- Graphical assets not loaded into this tool: models, banners artwork, standards, and any new CAS/TGA/DDS files.',
     '- descr_strat.txt playability/placement and descr_regions.txt ownership still need a human check after faction duplication.',
     '- If adding new names, verify data/descr_names.txt and data/text/names.txt entries in game.',
   ].join('\n');
@@ -1550,6 +1645,19 @@ export default function FactionsEditor() {
       addStoredText(zip, file.path, file.sources, included);
     }
     await addAssignedUnitUiFilesToZip(zip, included);
+    const exportedLogoCount = await addFactionSymbolPreviewsToZip(
+      zip,
+      factions || parseDescrSmFactions(factionsText || ''),
+      included
+    );
+    if (exportedLogoCount) {
+      addCRLFText(
+        zip,
+        'faction_logo_export_report.txt',
+        `Exported ${exportedLogoCount} cached faction logo symbol TGA file${exportedLogoCount === 1 ? '' : 's'}.`,
+        included
+      );
+    }
     const unitAssignmentReport = buildUnitAssignmentReport();
     if (unitAssignmentReport) addCRLFText(zip, 'unit_assignment_report.txt', unitAssignmentReport, included);
 

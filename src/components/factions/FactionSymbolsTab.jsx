@@ -65,7 +65,8 @@ function getSymbolStore() {
   if (typeof window === 'undefined') return {};
   if (window._m2tw_faction_symbol_previews) return window._m2tw_faction_symbol_previews;
   try {
-    window._m2tw_faction_symbol_previews = JSON.parse(sessionStorage.getItem(FACTION_SYMBOL_PREVIEW_KEY) || '{}');
+    const raw = sessionStorage.getItem(FACTION_SYMBOL_PREVIEW_KEY) || localStorage.getItem(FACTION_SYMBOL_PREVIEW_KEY) || '{}';
+    window._m2tw_faction_symbol_previews = JSON.parse(raw);
   } catch {
     window._m2tw_faction_symbol_previews = {};
   }
@@ -86,6 +87,7 @@ export function storeFactionSymbols(factionName, images) {
   store[factionKey] = { ...(store[factionKey] || {}), ...(images || {}) };
   window._m2tw_faction_symbol_previews = store;
   try { sessionStorage.setItem(FACTION_SYMBOL_PREVIEW_KEY, JSON.stringify(store)); } catch {}
+  try { localStorage.setItem(FACTION_SYMBOL_PREVIEW_KEY, JSON.stringify(store)); } catch {}
   window.dispatchEvent(new CustomEvent(FACTION_SYMBOLS_UPDATED_EVENT, { detail: { factionName, images: store[factionKey] } }));
 }
 
@@ -313,7 +315,7 @@ export default function FactionSymbolsTab({ factionName }) {
       ))}
 
       <p className="text-[10px] text-slate-600 italic pt-1">
-        Click any slot to load the corresponding .tga file. Previews are view-only and not saved to disk.
+        Click any slot to load the corresponding .tga file. Loaded or generated previews are cached and included in the faction setup export.
       </p>
     </div>
   );
