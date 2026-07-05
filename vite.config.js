@@ -2,6 +2,21 @@ import base44 from "@base44/vite-plugin"
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+const FALLBACK_BASE44_URL = 'https://base44.app';
+
+function normalizeHttpUrl(value) {
+  try {
+    const url = new URL(String(value || '').trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : '';
+  } catch {
+    return '';
+  }
+}
+
+const appBaseUrl = normalizeHttpUrl(process.env.VITE_BASE44_APP_BASE_URL || process.env.VITE_BASE44_SERVER_URL) || FALLBACK_BASE44_URL;
+process.env.VITE_BASE44_APP_BASE_URL = appBaseUrl;
+process.env.VITE_BASE44_SERVER_URL = normalizeHttpUrl(process.env.VITE_BASE44_SERVER_URL) || appBaseUrl;
+
 // https://vite.dev/config/
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/',
