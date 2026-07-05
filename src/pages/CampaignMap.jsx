@@ -11,7 +11,7 @@ import StratPanel from '../components/map/StratPanel';
 import NewRegionPaintWizard from '../components/map/NewRegionPaintWizard';
 import { loadTGA } from '../components/map/tgaLoader';
 import { exportTGA, downloadBlob } from '../components/map/tgaExporter';
-import { LAYER_DEFS } from '../components/map/mapLayerConstants';
+import { LAYER_DEFS, LAYER_BY_ID } from '../components/map/mapLayerConstants';
 import { parseDescrStrat, parseDescrRegions, parseSettlementNames, parseDescrSmFactions, computeSettlementPositions, serializeDescrStrat, serializeDescrRegions } from '../components/map/stratParser';
 import { parseDescrRebelFactions, parseDescrReligions, parseDescrSmResources, parseDescrMercenaries, parseDescrSoundsMusicTypes, parseDescrCultures, extractHiddenResourcesFromEDB, extractBuildingLevelsFromEDB, parseDescrNames, parseExportDescrTraits, parseExportDescrAncillaries } from '../components/map/additionalParsers';
 import { parseFactionMovies } from '../components/map/factionMoviesParser';
@@ -243,6 +243,7 @@ export default function CampaignMap() {
         setLayers(prev => {
           const layer = prev[layerId];
           if (!layer || layer.data !== data) return prev;
+          if (layer.bitmap && layer.bitmap !== bitmap && typeof layer.bitmap.close === 'function') layer.bitmap.close();
           return { ...prev, [layerId]: { ...layer, bitmap, data, width, height } };
         });
       });
@@ -560,18 +561,17 @@ export default function CampaignMap() {
   }, []);
 
   // Derive map dimensions from loaded layers
-  const mapH = (() => {
+  const mapSize = useMemo(() => {
     const reg = layers['regions'];
-    if (reg?.bitmap) return reg.bitmap.height;
-    for (const def of LAYER_DEFS) { const s = layers[def.id]; if (s?.bitmap) return s.bitmap.height; }
-    return 0;
-  })();
-  const mapW2 = (() => {
-    const reg = layers['regions'];
-    if (reg?.bitmap) return reg.bitmap.width;
-    for (const def of LAYER_DEFS) { const s = layers[def.id]; if (s?.bitmap) return s.bitmap.width; }
-    return 0;
-  })();
+    if (reg?.bitmap) return { w: reg.bitmap.width, h: reg.bitmap.height };
+    for (const def of LAYER_DEFS) {
+      const s = layers[def.id];
+      if (s?.bitmap) return { w: s.bitmap.width, h: s.bitmap.height };
+    }
+    return { w: 0, h: 0 };
+  }, [layers]);
+  const mapH = mapSize.h;
+  const mapW2 = mapSize.w;
 
   // ── Helper: place a single pixel on the regions layer ────────────────────
   const placePixelOnRegions = useCallback((rx, ry, r, g, b) => {
@@ -997,6 +997,7 @@ export default function CampaignMap() {
       setLayers(prev => {
         const next = { ...prev };
         for (const { id, data, width, height, bitmap } of results) {
+          if (prev[id]?.bitmap && prev[id].bitmap !== bitmap && typeof prev[id].bitmap.close === 'function') prev[id].bitmap.close();
           next[id] = { ...prev[id], data: new Uint8ClampedArray(data), width, height, bitmap };
         }
         return next;
@@ -1017,7 +1018,7 @@ export default function CampaignMap() {
     dirtyLayers.forEach(layerId => {
       const layer = layers[layerId];
       if (!layer?.data) return;
-      const def = LAYER_DEFS.find(d => d.id === layerId);
+      const def = LAYER_BY_ID[layerId];
       const blob = exportTGA(layer.data, layer.width, layer.height, { origin: def?.exportOrigin });
       downloadBlob(blob, def?.filename || `${layerId}.tga`);
     });

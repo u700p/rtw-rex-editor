@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { LAYER_DEFS } from './mapLayerConstants';
+import { LAYER_DEFS, LAYER_BY_ID } from './mapLayerConstants';
 import MapPixelTooltip from './MapPixelTooltip';
 
 const DRAW_ORDER = ['heights', 'ground', 'climates', 'regions', 'features', 'fog'];
+const DRAW_LAYERS = DRAW_ORDER.map(id => [id, LAYER_BY_ID[id]]);
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 100;
 
@@ -34,6 +35,45 @@ function buildCitiesPortsBitmap(data, width, height) {
     const isPort = r > 243 && g > 243 && b > 243;
     if (isCity || isPort) { out[i]=r; out[i+1]=g; out[i+2]=b; out[i+3]=255; }
   }
+  return createImageBitmap(new ImageData(out, width, height));
+}
+
+function closeBitmap(bitmap) {
+  if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+}
+
+function replaceCachedBitmap(cache, key, next) {
+  const prev = cache[key];
+  if (prev?.bmp && prev.bmp !== next?.bmp) closeBitmap(prev.bmp);
+  if (next) cache[key] = next;
+  else delete cache[key];
+  return !!prev || !!next;
+}
+
+function buildRegionHighlightBitmap(data, width, height, hr, hg, hb) {
+  const out = new Uint8ClampedArray(width * height * 4);
+  const rowSize = width * 4;
+  const isRegionAt = (idx) => data[idx] === hr && data[idx + 1] === hg && data[idx + 2] === hb;
+
+  for (let y = 0; y < height; y++) {
+    const row = y * rowSize;
+    for (let x = 0; x < width; x++) {
+      const idx = row + x * 4;
+      if (!isRegionAt(idx)) continue;
+      const isBorder =
+        x === 0 || y === 0 || x === width - 1 || y === height - 1 ||
+        !isRegionAt(idx - 4) ||
+        !isRegionAt(idx + 4) ||
+        !isRegionAt(idx - rowSize) ||
+        !isRegionAt(idx + rowSize);
+      if (!isBorder) continue;
+      out[idx] = 255;
+      out[idx + 1] = 220;
+      out[idx + 2] = 0;
+      out[idx + 3] = 255;
+    }
+  }
+
   return createImageBitmap(new ImageData(out, width, height));
 }
 
@@ -120,71 +160,65 @@ export default function MapCanvas({
   const transCache = useRef({});
   const [transCacheVer, setTransCacheVer] = useState(0);
   const { w: mapW, h: mapH } = getCanvasSize(layers);
+  const featuresLayer = layers['features'];
+  const fogLayer = layers['fog'];
+  const regionsLayer = layers['regions'];
+  const highlightR = highlightRegion?.r;
+  const highlightG = highlightRegion?.g;
+  const highlightB = highlightRegion?.b;
 
   // Build highlight bitmap — border-only outline of the selected region
   useEffect(() => {
-    const regState = layers['regions'];
-    if (!regState?.data || !highlightRegion) {
-      delete transCache.current.highlight;
-      setTransCacheVer(v => v + 1);
+    if (!regionsLayer?.data || highlightR == null || highlightG == null || highlightB == null) {
+      if (replaceCachedBitmap(transCache.current, 'highlight', null)) setTransCacheVer(v => v + 1);
       return;
     }
-    const { r: hr, g: hg, b: hb } = highlightRegion;
-    const { data, width, height } = regState;
-    // Build a mask of which pixels belong to the region
-    const mask = new Uint8Array(width * height);
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const i = (y * width + x) * 4;
-        if (data[i] === hr && data[i + 1] === hg && data[i + 2] === hb) mask[y * width + x] = 1;
+
+    const cached = transCache.current.highlight;
+    if (cached?.src === regionsLayer.data && cached.r === highlightR && cached.g === highlightG && cached.b === highlightB) return;
+
+    let cancelled = false;
+    const { data, width, height } = regionsLayer;
+    buildRegionHighlightBitmap(data, width, height, highlightR, highlightG, highlightB).then(bmp => {
+      if (cancelled) {
+        closeBitmap(bmp);
+        return;
       }
-    }
-    // Only draw pixels that are on the edge (have at least one non-region neighbour)
-    const out = new Uint8ClampedArray(width * height * 4);
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (!mask[y * width + x]) continue;
-        let isBorder = false;
-        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-          const nx = x + dx, ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height || !mask[ny * width + nx]) { isBorder = true; break; }
-        }
-        if (isBorder) {
-          const oi = (y * width + x) * 4;
-          out[oi] = 255; out[oi + 1] = 220; out[oi + 2] = 0; out[oi + 3] = 255;
-        }
-      }
-    }
-    createImageBitmap(new ImageData(out, width, height)).then(bmp => {
-      transCache.current.highlight = { bmp, r: hr, g: hg, b: hb };
+      replaceCachedBitmap(transCache.current, 'highlight', { bmp, src: data, r: highlightR, g: highlightG, b: highlightB });
       setTransCacheVer(v => v + 1);
     });
-  }, [layers, highlightRegion]);
+    return () => { cancelled = true; };
+  }, [regionsLayer?.data, regionsLayer?.width, regionsLayer?.height, highlightR, highlightG, highlightB]);
 
   useEffect(() => {
-    const featState = layers['features'];
-    if (featState?.data && transCache.current.features?.src !== featState.data) {
-      makeBlackTransparent(featState.data, featState.width, featState.height)
-        .then(bmp => { transCache.current.features = { bmp, src: featState.data }; setTransCacheVer(v => v+1); });
-    }
-    if (!featState?.data) delete transCache.current.features;
+    let cancelled = false;
+    const updateCache = (key, layer, builder) => {
+      if (!layer?.data) {
+        if (replaceCachedBitmap(transCache.current, key, null)) setTransCacheVer(v => v + 1);
+        return;
+      }
+      if (transCache.current[key]?.src === layer.data) return;
+      const src = layer.data;
+      builder(src, layer.width, layer.height).then(bmp => {
+        if (cancelled) {
+          closeBitmap(bmp);
+          return;
+        }
+        replaceCachedBitmap(transCache.current, key, { bmp, src });
+        setTransCacheVer(v => v + 1);
+      });
+    };
 
-    const fogState = layers['fog'];
-    if (fogState?.data && transCache.current.fog?.src !== fogState.data) {
-      makeWhiteTransparent(fogState.data, fogState.width, fogState.height)
-        .then(bmp => { transCache.current.fog = { bmp, src: fogState.data }; setTransCacheVer(v => v+1); });
-    }
-    if (!fogState?.data) delete transCache.current.fog;
+    updateCache('features', featuresLayer, makeBlackTransparent);
+    updateCache('fog', fogLayer, makeWhiteTransparent);
+    updateCache('citiesports', regionsLayer, buildCitiesPortsBitmap);
 
-    const regState = layers['regions'];
-    if (regState?.data && transCache.current.citiesports?.src !== regState.data) {
-      buildCitiesPortsBitmap(regState.data, regState.width, regState.height)
-        .then(bmp => { transCache.current.citiesports = { bmp, src: regState.data }; setTransCacheVer(v => v+1); });
-    }
-    if (!regState?.data) delete transCache.current.citiesports;
-
-    setTransCacheVer(v => v + 1);
-  }, [layers]);
+    return () => { cancelled = true; };
+  }, [
+    featuresLayer?.data, featuresLayer?.width, featuresLayer?.height,
+    fogLayer?.data, fogLayer?.width, fogLayer?.height,
+    regionsLayer?.data, regionsLayer?.width, regionsLayer?.height,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -199,8 +233,7 @@ export default function MapCanvas({
     ctx.translate(transform.x, transform.y);
     ctx.scale(transform.scale, transform.scale);
 
-    for (const id of DRAW_ORDER) {
-      const def   = LAYER_DEFS.find(d => d.id === id);
+    for (const [id, def] of DRAW_LAYERS) {
       const state = layers[id];
       if (!state?.bitmap) continue;
       if (!(state.visible ?? def.defaultVisible)) continue;
@@ -345,7 +378,7 @@ export default function MapCanvas({
       lastMouse.current = { x: e.clientX, y: e.clientY };
       setTransform(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
     }
-    if (mapW === 0) return;
+    if (mapW === 0 || !showTooltip) return;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
@@ -371,7 +404,7 @@ export default function MapCanvas({
       pixelData[def.id] = { r: state.data[idx], g: state.data[idx+1], b: state.data[idx+2], a: state.data[idx+3] };
     }
     setProbe({ x: dispX, y: dispY, screenX: sx, screenY: sy, pixelData });
-  }, [paintState, doPencil, layers, transform, mapW, mapH]);
+  }, [paintState, doPencil, layers, transform, mapW, mapH, showTooltip]);
 
   const handleMouseUp = useCallback((e) => {
     if (isPainting.current) { isPainting.current = false; return; }

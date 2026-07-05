@@ -4,7 +4,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { getItemIcon, getItemLabel } from './StratOverlay';
 import { serializeDescrStrat, serializeDescrRegions, serializeWinConditions, parseWinConditions, SETTLEMENT_LEVELS, SETTLEMENT_LEVEL_ICONS } from './stratParser';
 import { exportTGA, downloadBlob } from './tgaExporter';
-import { LAYER_DEFS } from './mapLayerConstants';
+import { LAYER_DEFS, LAYER_BY_ID } from './mapLayerConstants';
 import JSZip from 'jszip';
 import { extractBuildingLevelsFromEDB, extractHiddenResourcesFromEDB } from './additionalParsers';
 import RegionColorDetector from './RegionColorDetector';
@@ -989,7 +989,7 @@ export default function StratPanel({
   const handleExportTGA = (layerId) => {
     const layer = layers?.[layerId];
     if (!layer?.data) return;
-    const def = LAYER_DEFS.find((d) => d.id === layerId);
+    const def = LAYER_BY_ID[layerId];
     const blob = exportTGA(layer.data, layer.width, layer.height, { origin: def?.exportOrigin });
     downloadBlob(blob, def?.filename || `${layerId}.tga`);
   };
@@ -1062,7 +1062,7 @@ export default function StratPanel({
     for (const [layerId, filename] of Object.entries(tgaLayerMap)) {
       const layer = layers?.[layerId];
       if (layer?.data) {
-        const def = LAYER_DEFS.find((d) => d.id === layerId);
+        const def = LAYER_BY_ID[layerId];
         const blob = exportTGA(layer.data, layer.width, layer.height, { origin: def?.exportOrigin });
         zip.file(`${basePath}/${filename}`, blob);
       }
