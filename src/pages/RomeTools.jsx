@@ -1808,7 +1808,7 @@ function SpriteLogoGeneratorTab() {
   );
 }
 
-function AiImageWorkshopTab() {
+export function AiImageWorkshopTab() {
   const [form, setForm] = useState({
     mode: 'unit',
     faction: 'thamud_01',
@@ -1851,6 +1851,7 @@ function AiImageWorkshopTab() {
   const generatePrompt = async () => {
     const next = buildBingStylePrompt(form, reference?.name || 'uploaded reference');
     setPrompt(next);
+    try { localStorage.setItem('rtw_ai_generator_last_prompt', next); } catch {}
     try {
       await navigator.clipboard?.writeText(next);
       setStatus('Copied image-to-image prompt.');
@@ -2121,8 +2122,14 @@ function TextField({ label, value, onChange }) {
   );
 }
 
-export default function RomeTools() {
-  const [tab, setTab] = useState('importer');
+export default function RomeTools({ initialTab = 'importer' }) {
+  const [tab, setTab] = useState(() => {
+    try { return sessionStorage.getItem('rtw_tools_active_tab') || initialTab; } catch { return initialTab; }
+  });
+  const chooseTab = (next) => {
+    setTab(next);
+    try { sessionStorage.setItem('rtw_tools_active_tab', next); } catch {}
+  };
   const tabs = [
     ['importer', 'Unit Importer', FileText],
     ['recolor', 'Texture Recolorizer', Wand2],
@@ -2141,9 +2148,9 @@ export default function RomeTools() {
               <p className="text-[10px] tracking-[0.25em] uppercase text-amber-400">Rome Total War Workshop</p>
               <h1 className="text-2xl font-bold text-slate-100">Rome Tools</h1>
             </div>
-            <div className="flex gap-1">
+            <div className="flex flex-wrap justify-end gap-1 max-w-[720px]">
               {tabs.map(([id, label, Icon]) => (
-                <button key={id} onClick={() => setTab(id)}
+                <button key={id} onClick={() => chooseTab(id)}
                   className={`h-8 px-3 rounded border text-xs flex items-center gap-1.5 ${tab === id ? 'border-amber-500 bg-amber-600/20 text-amber-200' : 'border-slate-700 bg-slate-900/75 text-slate-300 hover:text-white'}`}>
                   <Icon className="w-3.5 h-3.5" />
                   {label}

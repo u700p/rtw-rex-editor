@@ -25,6 +25,7 @@ import MinorFiles from './pages/MinorFiles';
 import NewMapEditor from './pages/NewMapEditor';
 import BattleModelsEditor from './pages/BattleModelsEditor';
 import RomeTools from './pages/RomeTools';
+import AIGenerator from './pages/AIGenerator';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -74,6 +75,7 @@ const LocalApp = () => {
       <Route path="/NewMapEditor" element={<LayoutWrapper currentPageName="NewMapEditor"><NewMapEditor /></LayoutWrapper>} />
       <Route path="/BattleModelsEditor" element={<LayoutWrapper currentPageName="BattleModelsEditor"><BattleModelsEditor /></LayoutWrapper>} />
       <Route path="/RomeTools" element={<LayoutWrapper currentPageName="RomeTools"><RomeTools /></LayoutWrapper>} />
+      <Route path="/AIGenerator" element={<LayoutWrapper currentPageName="AIGenerator"><AIGenerator /></LayoutWrapper>} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

@@ -6,7 +6,7 @@ import { RefDataProvider } from './components/edb/RefDataContext';
 import { TraitsProvider } from './components/traits/TraitsContext';
 import { AncillariesProvider } from './components/ancillaries/AncillariesContext';
 import { ModDataProvider } from './components/shared/ModDataContext';
-import { Castle, Download, Home, Shield, Package, Swords, Map, Globe, Volume2, FileText, ScrollText, Gem, Image, Wrench } from 'lucide-react';
+import { Castle, Download, Home, Shield, Package, Swords, Map, Globe, Volume2, FileText, ScrollText, Gem, Image, Wrench, Wand2 } from 'lucide-react';
 import AppErrorBoundary from './components/AppErrorBoundary';
 import romeLogo from './assets/rome/rome-logo.png';
 import romeHeader from './assets/rome/rome-header.jpg';
@@ -27,6 +27,7 @@ const NAV_DATA_KEYS = {
   FactionsEditor:    ['m2tw_factions_file'],
   TextLocalizationEditor: ['m2tw_edb_txt_file'],
   RomeTools:          ['rtw_tools_last_output'],
+  AIGenerator:        ['rtw_ai_generator_last_prompt'],
 };
 
 function useLoadedPages() {
@@ -63,6 +64,7 @@ const navItems = [
 { name: 'Ancillaries', icon: Gem, page: 'AncillariesEditor' },
 { name: 'Unit Editor', icon: Swords, page: 'UnitEditor' },
 { name: 'Rome Tools', icon: Wrench, page: 'RomeTools' },
+{ name: 'AI Generator', icon: Wand2, page: 'AIGenerator' },
 { name: 'Battle Models', icon: Package, page: 'BattleModelsEditor' },
 { name: 'Campaign Map', icon: Map, page: 'CampaignMap' },
 { name: 'Script Editor', icon: ScrollText, page: 'ScriptEditor' },
@@ -99,7 +101,7 @@ export default function Layout({ children, currentPageName }) {
                 </div>
               </div>
             </div>
-            <div className="flex-1 p-2 space-y-1">
+            <div className="flex-1 p-2 space-y-1 overflow-y-auto">
               {navItems.map((item) => {
                       const isActive = currentPageName === item.page;
                       return (
