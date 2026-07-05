@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { Upload, Image } from 'lucide-react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Upload, Image, FolderOpen, Loader2 } from 'lucide-react';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
 import SymbolGenerator from './SymbolGenerator';
 
@@ -45,16 +45,99 @@ const GENERATED_SYMBOL_SLOTS = {
   loading128_standard: 'loading_symbol128',
 };
 
+const FACTION_SYMBOL_PREVIEW_KEY = 'm2tw_faction_symbol_previews';
+
+function normalizeFactionName(factionName) {
+  return String(factionName || '').trim().toLowerCase();
+}
+
+function normalizeImageStem(name) {
+  return String(name || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop()
+    .replace(/\.(tga|png|jpe?g|bmp)$/i, '')
+    .toLowerCase();
+}
+
+function getSymbolStore() {
+  if (typeof window === 'undefined') return {};
+  if (window._m2tw_faction_symbol_previews) return window._m2tw_faction_symbol_previews;
+  try {
+    window._m2tw_faction_symbol_previews = JSON.parse(sessionStorage.getItem(FACTION_SYMBOL_PREVIEW_KEY) || '{}');
+  } catch {
+    window._m2tw_faction_symbol_previews = {};
+  }
+  return window._m2tw_faction_symbol_previews;
+}
+
+function loadFactionSymbols(factionName) {
+  const factionKey = normalizeFactionName(factionName);
+  if (!factionKey) return {};
+  return { ...(getSymbolStore()[factionKey] || {}) };
+}
+
+function storeFactionSymbols(factionName, images) {
+  if (typeof window === 'undefined') return;
+  const factionKey = normalizeFactionName(factionName);
+  if (!factionKey) return;
+  const store = getSymbolStore();
+  store[factionKey] = { ...(store[factionKey] || {}), ...(images || {}) };
+  window._m2tw_faction_symbol_previews = store;
+  try { sessionStorage.setItem(FACTION_SYMBOL_PREVIEW_KEY, JSON.stringify(store)); } catch {}
+}
+
+async function decodePreviewFile(file) {
+  if (!file) return null;
+  if (/\.tga$/i.test(file.name)) {
+    const buffer = await file.arrayBuffer();
+    return decodeTgaToDataUrl(buffer);
+  }
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close?.();
+  return canvas.toDataURL('image/png');
+}
+
+async function mapWithLimit(items, limit, mapper) {
+  const results = new Array(items.length);
+  let index = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const current = index++;
+      results[current] = await mapper(items[current], current);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function allSymbolSlots(factionName) {
+  return SYMBOL_GROUPS.flatMap(group => group.slots.map(slot => ({
+    ...slot,
+    expectedStem: normalizeImageStem(slot.filename(factionName)),
+  })));
+}
+
 function SymbolSlot({ label, filename, imageUrl, onLoad }) {
   const inputRef = useRef();
+  const [loading, setLoading] = useState(false);
 
   const handleFile = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const buffer = await file.arrayBuffer();
-    const url = decodeTgaToDataUrl(buffer);
-    if (url) onLoad(url);
     e.target.value = '';
+    setLoading(true);
+    try {
+      const url = await decodePreviewFile(file);
+      if (url) onLoad(url);
+    } finally {
+      setLoading(false);
+    }
   }, [onLoad]);
 
   return (
@@ -65,7 +148,9 @@ function SymbolSlot({ label, filename, imageUrl, onLoad }) {
         onClick={() => inputRef.current?.click()}
         title={`Load ${filename}`}
       >
-        {imageUrl ? (
+        {loading ? (
+          <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
+        ) : imageUrl ? (
           <img src={imageUrl} alt={label} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />
         ) : (
           <Image className="w-5 h-5 text-slate-600 group-hover:text-slate-400 transition-colors" />
@@ -73,7 +158,7 @@ function SymbolSlot({ label, filename, imageUrl, onLoad }) {
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <Upload className="w-4 h-4 text-white" />
         </div>
-        <input ref={inputRef} type="file" accept=".tga" className="hidden" onChange={handleFile} />
+        <input ref={inputRef} type="file" accept=".tga,image/png,image/jpeg,image/bmp" className="hidden" onChange={handleFile} />
       </div>
       <span className="text-[9px] text-slate-500 text-center leading-tight break-all">{filename}</span>
     </div>
@@ -81,12 +166,23 @@ function SymbolSlot({ label, filename, imageUrl, onLoad }) {
 }
 
 export default function FactionSymbolsTab({ factionName }) {
-  // Store dataURLs keyed by slot key
-  const [images, setImages] = useState({});
+  const [images, setImages] = useState(() => loadFactionSymbols(factionName));
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [loadStatus, setLoadStatus] = useState('');
+  const folderRef = useRef();
+
+  useEffect(() => {
+    setImages(loadFactionSymbols(factionName));
+    setLoadStatus('');
+  }, [factionName]);
 
   const setImage = useCallback((key, url) => {
-    setImages(prev => ({ ...prev, [key]: url }));
-  }, []);
+    setImages(prev => {
+      const next = { ...prev, [key]: url };
+      storeFactionSymbols(factionName, next);
+      return next;
+    });
+  }, [factionName]);
 
   const loadGeneratedSymbols = useCallback((generated) => {
     const next = {};
@@ -94,8 +190,54 @@ export default function FactionSymbolsTab({ factionName }) {
       const slotKey = GENERATED_SYMBOL_SLOTS[id];
       if (slotKey && url) next[slotKey] = url;
     }
-    if (Object.keys(next).length) setImages(prev => ({ ...prev, ...next }));
-  }, []);
+    if (Object.keys(next).length) {
+      setImages(prev => {
+        const merged = { ...prev, ...next };
+        storeFactionSymbols(factionName, merged);
+        return merged;
+      });
+      setLoadStatus(`Generated ${Object.keys(next).length} symbol preview${Object.keys(next).length === 1 ? '' : 's'}.`);
+    }
+  }, [factionName]);
+
+  const loadMatchingFiles = useCallback(async (e) => {
+    const files = Array.from(e.target.files || []).filter(file => /\.(tga|png|jpe?g|bmp)$/i.test(file.name));
+    e.target.value = '';
+    if (!files.length) return;
+
+    const slots = allSymbolSlots(factionName);
+    const byStem = new Map(slots.map(slot => [slot.expectedStem, slot]));
+    const matched = [];
+    for (const file of files) {
+      const slot = byStem.get(normalizeImageStem(file.name));
+      if (slot) matched.push({ file, slot });
+    }
+
+    if (!matched.length) {
+      setLoadStatus(`No matching symbol files found for ${factionName}.`);
+      return;
+    }
+
+    setBulkLoading(true);
+    setLoadStatus(`Loading ${matched.length} matching symbol file${matched.length === 1 ? '' : 's'}...`);
+    try {
+      const decoded = await mapWithLimit(matched, 3, async ({ file, slot }) => {
+        const url = await decodePreviewFile(file);
+        return url ? [slot.key, url] : null;
+      });
+      const next = Object.fromEntries(decoded.filter(Boolean));
+      setImages(prev => {
+        const merged = { ...prev, ...next };
+        storeFactionSymbols(factionName, merged);
+        return merged;
+      });
+      setLoadStatus(`Loaded ${Object.keys(next).length}/${matched.length} faction logo preview${matched.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      setLoadStatus(`Logo load failed: ${err.message}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }, [factionName]);
 
   return (
     <div className="space-y-5">
@@ -105,6 +247,30 @@ export default function FactionSymbolsTab({ factionName }) {
       </div>
 
       <SymbolGenerator factionName={factionName} onGeneratedSymbols={loadGeneratedSymbols} />
+
+      <div className="flex items-center gap-2 rounded border border-slate-700 bg-slate-900/50 p-2">
+        <button
+          type="button"
+          onClick={() => folderRef.current?.click()}
+          disabled={bulkLoading}
+          className="h-7 px-2 rounded border border-slate-600 text-[10px] text-slate-300 hover:border-amber-500 hover:text-amber-300 disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {bulkLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
+          Load Matching Logos
+        </button>
+        <input
+          ref={folderRef}
+          type="file"
+          accept=".tga,image/png,image/jpeg,image/bmp"
+          multiple
+          webkitdirectory=""
+          className="hidden"
+          onChange={loadMatchingFiles}
+        />
+        <p className="text-[10px] text-slate-500 flex-1">
+          {loadStatus || `Matches symbol24_${factionName}.tga, symbol48_${factionName}.tga, and symbol128_${factionName}.tga.`}
+        </p>
+      </div>
 
       {SYMBOL_GROUPS.map((group) => (
         <div key={group.label} className="space-y-2">

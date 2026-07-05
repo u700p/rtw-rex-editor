@@ -579,16 +579,64 @@ function decodeTga(buffer) {
   const data = new Uint8Array(buffer);
   if (data.length < 18) throw new Error('Invalid TGA');
   const idLength = data[0], colorMapType = data[1], imageType = data[2];
+  const colorMapFirst = data[3] | (data[4] << 8);
+  const colorMapLength = data[5] | (data[6] << 8);
+  const colorMapDepth = data[7];
   const width = data[12] | (data[13] << 8), height = data[14] | (data[15] << 8);
-  const bpp = data[16], desc = data[17], topOrigin = !!(desc & 0x20);
-  if (colorMapType !== 0 || ![2, 10].includes(imageType) || ![24, 32].includes(bpp)) throw new Error('Only true-color TGA is supported');
-  const pixels = new Uint8ClampedArray(width * height * 4);
-  let src = 18 + idLength, dst = 0, pixel = 0;
-  const readPixel = () => {
-    const b = data[src++], g = data[src++], r = data[src++], a = bpp === 32 ? data[src++] : 255;
-    return [r, g, b, a];
+  const bpp = data[16], desc = data[17], topOrigin = !!(desc & 0x20), rightOrigin = !!(desc & 0x10);
+  const isMapped = imageType === 1 || imageType === 9;
+  const isTrueColor = imageType === 2 || imageType === 10;
+  const isGray = imageType === 3 || imageType === 11;
+  const isRle = imageType === 9 || imageType === 10 || imageType === 11;
+  if (!isMapped && !isTrueColor && !isGray) throw new Error('Unsupported TGA image type');
+  if (isMapped && colorMapType !== 1) throw new Error('Invalid indexed TGA color map');
+  if (!isMapped && colorMapType !== 0) throw new Error('Unsupported TGA color map');
+  if (isTrueColor && ![15, 16, 24, 32].includes(bpp)) throw new Error('Unsupported true-color TGA bit depth');
+  if (isGray && ![8, 16].includes(bpp)) throw new Error('Unsupported grayscale TGA bit depth');
+  if (isMapped && ![8, 15, 16].includes(bpp)) throw new Error('Unsupported indexed TGA bit depth');
+
+  let src = 18 + idLength;
+  const readColor = (bits) => {
+    if (bits === 32) {
+      const b = data[src++], g = data[src++], r = data[src++], a = data[src++];
+      return [r, g, b, a];
+    }
+    if (bits === 24) {
+      const b = data[src++], g = data[src++], r = data[src++];
+      return [r, g, b, 255];
+    }
+    if (bits === 15 || bits === 16) {
+      const v = data[src++] | (data[src++] << 8);
+      const b = Math.round((v & 0x1f) * 255 / 31);
+      const g = Math.round(((v >> 5) & 0x1f) * 255 / 31);
+      const r = Math.round(((v >> 10) & 0x1f) * 255 / 31);
+      return [r, g, b, 255];
+    }
+    const g = data[src++];
+    return [g, g, g, 255];
   };
-  if (imageType === 2) {
+
+  let colorMap = null;
+  if (isMapped) {
+    colorMap = new Map();
+    for (let i = 0; i < colorMapLength; i++) {
+      colorMap.set(colorMapFirst + i, readColor(colorMapDepth));
+    }
+  }
+
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  let dst = 0, pixel = 0;
+  const readIndex = () => bpp === 8 ? data[src++] : data[src++] | (data[src++] << 8);
+  const readPixel = () => {
+    if (isMapped) return colorMap.get(readIndex()) || [0, 0, 0, 0];
+    if (isGray) {
+      const g = data[src++];
+      const a = bpp === 16 ? data[src++] : 255;
+      return [g, g, g, a];
+    }
+    return readColor(bpp);
+  };
+  if (!isRle) {
     while (pixel++ < width * height) pixels.set(readPixel(), dst), dst += 4;
   } else {
     while (pixel < width * height) {
@@ -602,7 +650,22 @@ function decodeTga(buffer) {
     }
   }
   if (!topOrigin) flipRows(pixels, width, height);
+  if (rightOrigin) flipColumns(pixels, width, height);
   return new ImageData(pixels, width, height);
+}
+
+function flipColumns(pixels, width, height) {
+  const row = width * 4;
+  for (let y = 0; y < height; y++) {
+    const start = y * row;
+    for (let x = 0; x < Math.floor(width / 2); x++) {
+      const left = start + x * 4;
+      const right = start + (width - 1 - x) * 4;
+      for (let i = 0; i < 4; i++) {
+        const tmp = pixels[left + i]; pixels[left + i] = pixels[right + i]; pixels[right + i] = tmp;
+      }
+    }
+  }
 }
 
 function flipRows(pixels, width, height) {
@@ -833,9 +896,11 @@ function resizeIconImageData(imageData, size, mode) {
 }
 
 function factionNameFromIconFile(file) {
-  const stem = String(file?.name || 'faction').replace(/\.(tga|png)$/i, '').toLowerCase();
-  const match = /^symbol128_(.+)$/i.exec(stem);
-  return (match ? match[1] : stem).replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'faction';
+  const stem = String(file?.name || 'faction')
+    .replace(/\.(tga|png)$/i, '')
+    .toLowerCase()
+    .replace(/^(?:symbol(?:24|48|128)_|faction_logo_|small_faction_logo_|loading_logo_|logo_)/i, '');
+  return stem.replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'faction';
 }
 
 function buildSpriteXml(sheetName, icons, size, columns) {
@@ -995,7 +1060,7 @@ function TextureRecolorTab() {
           <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load TGA/DDS textures</span>
         </label>
         <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
-          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg" multiple webkitdirectory="" directory="" className="hidden" onChange={handleFiles} />
+          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg" multiple webkitdirectory="" className="hidden" onChange={handleFiles} />
           <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load texture folder</span>
         </label>
         <div className="flex items-center justify-between text-[10px] text-slate-500">
@@ -1274,7 +1339,7 @@ function SpriteLogoGeneratorTab() {
           <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load icon files</span>
         </label>
         <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
-          <input type="file" accept=".tga,.png" multiple webkitdirectory="" directory="" className="hidden" onChange={handleIcons} />
+          <input type="file" accept=".tga,.png" multiple webkitdirectory="" className="hidden" onChange={handleIcons} />
           <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load icon folder</span>
         </label>
         <div className="grid grid-cols-3 gap-2">
