@@ -1018,7 +1018,7 @@ export default function CampaignMap() {
       const layer = layers[layerId];
       if (!layer?.data) return;
       const def = LAYER_DEFS.find(d => d.id === layerId);
-      const blob = exportTGA(layer.data, layer.width, layer.height);
+      const blob = exportTGA(layer.data, layer.width, layer.height, { origin: def?.exportOrigin });
       downloadBlob(blob, def?.filename || `${layerId}.tga`);
     });
     // Also export descr_strat.txt if it has changes

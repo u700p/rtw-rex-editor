@@ -2,6 +2,18 @@
  * Load a TGA file (ArrayBuffer) into a usable layer state object.
  * Returns { bitmap, data, width, height } or null on failure.
  */
+function flipRowsInPlace(pixels, width, height) {
+  const rowSize = width * 4;
+  const temp = new Uint8ClampedArray(rowSize);
+  for (let y = 0; y < Math.floor(height / 2); y++) {
+    const top = y * rowSize;
+    const bot = (height - 1 - y) * rowSize;
+    temp.set(pixels.subarray(top, top + rowSize));
+    pixels.copyWithin(top, bot, bot + rowSize);
+    pixels.set(temp, bot);
+  }
+}
+
 export async function loadTGA(buffer) {
   const data = new Uint8Array(buffer);
   if (data.length < 18) return null;
@@ -54,13 +66,7 @@ export async function loadTGA(buffer) {
 
   // Flip vertically if bottom-origin
   if (!topOrigin) {
-    const rowSize = width * 4;
-    for (let y = 0; y < Math.floor(height / 2); y++) {
-      const top = y * rowSize, bot = (height - 1 - y) * rowSize;
-      for (let i = 0; i < rowSize; i++) {
-        const tmp = pixels[top + i]; pixels[top + i] = pixels[bot + i]; pixels[bot + i] = tmp;
-      }
-    }
+    flipRowsInPlace(pixels, width, height);
   }
 
   const imageData = new ImageData(pixels, width, height);

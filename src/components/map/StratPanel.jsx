@@ -990,7 +990,7 @@ export default function StratPanel({
     const layer = layers?.[layerId];
     if (!layer?.data) return;
     const def = LAYER_DEFS.find((d) => d.id === layerId);
-    const blob = exportTGA(layer.data, layer.width, layer.height);
+    const blob = exportTGA(layer.data, layer.width, layer.height, { origin: def?.exportOrigin });
     downloadBlob(blob, def?.filename || `${layerId}.tga`);
   };
 
@@ -1062,7 +1062,8 @@ export default function StratPanel({
     for (const [layerId, filename] of Object.entries(tgaLayerMap)) {
       const layer = layers?.[layerId];
       if (layer?.data) {
-        const blob = exportTGA(layer.data, layer.width, layer.height);
+        const def = LAYER_DEFS.find((d) => d.id === layerId);
+        const blob = exportTGA(layer.data, layer.width, layer.height, { origin: def?.exportOrigin });
         zip.file(`${basePath}/${filename}`, blob);
       }
     }

@@ -6,30 +6,37 @@ import { Scan, Check, AlertTriangle, ArrowRight } from 'lucide-react';
  * then cross-references with descr_regions.txt data to show matches/mismatches.
  */
 
+const SEA_COLOR_KEYS = new Set([
+  (41 << 16) | (140 << 8) | 233,
+  (41 << 16) | (141 << 8) | 243,
+  (41 << 16) | (140 << 8) | 235,
+  (41 << 16) | (141 << 8) | 237,
+]);
+
+function rgbKey(r, g, b) {
+  return (r << 16) | (g << 8) | b;
+}
+
+function keyToRgb(key) {
+  return { r: (key >> 16) & 255, g: (key >> 8) & 255, b: key & 255 };
+}
+
 function extractUniqueColors(layerData) {
   if (!layerData?.data) return [];
-  const { data, width, height } = layerData;
-  const colorCounts = {};
+  const { data } = layerData;
+  const colorCounts = new Map();
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     // Skip black (borders), white (unused), and known sea colors
     if (r < 5 && g < 5 && b < 5) continue;
     if (r > 245 && g > 245 && b > 245) continue;
-    // Sea color variants
-    if (r === 41 && g === 140 && b === 233) continue;
-    if (r === 41 && g === 141 && b === 243) continue;
-    if (r === 41 && g === 140 && b === 235) continue;
-    if (r === 41 && g === 141 && b === 237) continue;
-    const key = `${r},${g},${b}`;
-    colorCounts[key] = (colorCounts[key] || 0) + 1;
+    const key = rgbKey(r, g, b);
+    if (SEA_COLOR_KEYS.has(key)) continue;
+    colorCounts.set(key, (colorCounts.get(key) || 0) + 1);
   }
 
-  return Object.entries(colorCounts)
-    .map(([key, count]) => {
-      const [r, g, b] = key.split(',').map(Number);
-      return { r, g, b, pixelCount: count };
-    })
+  return Array.from(colorCounts, ([key, count]) => ({ ...keyToRgb(key), pixelCount: count }))
     .sort((a, b) => b.pixelCount - a.pixelCount);
 }
 
@@ -45,9 +52,9 @@ export default function RegionColorDetector({ regionsLayer, regionsData, onRegio
 
   // Build lookup: RGB key → region name from descr_regions.txt
   const regionsByColor = useMemo(() => {
-    const map = {};
+    const map = new Map();
     for (const reg of (regionsData || [])) {
-      map[`${reg.r},${reg.g},${reg.b}`] = reg.regionName;
+      map.set(rgbKey(reg.r, reg.g, reg.b), reg.regionName);
     }
     return map;
   }, [regionsData]);
@@ -62,12 +69,12 @@ export default function RegionColorDetector({ regionsLayer, regionsData, onRegio
   }, [regionsData]);
 
   // Classification
-  const matched = useMemo(() => tgaColors.filter(c => regionsByColor[`${c.r},${c.g},${c.b}`]), [tgaColors, regionsByColor]);
-  const unmatched = useMemo(() => tgaColors.filter(c => !regionsByColor[`${c.r},${c.g},${c.b}`]), [tgaColors, regionsByColor]);
+  const matched = useMemo(() => tgaColors.filter(c => regionsByColor.has(rgbKey(c.r, c.g, c.b))), [tgaColors, regionsByColor]);
+  const unmatched = useMemo(() => tgaColors.filter(c => !regionsByColor.has(rgbKey(c.r, c.g, c.b))), [tgaColors, regionsByColor]);
   const missingFromTGA = useMemo(() => {
     if (!scanned) return [];
-    const tgaSet = new Set(tgaColors.map(c => `${c.r},${c.g},${c.b}`));
-    return (regionsData || []).filter(r => !tgaSet.has(`${r.r},${r.g},${r.b}`));
+    const tgaSet = new Set(tgaColors.map(c => rgbKey(c.r, c.g, c.b)));
+    return (regionsData || []).filter(r => !tgaSet.has(rgbKey(r.r, r.g, r.b)));
   }, [regionsData, tgaColors, scanned]);
 
   const autoFix = () => {
@@ -155,7 +162,7 @@ export default function RegionColorDetector({ regionsLayer, regionsData, onRegio
                 {matched.map(c => (
                   <div key={`${c.r},${c.g},${c.b}`} className="flex items-center gap-1.5 px-1 py-0.5">
                     <span className="w-3 h-3 rounded-sm border border-white/20 shrink-0" style={{ background: `rgb(${c.r},${c.g},${c.b})` }} />
-                    <span className="text-[10px] text-slate-300 font-mono flex-1 truncate">{regionsByColor[`${c.r},${c.g},${c.b}`]}</span>
+                    <span className="text-[10px] text-slate-300 font-mono flex-1 truncate">{regionsByColor.get(rgbKey(c.r, c.g, c.b))}</span>
                     <span className="text-[9px] text-slate-600 font-mono">{c.r},{c.g},{c.b}</span>
                     <span className="text-[9px] text-slate-600">{c.pixelCount.toLocaleString()}px</span>
                   </div>

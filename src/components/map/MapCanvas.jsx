@@ -49,21 +49,36 @@ function getCanvasSize(layers) {
 }
 
 export function floodFillRGB(data, width, height, sx, sy, nr, ng, nb, tolerance = 4) {
+  if (!data || width <= 0 || height <= 0) return;
+  sx = Math.trunc(sx);
+  sy = Math.trunc(sy);
+  if (sx < 0 || sy < 0 || sx >= width || sy >= height) return;
   const startI = (sy * width + sx) * 4;
   const tr = data[startI], tg = data[startI+1], tb = data[startI+2];
   if (tr === nr && tg === ng && tb === nb) return;
-  const stack = [[sx, sy]];
-  const visited = new Uint8Array(width * height);
-  while (stack.length) {
-    const [x, y] = stack.pop();
-    if (x < 0 || y < 0 || x >= width || y >= height) continue;
-    const pi = y * width + x;
-    if (visited[pi]) continue;
-    visited[pi] = 1;
+  const total = width * height;
+  const stack = new Int32Array(total);
+  const visited = new Uint8Array(total);
+  let top = 0;
+  const startPi = sy * width + sx;
+  stack[top++] = startPi;
+  visited[startPi] = 1;
+  while (top > 0) {
+    const pi = stack[--top];
     const i = pi * 4;
     if (Math.abs(data[i]-tr) > tolerance || Math.abs(data[i+1]-tg) > tolerance || Math.abs(data[i+2]-tb) > tolerance) continue;
     data[i] = nr; data[i+1] = ng; data[i+2] = nb;
-    stack.push([x+1,y],[x-1,y],[x,y+1],[x,y-1]);
+    const x = pi % width;
+    const push = (next) => {
+      if (!visited[next]) {
+        visited[next] = 1;
+        stack[top++] = next;
+      }
+    };
+    if (x + 1 < width) push(pi + 1);
+    if (x > 0) push(pi - 1);
+    if (pi + width < total) push(pi + width);
+    if (pi - width >= 0) push(pi - width);
   }
 }
 

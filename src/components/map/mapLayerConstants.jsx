@@ -73,6 +73,7 @@ export const LAYER_DEFS = [
     id: 'regions',
     label: 'Regions',
     filename: 'map_regions.tga',
+    exportOrigin: 'bottom-left',
     defaultOpacity: 0.5,
     defaultVisible: true,
     blendMode: 'source-over',
