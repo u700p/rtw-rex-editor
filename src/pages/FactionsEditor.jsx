@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import JSZip from 'jszip';
-import { Upload, Download, Plus, Trash2, AlertTriangle, Shield, X, Copy, GripVertical, Palette, FileText, Settings, ScrollText, Image } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, AlertTriangle, Shield, X, Copy, GripVertical, Palette, FileText, Settings, ScrollText, Image, FolderOpen, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -10,7 +10,12 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import BannersTab, { BANNERS_GLOBAL_KEY } from '@/components/factions/BannersTab';
 import DescriptionsTab from '@/components/factions/DescriptionsTab';
 import MiscTab, { hasFactionNavyEntry, insertFactionNavyEntry } from '@/components/factions/MiscTab';
-import FactionSymbolsTab from '@/components/factions/FactionSymbolsTab';
+import FactionSymbolsTab, {
+  FACTION_SYMBOLS_UPDATED_EVENT,
+  loadFactionSymbols,
+  loadMatchingFactionSymbolFiles,
+  normalizeFactionName,
+} from '@/components/factions/FactionSymbolsTab';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { parseTextLocFile, serializeTextLocEntries, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { ensureRtwFactionLocEntries } from '@/lib/factionLoc';
@@ -965,6 +970,100 @@ function HordeUnitsEditor({ units, onChange, eduUnits }) {
 
 }
 
+function FactionLogoLoader({ factionName, onLoaded }) {
+  const fileRef = useRef();
+  const folderRef = useRef();
+  const [previews, setPreviews] = useState(() => loadFactionSymbols(factionName));
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
+
+  useEffect(() => {
+    setPreviews(loadFactionSymbols(factionName));
+    setStatus('');
+  }, [factionName]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (normalizeFactionName(event.detail?.factionName) !== normalizeFactionName(factionName)) return;
+      setPreviews(loadFactionSymbols(factionName));
+    };
+    window.addEventListener(FACTION_SYMBOLS_UPDATED_EVENT, handler);
+    return () => window.removeEventListener(FACTION_SYMBOLS_UPDATED_EVENT, handler);
+  }, [factionName]);
+
+  const loadFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length || !factionName) return;
+    setLoading(true);
+    setStatus('Loading faction logos...');
+    try {
+      const result = await loadMatchingFactionSymbolFiles(factionName, files, 3);
+      setPreviews(loadFactionSymbols(factionName));
+      if (result.loaded) {
+        onLoaded?.(result.images);
+        setStatus(`Loaded ${result.loaded}/${result.matched} logo preview${result.matched === 1 ? '' : 's'}.`);
+      } else {
+        setStatus(`No matching files for ${factionName}. Use symbol24_${factionName}.tga, symbol48_${factionName}.tga, or symbol128_${factionName}.tga.`);
+      }
+    } catch (err) {
+      setStatus(`Logo load failed: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const previewItems = [
+    ['symbol24', '24'],
+    ['symbol48', '48'],
+    ['loading_symbol128', '128'],
+  ];
+
+  return (
+    <div className="rounded border border-slate-700 bg-slate-800/40 p-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={loading}
+          className="h-7 px-2 rounded border border-slate-600 text-[10px] text-slate-200 hover:border-amber-500 hover:text-amber-300 disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+          Load Logo Files
+        </button>
+        <button
+          type="button"
+          onClick={() => folderRef.current?.click()}
+          disabled={loading}
+          className="h-7 px-2 rounded border border-slate-600 text-[10px] text-slate-200 hover:border-amber-500 hover:text-amber-300 disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
+          Folder
+        </button>
+        <input ref={fileRef} type="file" accept=".tga,image/png,image/jpeg,image/bmp" multiple className="hidden" onChange={loadFiles} />
+        <input ref={folderRef} type="file" accept=".tga,image/png,image/jpeg,image/bmp" multiple webkitdirectory="" className="hidden" onChange={loadFiles} />
+        <span className="text-[10px] text-slate-500 truncate flex-1">
+          {status || `Load matching logos for ${factionName}.`}
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {previewItems.map(([key, label]) => (
+          <div key={key} className="flex items-center gap-2 rounded border border-slate-700 bg-slate-900/70 px-2 py-1 min-w-0">
+            <div className="w-8 h-8 rounded border border-slate-600 bg-slate-950 grid place-items-center overflow-hidden shrink-0">
+              {previews[key] ? (
+                <img src={previews[key]} alt={`${label} logo`} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />
+              ) : (
+                <Image className="w-3.5 h-3.5 text-slate-600" />
+              )}
+            </div>
+            <span className="text-[9px] text-slate-400 font-mono truncate">{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Faction detail panel ──────────────────────────────────────────────────────
 function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAssignUnits, onSave, onCancel }) {
   const [draft, setDraft] = useState({ ...faction });
@@ -1108,6 +1207,17 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
 
         <section className="space-y-2">
           <h3 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-slate-600 pb-1">Files & Indices</h3>
+          <FactionLogoLoader
+            factionName={draft.name}
+            onLoaded={(images) => {
+              setDraft(prev => ({
+                ...prev,
+                loading_logo: images.loading_symbol128 ? (prev.loading_logo || `loading_screen/symbols/symbol128_${prev.name}.tga`) : prev.loading_logo,
+                logo_index: images.symbol48 || images.symbol24 ? (prev.logo_index || defaultLogo) : prev.logo_index,
+                small_logo_index: images.symbol24 ? (prev.small_logo_index || defaultSmallLogo) : prev.small_logo_index,
+              }));
+            }}
+          />
           {[
           ['symbol', 'Symbol (.CAS)', `models_strat/symbol_${draft.name}.CAS`],
           ['rebel_symbol', 'Rebel Symbol (.CAS)', ''],

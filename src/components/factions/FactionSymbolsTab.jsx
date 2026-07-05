@@ -45,13 +45,14 @@ const GENERATED_SYMBOL_SLOTS = {
   loading128_standard: 'loading_symbol128',
 };
 
-const FACTION_SYMBOL_PREVIEW_KEY = 'm2tw_faction_symbol_previews';
+export const FACTION_SYMBOLS_UPDATED_EVENT = 'm2tw-faction-symbols-updated';
+export const FACTION_SYMBOL_PREVIEW_KEY = 'm2tw_faction_symbol_previews';
 
-function normalizeFactionName(factionName) {
+export function normalizeFactionName(factionName) {
   return String(factionName || '').trim().toLowerCase();
 }
 
-function normalizeImageStem(name) {
+export function normalizeImageStem(name) {
   return String(name || '')
     .replace(/\\/g, '/')
     .split('/')
@@ -71,13 +72,13 @@ function getSymbolStore() {
   return window._m2tw_faction_symbol_previews;
 }
 
-function loadFactionSymbols(factionName) {
+export function loadFactionSymbols(factionName) {
   const factionKey = normalizeFactionName(factionName);
   if (!factionKey) return {};
   return { ...(getSymbolStore()[factionKey] || {}) };
 }
 
-function storeFactionSymbols(factionName, images) {
+export function storeFactionSymbols(factionName, images) {
   if (typeof window === 'undefined') return;
   const factionKey = normalizeFactionName(factionName);
   if (!factionKey) return;
@@ -85,9 +86,10 @@ function storeFactionSymbols(factionName, images) {
   store[factionKey] = { ...(store[factionKey] || {}), ...(images || {}) };
   window._m2tw_faction_symbol_previews = store;
   try { sessionStorage.setItem(FACTION_SYMBOL_PREVIEW_KEY, JSON.stringify(store)); } catch {}
+  window.dispatchEvent(new CustomEvent(FACTION_SYMBOLS_UPDATED_EVENT, { detail: { factionName, images: store[factionKey] } }));
 }
 
-async function decodePreviewFile(file) {
+export async function decodePreviewFile(file) {
   if (!file) return null;
   if (/\.tga$/i.test(file.name)) {
     const buffer = await file.arrayBuffer();
@@ -116,11 +118,29 @@ async function mapWithLimit(items, limit, mapper) {
   return results;
 }
 
-function allSymbolSlots(factionName) {
+export function allSymbolSlots(factionName) {
   return SYMBOL_GROUPS.flatMap(group => group.slots.map(slot => ({
     ...slot,
     expectedStem: normalizeImageStem(slot.filename(factionName)),
   })));
+}
+
+export async function loadMatchingFactionSymbolFiles(factionName, files, limit = 3) {
+  const usableFiles = Array.from(files || []).filter(file => /\.(tga|png|jpe?g|bmp)$/i.test(file.name));
+  const slots = allSymbolSlots(factionName);
+  const byStem = new Map(slots.map(slot => [slot.expectedStem, slot]));
+  const matched = [];
+  for (const file of usableFiles) {
+    const slot = byStem.get(normalizeImageStem(file.name));
+    if (slot) matched.push({ file, slot });
+  }
+  const decoded = await mapWithLimit(matched, limit, async ({ file, slot }) => {
+    const url = await decodePreviewFile(file);
+    return url ? [slot.key, url] : null;
+  });
+  const images = Object.fromEntries(decoded.filter(Boolean));
+  if (Object.keys(images).length) storeFactionSymbols(factionName, images);
+  return { matched: matched.length, loaded: Object.keys(images).length, images };
 }
 
 function SymbolSlot({ label, filename, imageUrl, onLoad }) {
@@ -176,6 +196,15 @@ export default function FactionSymbolsTab({ factionName }) {
     setLoadStatus('');
   }, [factionName]);
 
+  useEffect(() => {
+    const handler = (event) => {
+      if (normalizeFactionName(event.detail?.factionName) !== normalizeFactionName(factionName)) return;
+      setImages(loadFactionSymbols(factionName));
+    };
+    window.addEventListener(FACTION_SYMBOLS_UPDATED_EVENT, handler);
+    return () => window.removeEventListener(FACTION_SYMBOLS_UPDATED_EVENT, handler);
+  }, [factionName]);
+
   const setImage = useCallback((key, url) => {
     setImages(prev => {
       const next = { ...prev, [key]: url };
@@ -206,32 +235,23 @@ export default function FactionSymbolsTab({ factionName }) {
     if (!files.length) return;
 
     const slots = allSymbolSlots(factionName);
-    const byStem = new Map(slots.map(slot => [slot.expectedStem, slot]));
-    const matched = [];
-    for (const file of files) {
-      const slot = byStem.get(normalizeImageStem(file.name));
-      if (slot) matched.push({ file, slot });
-    }
-
-    if (!matched.length) {
+    const expected = new Set(slots.map(slot => slot.expectedStem));
+    const matchedCount = files.filter(file => expected.has(normalizeImageStem(file.name))).length;
+    if (!matchedCount) {
       setLoadStatus(`No matching symbol files found for ${factionName}.`);
       return;
     }
 
     setBulkLoading(true);
-    setLoadStatus(`Loading ${matched.length} matching symbol file${matched.length === 1 ? '' : 's'}...`);
+    setLoadStatus(`Loading ${matchedCount} matching symbol file${matchedCount === 1 ? '' : 's'}...`);
     try {
-      const decoded = await mapWithLimit(matched, 3, async ({ file, slot }) => {
-        const url = await decodePreviewFile(file);
-        return url ? [slot.key, url] : null;
-      });
-      const next = Object.fromEntries(decoded.filter(Boolean));
+      const result = await loadMatchingFactionSymbolFiles(factionName, files, 3);
+      const next = result.images;
       setImages(prev => {
         const merged = { ...prev, ...next };
-        storeFactionSymbols(factionName, merged);
         return merged;
       });
-      setLoadStatus(`Loaded ${Object.keys(next).length}/${matched.length} faction logo preview${matched.length === 1 ? '' : 's'}.`);
+      setLoadStatus(`Loaded ${result.loaded}/${result.matched} faction logo preview${result.matched === 1 ? '' : 's'}.`);
     } catch (err) {
       setLoadStatus(`Logo load failed: ${err.message}`);
     } finally {
