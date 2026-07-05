@@ -284,9 +284,9 @@ const FIT_MODES = [
 ];
 
 const DEFAULT_SETS = [
-  { key: '24',  minW: 32, minH: 41,  label: 'FE_buttons_24',  folder: 'data/menu/symbols/FE_buttons_24',  variants: ['standard', 'grey', 'roll', 'select'] },
-  { key: '48',  minW: 59, minH: 59,  label: 'FE_buttons_48',  folder: 'data/menu/symbols/FE_buttons_48',  variants: ['standard', 'grey', 'roll', 'select'] },
-  { key: 'loading128', minW: 128, minH: 128, label: 'loading_screen/symbols', folder: 'data/loading_screen/symbols', variants: ['standard'] },
+  { key: '24',  minW: 16, minH: 16, defaultW: 128, defaultH: 128, label: 'FE_buttons_24',  folder: 'data/menu/symbols/FE_buttons_24',  variants: ['standard', 'grey', 'roll', 'select'] },
+  { key: '48',  minW: 16, minH: 16, defaultW: 128, defaultH: 128, label: 'FE_buttons_48',  folder: 'data/menu/symbols/FE_buttons_48',  variants: ['standard', 'grey', 'roll', 'select'] },
+  { key: 'loading128', minW: 32, minH: 32, defaultW: 256, defaultH: 256, label: 'loading_screen/symbols', folder: 'data/loading_screen/symbols', variants: ['standard'] },
 ];
 
 function tgaFilename(factionName, setKey, variant) {
@@ -328,8 +328,8 @@ function MaskUploader({ label, maskImg, onLoad, onClear }) {
 }
 
 function SetConfig({ set, config, onChange }) {
-  const aspectW = set.minW;
-  const aspectH = set.minH;
+  const aspectW = set.defaultW || set.minW;
+  const aspectH = set.defaultH || set.minH;
 
   const handleW = (val) => {
     const w = Math.max(set.minW, Number(val) || set.minW);
@@ -343,7 +343,8 @@ function SetConfig({ set, config, onChange }) {
     onChange({ ...config, w, h });
   };
 
-  const setNative = () => onChange({ ...config, w: set.minW, h: set.minH });
+  const setDefault = () => onChange({ ...config, w: set.defaultW || set.minW, h: set.defaultH || set.minH, lockAspect: true });
+  const setSquare128 = () => onChange({ ...config, w: 128, h: 128, lockAspect: false });
   const setSquare256 = () => onChange({ ...config, w: 256, h: 256, lockAspect: false });
   const toggleLock = () => {
     const lockAspect = !config.lockAspect;
@@ -374,9 +375,10 @@ function SetConfig({ set, config, onChange }) {
       <button type="button" onClick={toggleLock} className={`px-1.5 py-0.5 rounded border ${config.lockAspect ? 'border-amber-600/60 text-amber-300' : 'border-slate-600 text-slate-400 hover:text-slate-200'}`}>
         {config.lockAspect ? 'locked' : 'free'}
       </button>
-      <button type="button" onClick={setNative} className="px-1.5 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-slate-200">native</button>
+      <button type="button" onClick={setDefault} className="px-1.5 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-slate-200">default</button>
+      <button type="button" onClick={setSquare128} className="px-1.5 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-slate-200">128x128</button>
       <button type="button" onClick={setSquare256} className="px-1.5 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-slate-200">256x256</button>
-      <span className="text-slate-600">native {set.minW}x{set.minH}</span>
+      <span className="text-slate-600">default {set.defaultW || set.minW}x{set.defaultH || set.minH}</span>
     </div>
   );
 }
@@ -397,7 +399,7 @@ export default function SymbolGenerator({ factionName, onGeneratedSymbols }) {
 
   // Per-set resolution configs
   const [setConfigs, setSetConfigs] = useState(() =>
-    Object.fromEntries(DEFAULT_SETS.map(s => [s.key, { w: s.minW, h: s.minH, lockAspect: true }]))
+    Object.fromEntries(DEFAULT_SETS.map(s => [s.key, { w: s.defaultW || s.minW, h: s.defaultH || s.minH, lockAspect: true }]))
   );
 
   const fileRef = useRef();

@@ -189,7 +189,8 @@ export default function DescriptionsTab({ factionName }) {
     const dstUpper = factionName.toUpperCase();
     const { sourceAdjective, adjective, displayName, leaderTitle, heirTitle, strengths, weaknesses, customUnit } = copyStrings;
     const srcAdj = sourceAdjective.trim();
-    const newAdj = adjective.trim();
+    const displayNameValue = displayName.trim() || titleCaseFactionName(factionName);
+    const newAdj = adjective.trim() || displayNameValue;
 
     const srcEntries = allEntries.filter(e => e.key?.toUpperCase().includes(srcUpper));
     const copiedEntries = srcEntries.map(e => {
@@ -197,13 +198,11 @@ export default function DescriptionsTab({ factionName }) {
       let newValue = e.value;
 
       if (srcAdj && newAdj) newValue = newValue.replace(new RegExp(srcAdj, 'g'), newAdj);
-      if (displayName) {
-        newValue = newValue
-          .replace(new RegExp(copySource, 'gi'), displayName)
-          .replace(new RegExp(copySource.toLowerCase(), 'gi'), displayName.toLowerCase());
-      }
+      newValue = newValue
+        .replace(new RegExp(copySource, 'gi'), displayNameValue)
+        .replace(new RegExp(copySource.toLowerCase(), 'gi'), displayNameValue.toLowerCase());
 
-      if (newKey === dstUpper && displayName.trim()) newValue = displayName.trim();
+      if (newKey === dstUpper) newValue = displayNameValue;
       else if (newKey === `EMT_${dstUpper}_FACTION_LEADER` && leaderTitle.trim()) newValue = leaderTitle.trim();
       else if (newKey === `EMT_${dstUpper}_FACTION_HEIR` && heirTitle.trim()) newValue = heirTitle.trim();
       else if (newKey === `EMT_${dstUpper}_FACTION_LEADER_TITLE` && leaderTitle.trim()) newValue = leaderTitle.trim();
@@ -217,10 +216,13 @@ export default function DescriptionsTab({ factionName }) {
       return { key: newKey, value: newValue };
     });
     const newEntries = ensureRtwFactionLocEntries(copiedEntries, factionName, {
-      displayName,
+      displayName: displayNameValue,
       adjective: newAdj,
       leaderTitle,
       heirTitle,
+      strengths,
+      weaknesses,
+      customUnit,
     });
 
     const updated = upsertTextLocEntries(allEntries, newEntries);

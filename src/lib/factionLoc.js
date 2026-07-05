@@ -23,15 +23,42 @@ function keyUpper(key) {
   return String(key || '').replace(/^\{/, '').replace(/\}$/, '').toUpperCase();
 }
 
+function normalizeFactionInternalId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function titleCaseFactionId(value) {
+  return normalizeFactionInternalId(value)
+    .replace(/_\d+$/i, '')
+    .split('_')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export function ensureRtwFactionLocEntries(entries, factionName, options = {}) {
-  const factionUpper = keyUpper(factionName);
+  const internalId = normalizeFactionInternalId(factionName);
+  const factionUpper = keyUpper(internalId);
   if (!factionUpper) return entries || [];
 
-  const displayName = String(options.displayName || '').trim() || factionName;
+  const displayName = String(options.displayName || '').trim() || titleCaseFactionId(internalId) || internalId;
   const adjective = String(options.adjective || '').trim() || displayName;
   const pluralName = String(options.pluralName || '').trim() || `${adjective}s`;
   const leaderTitle = String(options.leaderTitle || '').trim() || 'Faction Leader';
   const heirTitle = String(options.heirTitle || '').trim() || 'Faction Heir';
+  const description = String(options.description || '').trim()
+    || `${displayName}\\nA playable faction configured for the campaign with its own roster, leaders, and battlefield identity.`;
+  const strengths = String(options.strengths || '').trim()
+    || `${displayName} can draw on regional troops, established command structures, and flexible campaign options.`;
+  const weaknesses = String(options.weaknesses || '').trim()
+    || `${displayName} must balance expansion with public order, economy, and reliable frontier defense.`;
+  const signatureUnit = String(options.customUnit || options.unit || '').trim()
+    || `${adjective} General`;
 
   const next = (entries || []).map(entry => ({
     key: String(entry.key || '').replace(/^\{/, '').replace(/\}$/, ''),
@@ -69,7 +96,10 @@ export function ensureRtwFactionLocEntries(entries, factionName, options = {}) {
   upsert(`EMT_VICTORY_DESCR_${factionUpper}`, `${displayName} has risen from a regional power into a force feared across the world.`);
   upsert(`EMT_DEFEATED_BY_${factionUpper}`, `Victory has been claimed by ${displayName}. Their enemies have been humbled, and their name now carries the authority of conquerors.`);
   upsert(`EMT_SHORT_VICTORY_${factionUpper}`, `${displayName} stands among the powers of the world.`);
-  upsert(`${factionUpper}_DESCR`, `${pluralName}\\nCustom faction roster using available regional troops and existing equipment`);
+  upsert(`${factionUpper}_DESCR`, description, !!options.description);
+  upsert(`${factionUpper}_STRENGTH`, strengths, !!options.strengths);
+  upsert(`${factionUpper}_WEAKNESS`, weaknesses, !!options.weaknesses);
+  upsert(`${factionUpper}_UNIT`, signatureUnit, !!(options.customUnit || options.unit));
 
   return next;
 }
@@ -88,7 +118,7 @@ export function extractFactionIdsFromLocEntries(entries) {
       add(match[2]);
     } else if ((match = key.match(/^EMT_([A-Z0-9_]+)_(SPY|ASSASSIN|DIPLOMAT|ADMIRAL|GENERAL|NAMED_CHARACTER|MERCHANT|VILLAGE|TOWN|LARGE_TOWN|CITY|LARGE_CITY|HUGE_CITY|CAPITAL|FORT|PORT|DOCK|FISHING_VILLAGE|FACTION_LEADER|FACTION_HEIR)$/))) {
       add(match[1]);
-    } else if ((match = key.match(/^([A-Z0-9_]+)_DESCR$/))) {
+    } else if ((match = key.match(/^([A-Z0-9_]+)_(DESCR|STRENGTH|WEAKNESS|UNIT)$/))) {
       add(match[1]);
     } else if (/^[A-Z0-9_]+$/.test(key) && !key.startsWith('EMT_') && !key.startsWith('UI_')) {
       add(key);

@@ -41,6 +41,24 @@ function normalizeLocKey(key) {
   return String(key || '').trim().replace(/^\{/, '').replace(/\}$/, '');
 }
 
+function normalizeFactionInternalId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function titleCaseFactionId(value) {
+  return normalizeFactionInternalId(value)
+    .replace(/_\d+$/i, '')
+    .split('_')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 function entriesToText(entries) {
   const map = {};
   for (const entry of entries || []) {
@@ -126,16 +144,18 @@ function injectMenuStringsForFaction(factionName, displayName) {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     const entries = parsed.entries || [];
-    const nameUpper = factionName.toUpperCase();
+    const internalId = normalizeFactionInternalId(factionName);
+    const nameUpper = internalId.toUpperCase();
+    const label = String(displayName || '').trim() || titleCaseFactionId(internalId) || internalId;
     const uiKey = `UI_FACTION_${nameUpper}`;
     const descKey = `UI_FACTION_${nameUpper}_DESCRIPTION`;
     let changed = false;
     if (!entries.some(e => e.key === uiKey)) {
-      entries.push({ key: uiKey, value: displayName || nameUpper });
+      entries.push({ key: uiKey, value: label });
       changed = true;
     }
     if (!entries.some(e => e.key === descKey)) {
-      entries.push({ key: descKey, value: displayName || factionName });
+      entries.push({ key: descKey, value: label });
       changed = true;
     }
     if (changed) {
@@ -543,9 +563,9 @@ function symbolExportPath(slot, faction) {
 }
 
 function symbolTargetSize(slotKey) {
-  if (String(slotKey).startsWith('symbol24')) return 24;
-  if (String(slotKey).startsWith('symbol48')) return 48;
-  return 128;
+  if (String(slotKey).startsWith('symbol24')) return 128;
+  if (String(slotKey).startsWith('symbol48')) return 128;
+  return 256;
 }
 
 function imageDataFromDataUrl(dataUrl) {
@@ -805,9 +825,9 @@ function parseDescrSmFactions(text) {
     if (factionMatch) {
       if (current) factions.push(current);
       current = {
-        name: factionMatch[1].trim(),
+        name: normalizeFactionInternalId(factionMatch[1].trim()),
         spawn_type: factionMatch[2] || 'default',
-        shadow_faction: factionMatch[3] || '',
+        shadow_faction: normalizeFactionInternalId(factionMatch[3] || ''),
         culture: '',
         religion: '',
         symbol: '',
@@ -1215,7 +1235,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
   const [tertiaryEnabled, setTertiaryEnabled] = useState(!!faction.tertiary_colour);
   const [unitAssignDescription, setUnitAssignDescription] = useState(`${faction.culture || ''} ${faction.name || ''}`.trim());
   const [unitAssignResult, setUnitAssignResult] = useState(null);
-  const set = (key, val) => setDraft({ ...draft, [key]: val });
+  const set = (key, val) => setDraft({ ...draft, [key]: key === 'name' || key === 'shadow_faction' ? normalizeFactionInternalId(val) : val });
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     setDraft({ ...faction });
@@ -1224,7 +1244,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
     setUnitAssignResult(null);
   }, [faction]);
   const handleSave = () => {
-    onChange(draft);
+    onChange({ ...draft, name: normalizeFactionInternalId(draft.name) });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
@@ -1274,7 +1294,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
           <h3 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-slate-600 pb-1">Identity</h3>
           <div className="flex items-center gap-3">
             <label className="text-[10px] text-slate-300 w-40 shrink-0">Internal Name</label>
-            <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-700 border-slate-600 text-slate-100" value={draft.name ?? ''} onChange={(e) => set('name', e.target.value)} />
+            <Input className="h-6 text-[11px] px-2 flex-1 font-mono bg-slate-700 border-slate-600 text-slate-100" value={draft.name ?? ''} onChange={(e) => set('name', e.target.value)} placeholder="lowercase_internal_id" />
           </div>
           <div className="flex items-center gap-3">
             <label className="text-[10px] text-slate-300 w-40 shrink-0">Type</label>
@@ -1727,25 +1747,33 @@ export default function FactionsEditor() {
   };
 
   const updateFaction = (i, f) => {
-    const updated = factions.map((x, idx) => idx === i ? f : x);
+    const normalized = { ...f, name: normalizeFactionInternalId(f.name) };
+    const updated = factions.map((x, idx) => idx === i ? normalized : x);
     setFactions(updated);
     persistFactions(updated);
   };
 
   const applyFactionAutomation = (factionName, options = {}) => {
+    const internalId = normalizeFactionInternalId(factionName);
+    const displayName = String(options.displayName || '').trim() || titleCaseFactionId(internalId) || internalId;
+    const adjective = String(options.adjective || '').trim() || displayName;
     const { entries, rawText } = getExpandedStringsData();
-    const updatedEntries = ensureRtwFactionLocEntries(entries, factionName, {
-      displayName: options.displayName || factionName,
-      adjective: options.adjective || options.displayName || factionName,
+    const updatedEntries = ensureRtwFactionLocEntries(entries, internalId, {
+      displayName,
+      adjective,
       leaderTitle: options.leaderTitle,
       heirTitle: options.heirTitle,
+      strengths: options.strengths,
+      weaknesses: options.weaknesses,
+      customUnit: options.customUnit,
+      description: options.description,
     });
     persistExpandedStrings(updatedEntries, rawText);
     setStringsLoaded(true);
-    autoInsertNavyEntry(factionName);
-    injectMenuStringsForFaction(factionName, options.displayName || factionName);
+    autoInsertNavyEntry(internalId);
+    injectMenuStringsForFaction(internalId, displayName);
     const report = saveFactionAutomationReport([
-      `Automated faction setup for ${factionName}`,
+      `Automated faction setup for ${internalId}`,
       '+ descr_sm_factions.txt updated',
       '+ expanded_bi.txt RTW faction loc keys ensured',
       '+ menu faction labels ensured when menu text is loaded',
@@ -1797,7 +1825,7 @@ export default function FactionsEditor() {
     const characterCopied = copyDescrCharacterEntries('slave', newF.name);
     const unitAssign = assignSlaveUnitsToFaction(newF.name, newF.name, { count: AUTO_UNIT_ASSIGNMENT_LIMIT, packUi: true });
     applyFactionAutomation(newF.name, {
-      displayName: newF.name,
+      displayName: titleCaseFactionId(newF.name),
       characterCopied,
       unitAssigned: unitAssign.count,
       generalAssigned: unitAssign.generalAssigned,
@@ -1856,9 +1884,12 @@ export default function FactionsEditor() {
   const confirmDuplicate = () => {
     if (!duplicateName.trim() || duplicateSourceIdx === null) return;
     const src = factions[duplicateSourceIdx];
-    const newFactionName = duplicateName.trim();
+    const newFactionName = normalizeFactionInternalId(duplicateName);
+    if (!newFactionName) return;
     const nameUpper = newFactionName.toUpperCase();
     const { displayName, adjective, sourceAdjective, leaderTitle, heirTitle, strengths, weaknesses, customUnit, unitDescription } = duplicateStrings;
+    const displayNameValue = displayName.trim() || titleCaseFactionId(newFactionName);
+    const adjectiveValue = adjective.trim() || displayNameValue;
     
     const dup = {
       ...src,
@@ -1895,7 +1926,6 @@ export default function FactionsEditor() {
       const srcNameUpper = src.name.toUpperCase();
       const srcNameLower = src.name.toLowerCase();
       const srcAdj = (sourceAdjective || '').trim();
-      const newAdj = (adjective || '').trim();
       
       // Find all source faction's string entries
       const srcEntries = storedEntries.filter(entry => {
@@ -1912,21 +1942,19 @@ export default function FactionsEditor() {
         let newValue = entry.value;
         
         // Replace source adjective with new adjective EXACTLY as entered (case-sensitive)
-        if (srcAdj && newAdj) {
+        if (srcAdj && adjectiveValue) {
           // Exact case-sensitive replacement
-          newValue = newValue.replace(new RegExp(srcAdj, 'g'), newAdj);
+          newValue = newValue.replace(new RegExp(srcAdj, 'g'), adjectiveValue);
         }
         
         // Replace faction name references in the VALUE using displayName
-        if (displayName) {
-          newValue = newValue
-            .replace(new RegExp(src.name, 'gi'), displayName)
-            .replace(new RegExp(srcNameLower, 'gi'), displayName.toLowerCase());
-        }
+        newValue = newValue
+          .replace(new RegExp(src.name, 'gi'), displayNameValue)
+          .replace(new RegExp(srcNameLower, 'gi'), displayNameValue.toLowerCase());
         
         // Apply user's custom edits for specific fields - these override any previous replacements
-        if (newKey === nameUpper && displayName.trim()) {
-          newValue = displayName.trim();
+        if (newKey === nameUpper) {
+          newValue = displayNameValue;
         }
         else if (newKey === `EMT_${nameUpper}_FACTION_LEADER` && leaderTitle.trim()) {
           newValue = leaderTitle.trim();
@@ -1962,10 +1990,13 @@ export default function FactionsEditor() {
         return { key: newKey, value: newValue };
       });
       const newEntries = ensureRtwFactionLocEntries(copiedEntries, newFactionName, {
-        displayName,
-        adjective: newAdj,
+        displayName: displayNameValue,
+        adjective: adjectiveValue,
         leaderTitle,
         heirTitle,
+        strengths,
+        weaknesses,
+        customUnit,
       });
       
       // Preserve unrelated and existing text data; only update keys we generated.
@@ -1995,10 +2026,13 @@ export default function FactionsEditor() {
     const eduCopied = copyEduOwnershipFromFaction(src.name, newFactionName);
     const edbCopied = copyEdbFactionRequirements(src.name, newFactionName, src.culture);
     applyFactionAutomation(newFactionName, {
-      displayName: duplicateStrings.displayName || newFactionName,
-      adjective: duplicateStrings.adjective || duplicateStrings.displayName || newFactionName,
+      displayName: displayNameValue,
+      adjective: adjectiveValue,
       leaderTitle: duplicateStrings.leaderTitle,
       heirTitle: duplicateStrings.heirTitle,
+      strengths: duplicateStrings.strengths,
+      weaknesses: duplicateStrings.weaknesses,
+      customUnit: duplicateStrings.customUnit,
       characterCopied,
       unitAssigned: unitAssign.count,
       generalAssigned: unitAssign.generalAssigned,
@@ -2267,7 +2301,7 @@ export default function FactionsEditor() {
               <label className="text-[10px] text-slate-300 block mb-2">New Faction Name</label>
               <Input
                 value={duplicateName}
-                onChange={(e) => setDuplicateName(e.target.value)}
+                onChange={(e) => setDuplicateName(normalizeFactionInternalId(e.target.value))}
                 placeholder="e.g. mongols_copy"
                 className="h-8 text-[11px] px-2 bg-slate-700 border-slate-600 text-slate-100"
                 onKeyDown={(e) => e.key === 'Enter' && confirmDuplicate()}
