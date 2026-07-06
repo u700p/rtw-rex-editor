@@ -505,10 +505,11 @@ function buildCultureSetupManifest(included, cultures, offmapReport) {
     'data/text/expanded_bi.txt',
     'data/text/export_buildings.txt',
     'data/descr_offmap_models.txt',
+    'data/ui/[culture]/.../.keep',
     'reference/descr_offmap_models_culture_blocks.txt',
     'reference/ui_asset_folder_plan.txt',
   ];
-  const missing = expected.filter(path => !includedSet.has(path));
+  const missing = expected.filter(path => path.includes('[culture]') ? !included.some(item => /^data\/ui\/[^/]+\/.+\/\.keep$/.test(item)) : !includedSet.has(path));
   return [
     'RTW culture setup export',
     '',
@@ -525,6 +526,7 @@ function buildCultureSetupManifest(included, cultures, offmapReport) {
     '',
     'Still manual:',
     '- Copy/create the referenced CAS/TGA/DDS model and UI assets used by descr_cultures.txt.',
+    '- UI folders are generated with .keep markers only; cards/images are not copied to keep the ZIP small.',
     '- Assign the culture to factions in data/descr_sm_factions.txt.',
     '- Check export_descr_buildings.txt if buildings should be culture-specific.',
     '- Sound bank culture work is still marked TODO in the source checklist.',
@@ -536,16 +538,40 @@ function buildUiAssetFolderPlan(cultures) {
   return [
     'Culture UI asset folders',
     '',
-    'Create or copy the TGA assets referenced by each culture into the matching UI folders.',
+    'The setup ZIP creates these folders with .keep files only. No UI cards are copied, which keeps the export small.',
+    'Create or copy the TGA assets referenced by each culture into the matching UI folders after export.',
     '',
     ...(cultures || []).flatMap(culture => [
       `[${culture.name}]`,
-      `data/ui/${culture.name}/interface/`,
-      `data/ui/${culture.name}/cities/`,
-      `data/ui/${culture.name}/buildings/`,
+      ...cultureUiFolderPaths(culture).map(path => `${path}/`),
       '',
     ]),
   ].join('\n');
+}
+
+function cultureUiFolderPaths(culture) {
+  const name = String(culture?.name || '').trim();
+  if (!name) return [];
+  return [
+    `data/ui/${name}/interface`,
+    `data/ui/${name}/cities`,
+    `data/ui/${name}/buildings`,
+    `data/ui/${name}/eventpics`,
+    `data/ui/${name}/portraits`,
+    `data/ui/${name}/custom_portraits`,
+  ];
+}
+
+function addCultureUiFolderSkeletons(zip, cultures, included) {
+  let count = 0;
+  for (const culture of cultures || []) {
+    for (const folderPath of cultureUiFolderPaths(culture)) {
+      zip.file(`${folderPath}/.keep`, '');
+      included.push(`${folderPath}/.keep`);
+      count++;
+    }
+  }
+  return count;
 }
 
 function CopyBlock({ label, text, onDownload, downloadLabel = 'Download .txt' }) {
@@ -735,7 +761,9 @@ export default function CulturesEditor() {
         addCRLFText(zip, `reference/offmap/${culture.name}_settlement.txt`, generateOffmapSettlement(culture), included);
         addCRLFText(zip, `reference/offmap/${culture.name}_port.txt`, generateOffmapPort(culture), included);
       }
+      const uiFolderCount = addCultureUiFolderSkeletons(zip, cultures, included);
       addCRLFText(zip, 'reference/ui_asset_folder_plan.txt', buildUiAssetFolderPlan(cultures), included);
+      addCRLFText(zip, 'reference/ui_folder_export_note.txt', `Created ${uiFolderCount} empty culture UI folders using .keep files only.\nNo cards or image assets were copied into this export.\n`, included);
       zip.file('culture_setup_export_checklist.txt', toCRLF(buildCultureSetupManifest(included, cultures, patchedOffmap.report)));
 
       const blob = await zip.generateAsync({ type: 'blob' });
