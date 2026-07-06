@@ -118,6 +118,7 @@ const DATA_FILE_MAP = {
   'descr_model_strat.txt': 'model_strat',
   'descr_offmap_models.txt': 'offmap_models',
   'descr_standards.txt': 'standards',
+  'descr_settlement_plan.txt': 'settlement_plan',
   'descr_ui_buildings.txt': 'ui_buildings',
   'descr_events.txt': 'ev',
   'export_buildings.txt': 'txt',
@@ -411,6 +412,7 @@ export default function Home() {
       model_strat: ls('m2tw_descr_model_strat') ? 'ok' : 'idle',
       offmap_models: ls('m2tw_offmap_models') ? 'ok' : 'idle',
       standards: ls('m2tw_descr_standards_file') ? 'ok' : 'idle',
+      settlement_plan: ls('m2tw_descr_settlement_plan_file') ? 'ok' : 'idle',
       ui_buildings: ls('m2tw_descr_ui_buildings_file') ? 'ok' : 'idle',
       campaign_world: ls('m2tw_campaign_strat') || ls('m2tw_campaign_regions') || ls('m2tw_campaign_win_conditions') ? 'ok' : 'idle'
     };
@@ -476,6 +478,7 @@ export default function Home() {
     conditionalRemove('m2tw_descr_formations_ai_file', fileNames.has('descr_formations_ai.txt'));
     conditionalRemove('m2tw_descr_lbc_db_file', fileNames.has('descr_lbc_db.txt'));
     conditionalRemove('m2tw_descr_standards_file', fileNames.has('descr_standards.txt'));
+    conditionalRemove('m2tw_descr_settlement_plan_file', fileNames.has('descr_settlement_plan.txt'));
     conditionalRemove('m2tw_descr_ui_buildings_file', fileNames.has('descr_ui_buildings.txt'));
 
 
@@ -518,6 +521,7 @@ export default function Home() {
       model_strat: 'm2tw_descr_model_strat',
       offmap_models: 'm2tw_offmap_models',
       standards: 'm2tw_descr_standards_file',
+      settlement_plan: 'm2tw_descr_settlement_plan_file',
       ui_buildings: 'm2tw_descr_ui_buildings_file',
     };
 
@@ -1287,6 +1291,7 @@ export default function Home() {
               <FileStatus label="Strat Models" hint="descr_model_strat.txt" status={fileStatus.model_strat} />
               <FileStatus label="Offmap Models" hint="descr_offmap_models.txt" status={fileStatus.offmap_models} />
               <FileStatus label="Standards" hint="descr_standards.txt" status={fileStatus.standards} />
+              <FileStatus label="Settlement Plan" hint="descr_settlement_plan.txt" status={fileStatus.settlement_plan} />
               <FileStatus label="UI Buildings" hint="descr_ui_buildings.txt" status={fileStatus.ui_buildings} />
               {/* Events loaded in Step 2 (campaign descr_event.txt) — not shown here */}
               <FileStatus label="Traits" hint="export_descr_character_traits.txt" status={fileStatus.traits} />

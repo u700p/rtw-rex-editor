@@ -467,12 +467,25 @@ function colorDistanceRgb(r, g, b, target) {
   return Math.sqrt(dr * dr + dg * dg + db * db);
 }
 
+function weightedColorDistance(r, g, b, target) {
+  const dr = (r - target.r) * 0.30;
+  const dg = (g - target.g) * 0.59;
+  const db = (b - target.b) * 0.11;
+  const chromaR = (r - target.r) * 0.55;
+  const chromaG = (g - target.g) * 0.42;
+  const chromaB = (b - target.b) * 0.36;
+  return Math.sqrt(dr * dr + dg * dg + db * db + chromaR * chromaR + chromaG * chromaG + chromaB * chromaB);
+}
+
 function materialProtectionType(r, g, b, hsl, protectMaterials) {
   if (!protectMaterials) return false;
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
-  const skinLike = hsl.h >= 4 && hsl.h <= 52 && hsl.s >= 0.12 && hsl.s <= 0.78 &&
+  const saturatedRedCloth = (hsl.h >= 345 || hsl.h <= 18) && hsl.s >= 0.46 && hsl.l >= 0.10 && hsl.l <= 0.66 &&
+    r > g * 1.18 && r > b * 1.18;
+  const saturatedDyedCloth = hsl.s >= 0.48 && hsl.l >= 0.11 && hsl.l <= 0.72 && spread >= 44;
+  const skinLike = !saturatedRedCloth && hsl.h >= 4 && hsl.h <= 52 && hsl.s >= 0.12 && hsl.s <= 0.78 &&
     hsl.l >= 0.20 && hsl.l <= 0.86 && r >= g * 0.78 && r > b * 1.12 && g > b * 0.70;
-  const paleSkinLike = hsl.h >= 8 && hsl.h <= 48 && hsl.s >= 0.08 && hsl.s <= 0.42 &&
+  const paleSkinLike = !saturatedDyedCloth && hsl.h >= 8 && hsl.h <= 48 && hsl.s >= 0.08 && hsl.s <= 0.42 &&
     hsl.l >= 0.58 && hsl.l <= 0.91 && r >= g * 0.92 && g >= b * 0.80 && r > b * 1.08;
   const darkHairLeather = hsl.h >= 10 && hsl.h <= 48 && hsl.s >= 0.10 &&
     hsl.l >= 0.035 && hsl.l <= 0.50 && r >= g * 0.68 && g >= b * 0.45;
@@ -489,6 +502,15 @@ function materialProtectionType(r, g, b, hsl, protectMaterials) {
   if (darkHairLeather) return 'leather';
   if (bronzeOrGold) return 'bronze';
   return false;
+}
+
+function colorMatchScore(r, g, b, hsl, pass, tolerance, rgbTolerance) {
+  const hueMask = Math.max(0, 1 - hueDistance(hsl.h, pass.src.h) / tolerance);
+  const rgbMask = Math.max(0, 1 - weightedColorDistance(r, g, b, pass.srcRgb) / rgbTolerance);
+  if (hueMask <= 0 && rgbMask < 0.46) return 0;
+  const satMask = Math.max(0, 1 - Math.abs(hsl.s - pass.src.s) / 0.58);
+  const lightMask = Math.max(0, 1 - Math.abs(hsl.l - pass.src.l) / 0.62);
+  return clamp01((hueMask * 0.58) + (rgbMask * 0.30) + (satMask * 0.08) + (lightMask * 0.04));
 }
 
 function recolorPasses(settings) {
@@ -550,10 +572,7 @@ function recolorImageData(imageData, settingsOrPlan) {
     let bestScore = useSource ? 0 : 1;
     for (const pass of passes) {
       if (!useSource) break;
-      const hueMask = Math.max(0, 1 - hueDistance(hsl.h, pass.src.h) / tolerance);
-      if (hueMask <= 0 && bestScore > 0) continue;
-      const rgbMask = Math.max(0, 1 - colorDistanceRgb(r, g, b, pass.srcRgb) / rgbTolerance);
-      const score = hueMask * Math.sqrt(rgbMask);
+      const score = colorMatchScore(r, g, b, hsl, pass, tolerance, rgbTolerance);
       if (score > bestScore) {
         best = pass;
         bestScore = score;
@@ -562,11 +581,11 @@ function recolorImageData(imageData, settingsOrPlan) {
 
     const protectedType = materialProtectionType(r, g, b, hsl, protectMaterials);
     if (protectedType === 'skin' || protectedType === 'metal' || protectedType === 'white_armor') continue;
-    if (protectedType && bestScore < 0.92) continue;
+    if (protectedType && bestScore < 0.74) continue;
     if (useSource && bestScore < 0.12) continue;
     const satMask = hsl.s >= minSat ? 1 : 0.38;
     const detailMask = protectExtremes && (hsl.l < 0.055 || hsl.l > 0.955) ? 0.18 : 1;
-    const materialMask = protectedType ? 0.38 : 1;
+    const materialMask = protectedType === 'bronze' ? 0.46 : protectedType ? 0.32 : 1;
     const mask = clamp01(smoothMask(bestScore * satMask * detailMask * materialMask) * strength);
     if (mask <= 0) continue;
     const targetSat = clamp01(hsl.s * (1 - exactMix) + best.tgt.s * exactMix);
@@ -832,7 +851,7 @@ async function decodeImageFile(file) {
   const bitmap = await createImageBitmap(file);
   const canvas = document.createElement('canvas');
   canvas.width = bitmap.width; canvas.height = bitmap.height;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(bitmap, 0, 0);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   bitmap.close?.();
@@ -844,6 +863,21 @@ function imageDataUrl(imageData) {
   canvas.width = imageData.width; canvas.height = imageData.height;
   canvas.getContext('2d').putImageData(imageData, 0, 0);
   return canvas.toDataURL('image/png');
+}
+
+function previewImageData(imageData, maxEdge = 720) {
+  const edge = Math.max(imageData.width, imageData.height);
+  if (edge <= maxEdge) return imageData;
+  const scale = maxEdge / edge;
+  const src = imageDataToCanvas(imageData);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(imageData.width * scale));
+  canvas.height = Math.max(1, Math.round(imageData.height * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
 }
 
 async function decodeBrowserImageBlob(blob) {
@@ -1002,10 +1036,10 @@ function textureWorkerLimit(count) {
 const BEST_RECOLOR_SETTINGS = {
   source: '#9e1a1a',
   target: '#2f6fc0',
-  tolerance: 30,
-  rgbTolerance: 145,
-  strength: 84,
-  minSat: 24,
+  tolerance: 24,
+  rgbTolerance: 165,
+  strength: 90,
+  minSat: 22,
   secondarySource: '#d7c04a',
   secondaryTarget: '#e4e4e4',
   tertiarySource: '#2d6d37',
@@ -1108,7 +1142,7 @@ function detectFactionColorCandidates(imageData, maxCandidates = 5) {
   const { data, width, height } = imageData;
   const buckets = new Map();
   const total = width * height;
-  const step = Math.max(1, Math.floor(total / 120000));
+  const step = Math.max(1, Math.floor(total / 160000));
 
   for (let pixel = 0; pixel < total; pixel += step) {
     const i = pixel * 4;
@@ -1116,7 +1150,7 @@ function detectFactionColorCandidates(imageData, maxCandidates = 5) {
     if (a < 16) continue;
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const hsl = rgbToHsl(r, g, b);
-    if (hsl.s < 0.18 || hsl.l < 0.07 || hsl.l > 0.90) continue;
+    if (hsl.s < 0.22 || hsl.l < 0.06 || hsl.l > 0.88) continue;
     if (materialProtectionType(r, g, b, hsl, true)) continue;
     const key = `${Math.round(hsl.h / 8)}:${Math.round(hsl.s * 12)}:${Math.round(hsl.l * 10)}`;
     const bucket = buckets.get(key) || { r: 0, g: 0, b: 0, count: 0, sat: 0, light: 0 };
@@ -1129,7 +1163,7 @@ function detectFactionColorCandidates(imageData, maxCandidates = 5) {
     buckets.set(key, bucket);
   }
 
-  return Array.from(buckets.values())
+  const ranked = Array.from(buckets.values())
     .filter(bucket => bucket.count >= 8)
     .map(bucket => {
       const r = bucket.r / bucket.count;
@@ -1137,14 +1171,27 @@ function detectFactionColorCandidates(imageData, maxCandidates = 5) {
       const b = bucket.b / bucket.count;
       const sat = bucket.sat / bucket.count;
       const light = bucket.light / bucket.count;
+      const hsl = rgbToHsl(r, g, b);
       return {
         hex: rgbToHex(r, g, b),
+        rgb: { r, g, b },
+        hsl,
         count: bucket.count,
-        score: bucket.count * (0.45 + sat) * (1 - Math.abs(light - 0.52) * 0.65),
+        score: bucket.count * (0.55 + sat) * (1 - Math.abs(light - 0.50) * 0.58),
       };
     })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, maxCandidates);
+    .sort((a, b) => b.score - a.score);
+
+  const picked = [];
+  for (const candidate of ranked) {
+    const duplicate = picked.some(existing =>
+      hueDistance(candidate.hsl.h, existing.hsl.h) < 12 ||
+      colorDistanceRgb(candidate.rgb.r, candidate.rgb.g, candidate.rgb.b, existing.rgb) < 32
+    );
+    if (!duplicate) picked.push(candidate);
+    if (picked.length >= maxCandidates) break;
+  }
+  return picked.map(({ rgb, hsl, ...candidate }) => candidate);
 }
 
 function buildUvLockedPrompt(settings, brief, textureName = 'RTW texture') {
@@ -1181,8 +1228,9 @@ function TextureRecolorTab() {
     const cached = previewCacheRef.current;
     if (cached.file === file && cached.imageData) return cached;
     const imageData = await decodeImageFile(file);
-    const dataUrl = imageDataUrl(imageData);
-    previewCacheRef.current = { file, imageData, dataUrl };
+    const previewData = previewImageData(imageData);
+    const dataUrl = imageDataUrl(previewData);
+    previewCacheRef.current = { file, imageData, previewData, dataUrl };
     return previewCacheRef.current;
   };
 
@@ -1193,7 +1241,7 @@ function TextureRecolorTab() {
     try {
       const plan = buildRecolorPlan(activeSettings);
       const original = await getPreviewOriginal(first);
-      const processed = recolorImageData(original.imageData, plan);
+      const processed = recolorImageData(original.previewData || original.imageData, plan);
       if (runId === previewRunRef.current) setPreview({ name: first.name, before: original.dataUrl, after: imageDataUrl(processed) });
     } catch (err) {
       setStatus(`Preview failed: ${err.message}`);
@@ -1247,10 +1295,10 @@ function TextureRecolorTab() {
       const next = {
         ...settings,
         source: candidates[0].hex,
-        tolerance: 26,
-        rgbTolerance: 155,
-        strength: 88,
-        minSat: 18,
+        tolerance: 24,
+        rgbTolerance: 165,
+        strength: 90,
+        minSat: 22,
         useSource: true,
         exactTarget: true,
         preserveLight: true,
@@ -1488,6 +1536,11 @@ function Swatch({ label, value, onChange }) {
     if (next) onChange(next);
     else setDraft(value || normalized);
   };
+  const commitPicker = (next) => {
+    const normalizedNext = normalizeColorInput(next) || normalized;
+    setDraft(normalizedNext);
+    onChange(normalizedNext);
+  };
 
   return (
     <div className="block space-y-1">
@@ -1499,7 +1552,8 @@ function Swatch({ label, value, onChange }) {
         <input
           type="color"
           value={normalized}
-          onChange={e => onChange(e.target.value)}
+          onInput={e => commitPicker(e.currentTarget.value)}
+          onChange={e => commitPicker(e.target.value)}
           className="h-7 w-9 rounded border border-slate-600 bg-slate-900 p-0.5 cursor-pointer"
           aria-label={`${label} color picker`}
           title="Open native color picker"
