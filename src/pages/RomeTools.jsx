@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
-import { Clipboard, Download, FileText, Image, Upload, Wand2, Copy, Search, CheckCircle2 } from 'lucide-react';
+import { Clipboard, Download, FileText, Image, Upload, Wand2, Copy, Search, CheckCircle2, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { inferSiegeEngine, parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { parseDescrSmFactions, serializeDescrSmFactions } from '@/lib/descrSmFactionsCodec';
@@ -2208,6 +2208,588 @@ function DuplicatorsTab() {
   );
 }
 
+function sanitizeRtwId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceIdentifierText(value, sourceId, targetId) {
+  const text = String(value ?? '');
+  const source = String(sourceId || '').trim();
+  const target = String(targetId || '').trim();
+  if (!source || !target || source.toLowerCase() === target.toLowerCase()) return text;
+  const rx = new RegExp(`(^|[^A-Za-z0-9])(${escapeRegExp(source)})(?=$|[^A-Za-z0-9])`, 'gi');
+  return text.replace(rx, (_, prefix, hit) => {
+    const next = hit === hit.toUpperCase() ? target.toUpperCase() : target;
+    return `${prefix}${next}`;
+  });
+}
+
+function renameDeepIds(value, sourceId, targetId) {
+  if (typeof value === 'string') return replaceIdentifierText(value, sourceId, targetId);
+  if (Array.isArray(value)) return value.map(item => renameDeepIds(item, sourceId, targetId));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, item] of Object.entries(value)) out[key] = renameDeepIds(item, sourceId, targetId);
+    return out;
+  }
+  return value;
+}
+
+function sourceFilePath(file) {
+  return String(file?.webkitRelativePath || file?.name || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+}
+
+function sourceDataPath(file) {
+  const rel = sourceFilePath(file);
+  const lower = rel.toLowerCase();
+  if (lower.startsWith('data/')) return rel;
+  const dataIndex = lower.indexOf('/data/');
+  if (dataIndex >= 0) return rel.slice(dataIndex + 1);
+  const parts = rel.split('/').filter(Boolean);
+  return `data/${parts.length > 1 ? parts.slice(1).join('/') : rel}`;
+}
+
+function indexModFiles(files) {
+  return Array.from(files || []).map(file => {
+    const rel = sourceFilePath(file);
+    const dataPath = sourceDataPath(file);
+    return {
+      file,
+      rel,
+      dataPath,
+      lowerRel: rel.toLowerCase(),
+      lowerData: dataPath.toLowerCase(),
+      name: String(file.name || '').toLowerCase(),
+    };
+  });
+}
+
+function findIndexedFile(index, candidates) {
+  const wanted = (Array.isArray(candidates) ? candidates : [candidates])
+    .map(path => String(path || '').replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase());
+  return index.find(entry => wanted.includes(entry.lowerData))
+    || index.find(entry => wanted.some(path => entry.lowerData.endsWith(`/${path}`) || entry.lowerRel.endsWith(`/${path}`) || entry.name === path));
+}
+
+async function readIndexedText(index, candidates) {
+  const entry = findIndexedFile(index, candidates);
+  return entry ? entry.file.text() : '';
+}
+
+function getLoadedSmFactionText() {
+  try {
+    return localStorage.getItem('m2tw_sm_factions_raw')
+      || localStorage.getItem('m2tw_factions_file')
+      || sessionStorage.getItem('m2tw_factions_raw')
+      || '';
+  } catch {
+    return '';
+  }
+}
+
+function getLoadedExportUnitsText() {
+  try {
+    return localStorage.getItem('m2tw_export_units_file') || '';
+  } catch {
+    return '';
+  }
+}
+
+function buildCopiedFaction(sourceText, targetText, sourceId, targetId) {
+  if (!sourceText.trim()) return { text: '', faction: null, warning: 'Source descr_sm_factions.txt was not found.' };
+  const sourceFactions = parseDescrSmFactions(sourceText);
+  const sourceFaction = sourceFactions.find(f => String(f.name || '').toLowerCase() === sourceId.toLowerCase());
+  if (!sourceFaction) return { text: '', faction: null, warning: `Faction ${sourceId} was not found in source descr_sm_factions.txt.` };
+  const copied = renameDeepIds(JSON.parse(JSON.stringify(sourceFaction)), sourceId, targetId);
+  copied.name = targetId;
+  copied.rebel_symbol = copied.rebel_symbol || 'models_strat/symbol_slaves.CAS';
+  copied.loading_logo = `loading_screen/symbols/symbol128_${targetId}.tga`;
+  copied.logo_index = `FACTION_LOGO_${targetId.toUpperCase()}`;
+  copied.small_logo_index = `SMALL_FACTION_LOGO_${targetId.toUpperCase()}`;
+
+  const targetFactions = targetText.trim() ? parseDescrSmFactions(targetText) : [];
+  const outFactions = targetFactions.length
+    ? targetFactions.filter(f => String(f.name || '').toLowerCase() !== targetId.toLowerCase())
+    : [];
+  outFactions.push(copied);
+  return { text: serializeDescrSmFactions(outFactions), faction: sourceFaction, copied };
+}
+
+function copyUnitForFaction(unit, sourceId, targetId, targetOnlyOwnership) {
+  const copied = renameDeepIds(JSON.parse(JSON.stringify(unit)), sourceId, targetId);
+  if (targetOnlyOwnership) {
+    copied.ownership = [targetId];
+  } else {
+    const ownership = (copied.ownership || [])
+      .map(f => String(f || '').toLowerCase() === sourceId.toLowerCase() ? targetId : f)
+      .filter(f => f && String(f).toLowerCase() !== 'new_faction');
+    if (!ownership.some(f => String(f).toLowerCase() === targetId.toLowerCase())) ownership.push(targetId);
+    copied.ownership = [...new Set(ownership)];
+  }
+  copied.engine = copied.engine || inferSiegeEngine(copied) || '';
+  return copied;
+}
+
+function unitBelongsToSource(unit, sourceId) {
+  const lowerSource = sourceId.toLowerCase();
+  const owners = (unit.ownership || []).map(f => String(f || '').toLowerCase());
+  if (owners.includes(lowerSource)) return true;
+  return [unit.type, unit.dictionary, unit.soldier_model, unit.officer1, unit.officer2, unit.officer3]
+    .some(value => String(value || '').toLowerCase().includes(lowerSource));
+}
+
+function mergeUnitsByType(targetUnits, copiedUnits) {
+  const copiedByType = new Map(copiedUnits.map(unit => [String(unit.type || '').toLowerCase(), unit]));
+  const used = new Set();
+  const merged = targetUnits.map(unit => {
+    const key = String(unit.type || '').toLowerCase();
+    if (!copiedByType.has(key)) return unit;
+    used.add(key);
+    return copiedByType.get(key);
+  });
+  for (const unit of copiedUnits) {
+    const key = String(unit.type || '').toLowerCase();
+    if (!used.has(key)) merged.push(unit);
+  }
+  return merged;
+}
+
+function unitLocKeyMatches(key, unit) {
+  const lower = String(key || '').toLowerCase();
+  const tokens = [unit.dictionary, unit.type].map(v => String(v || '').toLowerCase()).filter(v => v.length > 2);
+  return tokens.some(token => lower === token || lower.startsWith(`${token}_`) || lower.includes(token));
+}
+
+function renameUnitLocKey(key, sourceUnit, copiedUnit, sourceId, targetId) {
+  let out = replaceIdentifierText(key, sourceId, targetId);
+  if (sourceUnit.dictionary && copiedUnit.dictionary) out = replaceIdentifierText(out, sourceUnit.dictionary, copiedUnit.dictionary);
+  if (sourceUnit.type && copiedUnit.type) out = replaceIdentifierText(out, sourceUnit.type, copiedUnit.type);
+  return out;
+}
+
+function mergeCopiedUnitText(sourceText, targetText, pairs, sourceId, targetId) {
+  if (!sourceText.trim()) return { text: '', count: 0 };
+  const sourceMap = parseTextLocFile(sourceText);
+  const targetMap = targetText.trim() ? parseTextLocFile(targetText) : {};
+  let count = 0;
+  for (const [key, value] of Object.entries(sourceMap)) {
+    const pair = pairs.find(item => unitLocKeyMatches(key, item.source));
+    if (!pair) continue;
+    const nextKey = renameUnitLocKey(key, pair.source, pair.copy, sourceId, targetId);
+    targetMap[nextKey] = replaceIdentifierText(value, sourceId, targetId);
+    count++;
+  }
+  return {
+    text: serializeTextLocFile(targetMap, { header: 'Merged by Rome Tools mod copier' }),
+    count,
+  };
+}
+
+function dmbTypeNamesFromUnits(units) {
+  const names = new Set();
+  for (const unit of units) {
+    [unit.soldier_model, unit.officer1, unit.officer2, unit.officer3, unit.mount, unit.animal]
+      .filter(Boolean)
+      .forEach(name => names.add(String(name).toLowerCase()));
+  }
+  return names;
+}
+
+function extractDmbBlocks(text, typeNames) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const blocks = [];
+  for (let i = 0; i < lines.length; i++) {
+    const match = stripComment(lines[i]).match(/^type\s+(.+)/i);
+    if (!match) continue;
+    const name = match[1].trim();
+    let end = lines.length;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (/^type\s+/i.test(stripComment(lines[j]))) {
+        end = j;
+        break;
+      }
+    }
+    if (typeNames.has(name.toLowerCase())) blocks.push({ name, text: lines.slice(i, end).join('\n') });
+    i = end - 1;
+  }
+  return blocks;
+}
+
+function mergeDmbBlocks(targetText, blocks, sourceId, targetId) {
+  const existing = new Set();
+  for (const raw of String(targetText || '').split(/\r?\n/)) {
+    const match = stripComment(raw).match(/^type\s+(.+)/i);
+    if (match) existing.add(match[1].trim().toLowerCase());
+  }
+  const appended = [];
+  for (const block of blocks) {
+    const renamedName = replaceIdentifierText(block.name, sourceId, targetId).toLowerCase();
+    if (existing.has(renamedName)) continue;
+    appended.push(replaceIdentifierText(block.text, sourceId, targetId));
+    existing.add(renamedName);
+  }
+  if (!appended.length) return { text: targetText, count: 0 };
+  const base = targetText.trimEnd();
+  return { text: toCRLF(`${base}${base ? '\n\n' : ''}${appended.join('\n\n')}\n`), count: appended.length };
+}
+
+function unitAssetTokens(units, sourceId, faction) {
+  const tokens = new Set([sourceId.toLowerCase()]);
+  if (faction?.culture) tokens.add(String(faction.culture).toLowerCase());
+  for (const unit of units) {
+    [unit.type, unit.dictionary, unit.soldier_model, unit.officer1, unit.officer2, unit.officer3, unit.mount, unit.animal]
+      .filter(Boolean)
+      .forEach(token => tokens.add(String(token).toLowerCase()));
+  }
+  return [...tokens].filter(token => token.length > 2);
+}
+
+function shouldCopyModAsset(entry, tokens) {
+  if (!/\.(tga|dds|png|jpg|jpeg|cas|spr|texture|txt)$/i.test(entry.name)) return false;
+  if (/\/(?:text\/|export_descr_unit\.txt|descr_sm_factions\.txt|descr_model_battle\.txt)/i.test(entry.lowerData)) return false;
+  return tokens.some(token => entry.lowerData.includes(token));
+}
+
+function renamedDataPath(path, sourceId, targetId) {
+  return replaceIdentifierText(String(path || '').replace(/\\/g, '/'), sourceId, targetId);
+}
+
+function findFactionIconEntry(index, sourceId, faction) {
+  const hints = [
+    faction?.loading_logo,
+    `loading_screen/symbols/symbol128_${sourceId}.tga`,
+    `menu/symbols/fe_buttons_128/symbol128_${sourceId}.tga`,
+    `menu/symbols/fe_buttons_48/symbol48_${sourceId}.tga`,
+    `menu/symbols/fe_buttons_24/symbol24_${sourceId}.tga`,
+  ].filter(Boolean).map(path => String(path).replace(/\\/g, '/').toLowerCase());
+  const images = index.filter(entry => /\.(tga|dds|png|jpg|jpeg)$/i.test(entry.name));
+  const hinted = images.find(entry => hints.some(hint => entry.lowerData.endsWith(hint) || entry.lowerData.includes(hint)));
+  if (hinted) return hinted;
+  return images
+    .filter(entry => entry.lowerData.includes(sourceId.toLowerCase()) && /(?:symbol|logo|faction|fe_buttons|loading_screen)/i.test(entry.lowerData))
+    .sort((a, b) => {
+      const score = path => (path.includes('symbol128') ? 0 : path.includes('loading_screen') ? 1 : path.includes('symbol48') ? 2 : 3);
+      return score(a.lowerData) - score(b.lowerData);
+    })[0] || null;
+}
+
+async function addResizedFactionIcons(zip, iconEntry, targetId) {
+  if (!iconEntry) return [];
+  const imageData = await decodeImageFile(iconEntry.file);
+  const outputs = [
+    [`data/loading_screen/symbols/symbol128_${targetId}.tga`, 128],
+    [`data/loading_screen/symbols/symbol128_${targetId}_x2.tga`, 256],
+    [`data/loading_screen/symbols/symbol256_${targetId}.tga`, 256],
+    [`data/menu/symbols/FE_buttons_128/symbol128_${targetId}.tga`, 128],
+    [`data/menu/symbols/FE_buttons_48/symbol48_${targetId}.tga`, 48],
+    [`data/menu/symbols/FE_buttons_24/symbol24_${targetId}.tga`, 24],
+  ];
+  for (const [path, size] of outputs) {
+    zip.file(path, encodeTga(resizeIconImageData(imageData, size, 'trim-fit')));
+  }
+  return outputs.map(([path]) => path);
+}
+
+const MOD_COPIER_REFERENCE_TEXTS = [
+  'data/descr_banners.txt',
+  'data/descr_rebel_factions.txt',
+  'data/descr_character.txt',
+  'data/descr_names.txt',
+  'data/descr_strat.txt',
+  'data/text/names.txt',
+  'data/text/expanded_bi.txt',
+  'data/text/campaign_descriptions.txt',
+  'data/text/menu_english.txt',
+];
+
+function ModCopierTab() {
+  const [files, setFiles] = useState([]);
+  const [sourceId, setSourceId] = useState('');
+  const [targetId, setTargetId] = useState('');
+  const [targetOnlyOwnership, setTargetOnlyOwnership] = useState(true);
+  const [copyAssets, setCopyAssets] = useState(true);
+  const [resizeIcons, setResizeIcons] = useState(true);
+  const [status, setStatus] = useState('Load a source mod data folder to copy faction files, units, models, UI, and icons.');
+  const [report, setReport] = useState('');
+
+  const handleFolder = (e) => {
+    const list = Array.from(e.target.files || []);
+    e.target.value = '';
+    setFiles(list);
+    setReport('');
+    setStatus(`${list.length} file${list.length === 1 ? '' : 's'} indexed from source mod.`);
+  };
+
+  const buildCopy = async () => {
+    const cleanSource = sanitizeRtwId(sourceId);
+    const cleanTarget = sanitizeRtwId(targetId);
+    if (!files.length || !cleanSource || !cleanTarget) {
+      setStatus('Choose a source folder and enter both source/replacer id and new faction id.');
+      return;
+    }
+
+    setStatus('Reading source files and building copier ZIP...');
+    const index = indexModFiles(files);
+    const zip = new JSZip();
+    const lines = [`Source id: ${cleanSource}`, `Target id: ${cleanTarget}`];
+
+    const sourceSm = await readIndexedText(index, ['data/descr_sm_factions.txt', 'descr_sm_factions.txt']);
+    const targetSm = getLoadedSmFactionText();
+    const factionCopy = buildCopiedFaction(sourceSm, targetSm, cleanSource, cleanTarget);
+    if (factionCopy.text) {
+      zip.file('data/descr_sm_factions.txt', factionCopy.text);
+      lines.push('+ descr_sm_factions.txt merged/copied');
+    }
+    if (factionCopy.warning) lines.push(`! ${factionCopy.warning}`);
+
+    const sourceEdu = await readIndexedText(index, ['data/export_descr_unit.txt', 'export_descr_unit.txt']);
+    let copiedPairs = [];
+    let copiedUnits = [];
+    if (sourceEdu.trim()) {
+      const sourceUnits = parseEDU(sourceEdu).filter(unit => unitBelongsToSource(unit, cleanSource));
+      copiedPairs = sourceUnits.map(source => ({ source, copy: copyUnitForFaction(source, cleanSource, cleanTarget, targetOnlyOwnership) }));
+      copiedUnits = copiedPairs.map(pair => pair.copy);
+      const targetEdu = getEduRawText();
+      const targetUnits = targetEdu ? parseEDU(targetEdu) : [];
+      const merged = targetUnits.length ? mergeUnitsByType(targetUnits, copiedUnits) : copiedUnits;
+      if (merged.length) zip.file('data/export_descr_unit.txt', serializeEDU(merged));
+      lines.push(`+ units copied: ${copiedUnits.length}`);
+      const animalCount = copiedUnits.filter(unit => unit.animal).length;
+      const engineCount = copiedUnits.filter(unit => unit.engine || inferSiegeEngine(unit)).length;
+      if (animalCount) lines.push(`  animal lines preserved: ${animalCount}`);
+      if (engineCount) lines.push(`  siege engine lines preserved/inferred: ${engineCount}`);
+    } else {
+      lines.push('! Source export_descr_unit.txt was not found.');
+    }
+
+    const sourceExportUnits = await readIndexedText(index, ['data/text/export_units.txt', 'text/export_units.txt', 'export_units.txt']);
+    const mergedLoc = mergeCopiedUnitText(sourceExportUnits, getLoadedExportUnitsText(), copiedPairs, cleanSource, cleanTarget);
+    if (mergedLoc.text) {
+      zip.file('data/text/export_units.txt', mergedLoc.text);
+      lines.push(`+ export_units.txt entries copied: ${mergedLoc.count}`);
+    }
+
+    const sourceDmb = await readIndexedText(index, ['data/descr_model_battle.txt', 'descr_model_battle.txt']);
+    if (sourceDmb.trim() && copiedUnits.length) {
+      const blocks = extractDmbBlocks(sourceDmb, dmbTypeNamesFromUnits(copiedPairs.map(pair => pair.source)));
+      const targetDmb = await getLoadedDmbText();
+      const mergedDmb = mergeDmbBlocks(targetDmb, blocks, cleanSource, cleanTarget);
+      if (mergedDmb.text?.trim()) zip.file('data/descr_model_battle.txt', mergedDmb.text);
+      lines.push(`+ DMB model blocks copied: ${mergedDmb.count}`);
+    }
+
+    const iconEntry = findFactionIconEntry(index, cleanSource, factionCopy.faction);
+    if (resizeIcons) {
+      try {
+        const iconPaths = await addResizedFactionIcons(zip, iconEntry, cleanTarget);
+        if (iconPaths.length) lines.push(`+ resized faction icons: ${iconPaths.length}`);
+        else lines.push('! No faction icon image found to resize.');
+      } catch (err) {
+        lines.push(`! Icon resize failed: ${err.message}`);
+      }
+    }
+
+    if (copyAssets) {
+      const tokens = unitAssetTokens(copiedPairs.map(pair => pair.source), cleanSource, factionCopy.faction);
+      const assets = index.filter(entry => shouldCopyModAsset(entry, tokens));
+      let copied = 0;
+      for (const entry of assets) {
+        const path = renamedDataPath(entry.dataPath, cleanSource, cleanTarget);
+        zip.file(path, await entry.file.arrayBuffer());
+        copied++;
+        if (copied % 40 === 0) await yieldToBrowser();
+      }
+      lines.push(`+ asset files copied: ${copied}`);
+    }
+
+    let referenceCount = 0;
+    for (const refPath of MOD_COPIER_REFERENCE_TEXTS) {
+      const entry = findIndexedFile(index, refPath);
+      if (!entry) continue;
+      const raw = await entry.file.text();
+      if (!raw.toLowerCase().includes(cleanSource.toLowerCase())) continue;
+      const renamed = replaceIdentifierText(raw, cleanSource, cleanTarget);
+      zip.file(`_merge_reference/${entry.dataPath}`, toCRLF(renamed));
+      referenceCount++;
+    }
+    if (referenceCount) lines.push(`+ extra text merge references: ${referenceCount}`);
+
+    lines.push('', ...copiedUnits.map(unit => `unit: ${unit.type} -> ownership ${unit.ownership.join(', ')}`));
+    const finalReport = lines.join('\n');
+    zip.file('mod_copier_report.txt', toCRLF(finalReport));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, `${cleanTarget}_mod_copy.zip`);
+    setReport(finalReport);
+    setStatus(`Created ${cleanTarget}_mod_copy.zip`);
+    try { localStorage.setItem('rtw_tools_last_output', finalReport); } catch {}
+  };
+
+  return (
+    <div className="grid grid-cols-[320px_1fr] gap-3 min-h-0">
+      <div className="space-y-3">
+        <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
+          <input type="file" multiple webkitdirectory="true" className="hidden" onChange={handleFolder} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><FolderOpen className="w-3.5 h-3.5 text-amber-400" />Load source mod folder</span>
+        </label>
+        <TextField label="Source/replacer id" value={sourceId} onChange={setSourceId} />
+        <TextField label="New faction id" value={targetId} onChange={setTargetId} />
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input type="checkbox" checked={targetOnlyOwnership} onChange={e => setTargetOnlyOwnership(e.target.checked)} className="accent-amber-500" />
+          Unit ownership becomes target faction only
+        </label>
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input type="checkbox" checked={copyAssets} onChange={e => setCopyAssets(e.target.checked)} className="accent-amber-500" />
+          Copy matching model/UI/texture assets
+        </label>
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input type="checkbox" checked={resizeIcons} onChange={e => setResizeIcons(e.target.checked)} className="accent-amber-500" />
+          Resize faction icons to 128, 128x2, and 256
+        </label>
+        <Button className="w-full h-8 text-xs gap-1.5" onClick={buildCopy} disabled={!files.length || !sourceId || !targetId}>
+          <Copy className="w-3.5 h-3.5" />
+          Build copier ZIP
+        </Button>
+        <p className="text-xs text-amber-300">{status}</p>
+        <div className="rounded border border-slate-700 bg-slate-900/60 p-3 text-[11px] text-slate-400">
+          Uses the loaded target files when available, so faction/unit/text exports merge instead of replacing your current mod.
+        </div>
+      </div>
+      <pre className="min-h-[560px] overflow-auto rounded border border-slate-700 bg-black/30 p-3 text-[11px] text-slate-300 whitespace-pre-wrap">
+        {report || 'Copier report appears here after export.'}
+      </pre>
+    </div>
+  );
+}
+
+function parseNumericList(value) {
+  return String(value || '').split(',').map(part => {
+    const n = Number(part.trim());
+    return Number.isFinite(n) ? n : null;
+  });
+}
+
+function roundedCost(value) {
+  return Math.max(20, Math.round(value / 10) * 10);
+}
+
+function balanceOneUnit(unit, strength) {
+  const copy = JSON.parse(JSON.stringify(unit));
+  const cost = parseNumericList(copy.stat_cost);
+  if (cost.length < 6 || cost[1] == null || cost[2] == null) return { unit: copy, changed: false, before: copy.stat_cost, after: copy.stat_cost };
+  const pri = parseNumericList(copy.stat_pri);
+  const armour = parseNumericList(copy.stat_pri_armour);
+  const mental = parseNumericList(copy.stat_mental);
+  const health = parseNumericList(copy.stat_health);
+  const attack = pri[0] ?? 0;
+  const charge = pri[1] ?? 0;
+  const armourTotal = (armour[0] ?? 0) + (armour[1] ?? 0) + (armour[2] ?? 0);
+  const morale = mental[0] ?? 0;
+  const hp = Math.max(1, health[0] ?? 1);
+  const soldiers = Math.max(1, Number(copy.soldier_num) || 60);
+  const category = String(copy.category || '').toLowerCase();
+  const className = String(copy.class || '').toLowerCase();
+  let multiplier = 1;
+  if (category.includes('cavalry')) multiplier *= 1.23;
+  if (category.includes('missile')) multiplier *= 1.08;
+  if (category.includes('siege') || copy.engine) multiplier *= 1.35;
+  if (className.includes('light')) multiplier *= 0.88;
+  if (className.includes('heavy')) multiplier *= 1.08;
+  const score = soldiers * (attack * 2.05 + charge * 0.85 + armourTotal * 1.55 + morale * 1.75 + hp * 6.5) * multiplier / 10;
+  const targetRecruit = roundedCost(Math.max(90, Math.min(2600, score)));
+  const targetUpkeep = roundedCost(Math.max(30, targetRecruit * (category.includes('siege') ? 0.22 : 0.28)));
+  const nextRecruit = roundedCost(cost[1] * (1 - strength) + targetRecruit * strength);
+  const nextUpkeep = roundedCost(cost[2] * (1 - strength) + targetUpkeep * strength);
+  cost[0] = nextRecruit > 1600 ? 4 : nextRecruit > 1000 ? 3 : nextRecruit > 420 ? 2 : 1;
+  cost[1] = nextRecruit;
+  cost[2] = nextUpkeep;
+  if (cost[5] != null) cost[5] = nextRecruit;
+  copy.stat_cost = cost.map((value, index) => value == null ? (String(unit.stat_cost).split(',')[index] || '0').trim() : String(Math.round(value))).join(', ');
+  return { unit: copy, changed: copy.stat_cost !== unit.stat_cost, before: unit.stat_cost, after: copy.stat_cost };
+}
+
+function VanillaUnitBalancerTab() {
+  const [eduText, setEduText] = useState('');
+  const [preset, setPreset] = useState('standard');
+  const [report, setReport] = useState('');
+  const [status, setStatus] = useState('Load vanilla export_descr_unit.txt or use the currently loaded EDU.');
+  const strength = preset === 'light' ? 0.32 : preset === 'strong' ? 0.82 : 0.55;
+
+  const useLoaded = () => {
+    const raw = getEduRawText();
+    if (raw) {
+      setEduText(raw);
+      setStatus('Loaded current EDU from the editor.');
+    } else {
+      setStatus('No current EDU is loaded in the editor.');
+    }
+  };
+
+  const balance = async () => {
+    if (!eduText.trim()) {
+      setStatus('Load export_descr_unit.txt first.');
+      return;
+    }
+    const units = parseEDU(eduText);
+    const results = units.map(unit => balanceOneUnit(unit, strength));
+    const changed = results.filter(item => item.changed);
+    const out = serializeEDU(results.map(item => item.unit));
+    const lines = [
+      `Preset: ${preset}`,
+      `Units scanned: ${units.length}`,
+      `Units adjusted: ${changed.length}`,
+      '',
+      ...changed.slice(0, 250).map(item => `${item.unit.type}: ${item.before} -> ${item.after}`),
+      changed.length > 250 ? `...${changed.length - 250} more adjusted units` : '',
+    ].filter(Boolean).join('\n');
+    const zip = new JSZip();
+    zip.file('data/export_descr_unit.txt', out);
+    zip.file('vanilla_unit_balance_report.txt', toCRLF(lines));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, `vanilla_unit_balance_${preset}.zip`);
+    setReport(lines);
+    setStatus(`Balanced ${changed.length} of ${units.length} units.`);
+    try { localStorage.setItem('rtw_tools_last_output', lines); } catch {}
+  };
+
+  return (
+    <div className="grid grid-cols-[320px_1fr] gap-3 min-h-0">
+      <div className="space-y-3">
+        <FileInput label="Load export_descr_unit.txt" accept=".txt" onText={setEduText} />
+        <Button variant="outline" className="w-full h-8 text-xs" onClick={useLoaded}>Use loaded EDU</Button>
+        <label className="block">
+          <span className="text-[10px] uppercase text-slate-500">Balance preset</span>
+          <select value={preset} onChange={e => setPreset(e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
+            <option value="standard">Standard vanilla pass</option>
+            <option value="light">Light cost smoothing</option>
+            <option value="strong">Strong cost rebalance</option>
+          </select>
+        </label>
+        <Button className="w-full h-8 text-xs gap-1.5" onClick={balance} disabled={!eduText.trim()}>
+          <Wand2 className="w-3.5 h-3.5" />
+          Export balanced EDU
+        </Button>
+        <p className="text-xs text-amber-300">{status}</p>
+        <div className="rounded border border-slate-700 bg-slate-900/60 p-3 text-[11px] text-slate-400">
+          Adjusts recruitment cost, upkeep, custom battle cost, and recruit turns from unit size, attack, defence, morale, health, class, and category.
+        </div>
+      </div>
+      <pre className="min-h-[560px] overflow-auto rounded border border-slate-700 bg-black/30 p-3 text-[11px] text-slate-300 whitespace-pre-wrap">
+        {report || 'Balance report appears here after export.'}
+      </pre>
+    </div>
+  );
+}
+
 function TextField({ label, value, onChange }) {
   return (
     <label className="block">
@@ -2227,6 +2809,8 @@ export default function RomeTools({ initialTab = 'importer' }) {
   };
   const tabs = [
     ['importer', 'Unit Importer', FileText],
+    ['mod-copier', 'Mod Copier', FolderOpen],
+    ['balancer', 'Unit Balancer', Wand2],
     ['recolor', 'Texture Recolorizer', Wand2],
     ['ai-img2img', 'AI Img2Img', Image],
     ['sprite-logos', 'Sprite Logos', Image],
@@ -2257,6 +2841,8 @@ export default function RomeTools({ initialTab = 'importer' }) {
       </div>
       <div className="flex-1 min-h-0 p-3 overflow-auto">
         {tab === 'importer' && <UnitImporterTab />}
+        {tab === 'mod-copier' && <ModCopierTab />}
+        {tab === 'balancer' && <VanillaUnitBalancerTab />}
         {tab === 'recolor' && <TextureRecolorTab />}
         {tab === 'ai-img2img' && <AiImageWorkshopTab />}
         {tab === 'sprite-logos' && <SpriteLogoGeneratorTab />}
