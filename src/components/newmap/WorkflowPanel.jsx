@@ -35,42 +35,27 @@ export default function WorkflowPanel({
   const currentIdx = STEPS.findIndex(s => s.id === currentStepId);
   const [showRangeEditor, setShowRangeEditor] = useState(false);
   const [selectedFillClimate, setSelectedFillClimate] = useState(CLIMATE_PALETTE[0].id);
-  const groundImportRef = useRef(null);
-  const featuresImportRef = useRef(null);
 
-  const handleImportFeatures = async (file) => {
+  const heightsImportRef = useRef(null);
+  const groundImportRef = useRef(null);
+  const climatesImportRef = useRef(null);
+  const featuresImportRef = useRef(null);
+  const regionsImportRef = useRef(null);
+
+  const importRefs = { heights: heightsImportRef, ground: groundImportRef, climates: climatesImportRef, features: featuresImportRef, regions: regionsImportRef };
+
+  /** Generic import handler: reads .tga or image, scales to map size, pushes to layer. */
+  const handleImportLayer = async (layerId, file) => {
     if (!file) return;
     const isTga = file.name.toLowerCase().endsWith('.tga');
+    let dataUrl;
     if (isTga) {
       const buf = await file.arrayBuffer();
-      const dataUrl = decodeTgaToDataUrl(buf);
+      dataUrl = decodeTgaToDataUrl(buf);
       if (!dataUrl) return;
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = mapWidth; canvas.height = mapHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(img, 0, 0, mapWidth, mapHeight);
-        onLayerUpdate('features', { imageData: ctx.getImageData(0, 0, mapWidth, mapHeight), visible: true, opacity: 1, dirty: true });
-      };
-      img.src = dataUrl;
     } else {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = mapWidth; canvas.height = mapHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(img, 0, 0, mapWidth, mapHeight);
-        onLayerUpdate('features', { imageData: ctx.getImageData(0, 0, mapWidth, mapHeight), visible: true, opacity: 1, dirty: true });
-      };
-      img.src = URL.createObjectURL(file);
+      dataUrl = URL.createObjectURL(file);
     }
-  };
-
-  const handleImportGround = (file) => {
-    if (!file) return;
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
@@ -78,9 +63,25 @@ export default function WorkflowPanel({
       const ctx = canvas.getContext('2d');
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, 0, 0, mapWidth, mapHeight);
-      onLayerUpdate('ground', { imageData: ctx.getImageData(0, 0, mapWidth, mapHeight), visible: true, opacity: 1, dirty: true });
+      onLayerUpdate(layerId, { imageData: ctx.getImageData(0, 0, mapWidth, mapHeight), visible: true, opacity: 1, dirty: true });
     };
-    img.src = URL.createObjectURL(file);
+    img.src = dataUrl;
+  };
+
+  const ImportButton = ({ layerId, label }) => {
+    const hasData = !!layers[layerId]?.imageData;
+    return (
+      <div className="flex items-center gap-1.5">
+        <input ref={importRefs[layerId]} type="file" accept=".tga,.png,image/png" className="hidden"
+          onChange={e => { handleImportLayer(layerId, e.target.files?.[0]); e.target.value = ''; }} />
+        <button
+          onClick={() => importRefs[layerId].current?.click()}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] border transition-colors font-semibold ${hasData ? 'bg-green-800/30 border-green-600/40 text-green-300 hover:bg-green-700/40' : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'}`}>
+          <Upload className="w-3 h-3" />
+          {hasData ? `↺ Replace ${label} (.tga/.png)` : `Import ${label} (.tga/.png)`}
+        </button>
+      </div>
+    );
   };
 
   const ranges = groundRanges ?? DEFAULT_GROUND_RANGES;
@@ -123,7 +124,12 @@ export default function WorkflowPanel({
               <div className="mt-2 space-y-2">
                 <p className="text-[10px] text-slate-400">{step.desc}</p>
 
-                {/* Ground type step: range editor + auto-generate */}
+                {/* Heights */}
+                {step.id === 'heights' && (
+                  <ImportButton layerId="heights" label="Heightmap" />
+                )}
+
+                {/* Ground type step: range editor + auto-generate + import */}
                 {step.id === 'ground' && (
                   <>
                     <button
@@ -159,17 +165,7 @@ export default function WorkflowPanel({
                       </div>
                     )}
 
-                    {/* Import existing ground map PNG */}
-                    <div className="flex items-center gap-1.5">
-                      <input ref={groundImportRef} type="file" accept="image/*" className="hidden"
-                        onChange={e => { handleImportGround(e.target.files?.[0]); e.target.value = ''; }} />
-                      <button
-                        onClick={() => groundImportRef.current?.click()}
-                        className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] border transition-colors font-semibold ${layers.ground?.imageData ? 'bg-green-800/30 border-green-600/40 text-green-300 hover:bg-green-700/40' : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'}`}>
-                        <Upload className="w-3 h-3" />
-                        {layers.ground?.imageData ? '↺ Replace Ground Map (PNG)' : 'Import Ground Map (PNG)'}
-                      </button>
-                    </div>
+                    <ImportButton layerId="ground" label="Ground Map" />
 
                     <OsmTagOverlayEditor
                       bbox={bbox}
@@ -179,7 +175,7 @@ export default function WorkflowPanel({
                   </>
                 )}
 
-                {/* Climates step: auto-gen from ground or fill solid */}
+                {/* Climates step: auto-gen from ground or fill solid + import */}
                 {step.id === 'climates' && (
                   <>
                     <button
@@ -216,28 +212,18 @@ export default function WorkflowPanel({
                       mapHeight={mapHeight}
                     />
 
+                    <ImportButton layerId="climates" label="Climates Map" />
+
                     <p className="text-[9px] text-slate-500">
                       You can also switch to the <strong className="text-slate-300">Paint</strong> tab to paint climate zones manually.
                     </p>
                   </>
                 )}
 
-                {/* Regions: no extra tools here — RegionsWorkshop + OsmHistoricTagFetcher
-                    are rendered below the workflow panel in NewMapEditor */}
-
-                {/* Features: OSM fetcher + river checker + hints */}
+                {/* Features: import + OSM fetcher + river checker + hints */}
                 {step.id === 'features' && (
                   <>
-                    <div className="flex items-center gap-1.5">
-                      <input ref={featuresImportRef} type="file" accept=".tga,.png,image/png" className="hidden"
-                        onChange={e => { handleImportFeatures(e.target.files?.[0]); e.target.value = ''; }} />
-                      <button
-                        onClick={() => featuresImportRef.current?.click()}
-                        className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] border transition-colors font-semibold ${layers.features?.imageData ? 'bg-green-800/30 border-green-600/40 text-green-300 hover:bg-green-700/40' : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'}`}>
-                        <Upload className="w-3 h-3" />
-                        {layers.features?.imageData ? '↺ Replace Features Map (.tga/.png)' : 'Import Features Map (.tga/.png)'}
-                      </button>
-                    </div>
+                    <ImportButton layerId="features" label="Features Map" />
                     <FeaturesLayerGenerator
                       bbox={bbox}
                       mapWidth={mapWidth}
@@ -253,6 +239,11 @@ export default function WorkflowPanel({
                       <p>Paint with pure blue <span className="font-mono">(0,0,255)</span> — 1px brush recommended. Run the checker after painting.</p>
                     </div>
                   </>
+                )}
+
+                {/* Regions: import */}
+                {step.id === 'regions' && (
+                  <ImportButton layerId="regions" label="Regions Map" />
                 )}
 
                 <button
