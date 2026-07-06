@@ -5,6 +5,20 @@ import { LAYER_PRESETS } from './paintPresets';
 
 function swatchBg(r, g, b) { return `rgb(${r},${g},${b})`; }
 function isLight(r, g, b) { return r * 0.299 + g * 0.587 + b * 0.114 > 128; }
+function clampRgb(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(255, Math.round(n)));
+}
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map(v => clampRgb(v).toString(16).padStart(2, '0')).join('')}`;
+}
+function hexToRgb(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!match) return null;
+  const n = parseInt(match[1], 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
 
 function HeightsControls({ paintColor, onColorChange }) {
   const { r, g, b } = paintColor;
@@ -127,11 +141,18 @@ export default function MapPaintToolbar({ paintState, onPaintChange, onSave, onR
 
             {/* Color picker + presets toggle */}
             <div className="flex items-center gap-1.5">
-              <span
-                className="w-5 h-5 rounded border border-white/20 cursor-pointer"
-                style={{ backgroundColor: swatchBg(paintColor.r, paintColor.g, paintColor.b) }}
-                title="Current colour"
-              />
+              <label className="relative w-5 h-5 rounded border border-white/20 cursor-pointer overflow-hidden" title="Open color picker">
+                <span className="absolute inset-0" style={{ backgroundColor: swatchBg(paintColor.r, paintColor.g, paintColor.b) }} />
+                <input
+                  type="color"
+                  value={rgbToHex(paintColor.r, paintColor.g, paintColor.b)}
+                  onChange={e => {
+                    const rgb = hexToRgb(e.target.value);
+                    if (rgb) onPaintChange({ ...paintState, paintColor: rgb });
+                  }}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+              </label>
               <button
                 onClick={() => setShowPresets(p => !p)}
                 className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${showPresets ? 'border-amber-500/40 text-amber-400' : 'border-slate-600/40 text-slate-400 hover:text-slate-200'}`}

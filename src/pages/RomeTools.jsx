@@ -490,6 +490,7 @@ function materialProtectionType(r, g, b, hsl, protectMaterials) {
   const darkHairLeather = hsl.h >= 10 && hsl.h <= 48 && hsl.s >= 0.10 &&
     hsl.l >= 0.035 && hsl.l <= 0.50 && r >= g * 0.68 && g >= b * 0.45;
   const steelOrIron = (hsl.s <= 0.18 || spread <= 34) && hsl.l >= 0.10 && hsl.l <= 0.92;
+  const blackenedMetal = (hsl.s <= 0.26 || spread <= 42) && hsl.l >= 0.025 && hsl.l <= 0.28;
   const whiteArmorOrLinen = hsl.l >= 0.56 && hsl.s <= 0.38 && spread <= 82 &&
     r >= 126 && g >= 122 && b >= 112;
   const ivoryHighlight = hsl.l >= 0.72 && hsl.s <= 0.46 && spread <= 86 &&
@@ -498,6 +499,7 @@ function materialProtectionType(r, g, b, hsl, protectMaterials) {
     hsl.l >= 0.18 && hsl.l <= 0.80 && r > b * 1.24 && g > b * 0.94;
   if (skinLike || paleSkinLike) return 'skin';
   if (whiteArmorOrLinen || ivoryHighlight) return 'white_armor';
+  if (blackenedMetal) return 'dark_metal';
   if (steelOrIron) return 'metal';
   if (darkHairLeather) return 'leather';
   if (bronzeOrGold) return 'bronze';
@@ -588,7 +590,7 @@ function recolorImageData(imageData, settingsOrPlan) {
     }
 
     const protectedType = materialProtectionType(r, g, b, hsl, protectMaterials);
-    if (protectedType === 'skin' || protectedType === 'metal' || protectedType === 'white_armor') continue;
+    if (['skin', 'metal', 'dark_metal', 'white_armor', 'leather'].includes(protectedType)) continue;
     if (protectedType && bestScore < 0.74) continue;
     if (useSource && bestScore < 0.12) continue;
     const satMask = hsl.s >= minSat ? 1 : 0.38;
@@ -924,6 +926,10 @@ function imageDataToCanvas(imageData) {
   return canvas;
 }
 
+function imageDataToPngBlob(imageData) {
+  return new Promise(resolve => imageDataToCanvas(imageData).toBlob(blob => resolve(blob), 'image/png'));
+}
+
 function alphaBoundsFromImageData(imageData) {
   const { width, height, data } = imageData;
   let minX = width, minY = height, maxX = -1, maxY = -1;
@@ -1049,11 +1055,11 @@ function textureWorkerLimit(count) {
 const BEST_RECOLOR_SETTINGS = {
   source: '#9e1a1a',
   target: '#2f6fc0',
-  tolerance: 24,
-  rgbTolerance: 165,
-  strength: 90,
-  minSat: 22,
-  targetMix: 88,
+  tolerance: 18,
+  rgbTolerance: 145,
+  strength: 86,
+  minSat: 26,
+  targetMix: 84,
   saturationBoost: 0,
   desaturate: 0,
   lightnessMix: 0,
@@ -1101,10 +1107,27 @@ const AI_IMAGE_STYLE_PRESETS = {
     'stone seal relief',
     'high-contrast UI icon',
   ],
+  eventpic: [
+    'RTW event picture',
+    'painted historical event panel',
+    'campaign parchment illustration',
+    'ancient battlefield vignette',
+    'temple court scene',
+    'city conquest report art',
+  ],
+  art: [
+    'historical concept art',
+    'RTW loading-screen art',
+    'campaign UI illustration',
+    'artifact reference sheet',
+    'faction mood painting',
+    'unit equipment callout sheet',
+  ],
 };
 
 const AI_IDEA_PARTS = {
   unitRoles: ['royal spearmen', 'desert archers', 'camel scouts', 'harbor militia', 'sacred guard', 'citizen cavalry', 'hill skirmishers', 'temple bodyguards'],
+  eventScenes: ['ambush in a dry wadi', 'king receiving tribute at a stone shrine', 'harbor revolt at dusk', 'caravan attacked near a watchtower', 'oasis treaty ceremony', 'siege engineers testing a ballista'],
   symbolMotifs: ['crescent and star', 'palm and spear', 'bull horn crown', 'ship prow', 'lion over waves', 'sun disk', 'sacred mountain', 'bronze horse head'],
   materials: ['bronze, linen, dyed wool', 'painted leather and dark iron', 'ivory cloth with bronze trim', 'red wool and polished bronze', 'sea-blue enamel and silver', 'black leather with gold paint'],
   moods: ['disciplined and ancient', 'weathered but elite', 'sacred and royal', 'frontier-born and practical', 'maritime and wealthy', 'nomadic and fast-moving'],
@@ -1116,23 +1139,35 @@ function randomPick(list) {
 
 function buildBingStylePrompt(form, referenceName = 'uploaded reference') {
   const isSymbol = form.mode === 'symbol';
+  const isEventPic = form.mode === 'eventpic';
+  const isArt = form.mode === 'art';
   const faction = form.faction || 'new faction';
   const culture = form.culture || 'ancient Mediterranean';
   const colors = form.colors || 'historically plausible faction colors';
-  const subject = isSymbol ? (form.subject || 'faction symbol') : (form.subject || 'unit texture');
-  const style = form.style || (isSymbol ? 'RTW faction medallion' : 'RTW unit texture repaint');
+  const subject = isSymbol ? (form.subject || 'faction symbol') : isEventPic ? (form.subject || 'campaign event picture') : isArt ? (form.subject || 'historical concept art') : (form.subject || 'unit texture');
+  const style = form.style || (AI_IMAGE_STYLE_PRESETS[form.mode]?.[0] || 'RTW asset art');
   const details = form.details || 'high quality, game-ready, historically plausible';
+  const assetLine = isSymbol
+    ? `Create a faction symbol/icon for ${faction}, ${culture}. Subject: ${subject}.`
+    : isEventPic
+      ? `Create an RTW event picture for ${faction}, ${culture}. Scene: ${subject}.`
+      : isArt
+        ? `Create supporting mod art for ${faction}, ${culture}. Subject: ${subject}.`
+        : `Create a unit image/texture for ${faction}, ${culture}. Unit: ${subject}.`;
+  const preserveLine = isSymbol
+    ? 'Preserve the uploaded icon composition, transparent background, centered silhouette, circular symbol framing if present, exact readable shape, and strong contrast at 256, 128, 48, and 24 pixel sizes.'
+    : isEventPic
+      ? 'Preserve the uploaded event picture aspect ratio, readable silhouettes, RTW-era painterly contrast, and any UI-safe empty margins. No text inside the image.'
+      : isArt
+        ? 'If a reference is uploaded, preserve the important silhouette, framing, subject placement, and material identity while improving polish and readability.'
+        : 'Preserve the uploaded UV layout, canvas size, alpha, seams, body part placement, folds, baked shadows, silhouettes, and every small texture island. Keep the exact same pose/card framing if the reference is a unit card.';
 
   return [
     `Image-to-image edit using "${referenceName}" as the strict reference.`,
-    isSymbol
-      ? `Create a faction symbol/icon for ${faction}, ${culture}. Subject: ${subject}.`
-      : `Create a unit image/texture for ${faction}, ${culture}. Unit: ${subject}.`,
+    assetLine,
     `Style: ${style}. Palette/materials: ${colors}. Details: ${details}.`,
-    isSymbol
-      ? 'Preserve the uploaded icon composition, transparent background, centered silhouette, circular symbol framing if present, exact readable shape, and strong contrast at 256, 128, 48, and 24 pixel sizes.'
-      : 'Preserve the uploaded UV layout, canvas size, alpha, seams, body part placement, folds, baked shadows, silhouettes, and every small texture island. Keep the exact same pose/card framing if the reference is a unit card.',
-    'Do not crop, rotate, change UV island positions, add text, invent unrelated objects, alter skin/face pixels unless asked, or repaint metal/white armor unless it is part of the requested faction color change.',
+    preserveLine,
+    'Do not crop, rotate, change UV island positions, add text, invent unrelated objects, alter skin, faces, hair, leather, fur, wood, bronze, steel, gold, iron, blackened metal, white/linen armor, transparent pixels, or baked shadows unless specifically requested.',
     form.negative ? `Avoid: ${form.negative}.` : 'Avoid modern fantasy, glowing effects, blurry edges, new backgrounds, and layout drift.',
     'Output should look like the same game asset after a careful AI-assisted art pass, not a new unrelated illustration.'
   ].join('\n');
@@ -1147,6 +1182,12 @@ function generateAiImageIdeas({ mode, faction, culture, colors }) {
     if (mode === 'symbol') {
       const motif = randomPick(AI_IDEA_PARTS.symbolMotifs);
       ideas.push(`${faction || 'Faction'} symbol: ${motif}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, readable at tiny UI sizes`);
+    } else if (mode === 'eventpic') {
+      const scene = randomPick(AI_IDEA_PARTS.eventScenes);
+      ideas.push(`${faction || 'Faction'} event picture: ${scene}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, RTW campaign event art`);
+    } else if (mode === 'art') {
+      const role = randomPick(AI_IDEA_PARTS.unitRoles);
+      ideas.push(`${faction || 'Faction'} concept art: ${role}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, useful as event/loading/art reference`);
     } else {
       const role = randomPick(AI_IDEA_PARTS.unitRoles);
       ideas.push(`${faction || 'Faction'} ${role}: ${culture || 'ancient mixed culture'}, ${material}, ${mood}, preserve RTW UV/card layout`);
@@ -1222,7 +1263,7 @@ function buildUvLockedPrompt(settings, brief, textureName = 'RTW texture') {
     `Recolor only the faction-colored cloth, shields, banners, painted trim, and tunic areas from ${source} toward ${target}.`,
     settings.secondaryEnabled ? `Also map secondary faction color ${settings.secondarySource?.toUpperCase?.()} toward ${settings.secondaryTarget?.toUpperCase?.()}.` : '',
     settings.tertiaryEnabled ? `Also map tertiary faction color ${settings.tertiarySource?.toUpperCase?.()} toward ${settings.tertiaryTarget?.toUpperCase?.()}.` : '',
-    'Do not alter skin, faces, hair, leather, metal armor, white/linen armor, weapons, transparent pixels, UV placement, or the texture layout. Avoid adding new objects or changing the design.',
+    'Do not alter skin, faces, hair, leather, fur, wood, bronze, steel, gold, iron, blackened metal, white/linen armor, weapons, transparent pixels, UV placement, baked shadows, or the texture layout. Avoid adding new objects or changing the design.',
     extra ? `Style/detail request: ${extra}` : 'Style/detail request: keep it historically plausible and game-ready for Rome Total War.',
     'Output should look like the same texture file after a careful faction recolor, not a new illustration.'
   ].filter(Boolean).join('\n');
@@ -1664,9 +1705,10 @@ function ColorSampler({ sampler, activeTarget, onTargetChange, onUpload, onPaste
             ref={imgRef}
             src={sampler.src}
             alt={sampler.name}
-            onMouseMove={sampleAt}
-            onClick={event => sampleAt(event, true)}
-            className="w-full max-h-56 object-contain image-render-pixelated cursor-crosshair"
+            onPointerMove={sampleAt}
+            onPointerDown={event => sampleAt(event, true)}
+            className="w-full max-h-56 object-contain image-render-pixelated"
+            style={{ cursor: 'crosshair', touchAction: 'none' }}
             draggable={false}
           />
         </div>
@@ -1923,8 +1965,14 @@ export function AiImageWorkshopTab() {
     setForm(prev => {
       const next = { ...prev, [key]: value };
       if (key === 'mode') {
-        next.style = AI_IMAGE_STYLE_PRESETS[value][0];
-        next.subject = value === 'symbol' ? 'crescent, palm, and spear faction emblem' : 'elite desert spearman unit texture';
+        next.style = AI_IMAGE_STYLE_PRESETS[value]?.[0] || AI_IMAGE_STYLE_PRESETS.unit[0];
+        next.subject = value === 'symbol'
+          ? 'crescent, palm, and spear faction emblem'
+          : value === 'eventpic'
+            ? 'desert ambush campaign event picture'
+            : value === 'art'
+              ? 'royal desert guard concept art'
+              : 'elite desert spearman unit texture';
       }
       return next;
     });
@@ -1986,6 +2034,8 @@ export function AiImageWorkshopTab() {
           <select value={form.mode} onChange={e => update('mode', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
             <option value="unit">Unit img2img</option>
             <option value="symbol">Faction symbol/icon img2img</option>
+            <option value="eventpic">Event picture art</option>
+            <option value="art">General mod art</option>
           </select>
         </label>
         <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
@@ -1994,7 +2044,7 @@ export function AiImageWorkshopTab() {
         </label>
         <TextField label="Faction" value={form.faction} onChange={value => update('faction', value)} />
         <TextField label="Culture combo" value={form.culture} onChange={value => update('culture', value)} />
-        <TextField label={form.mode === 'symbol' ? 'Symbol subject' : 'Unit subject'} value={form.subject} onChange={value => update('subject', value)} />
+        <TextField label={form.mode === 'symbol' ? 'Symbol subject' : form.mode === 'eventpic' ? 'Event scene' : form.mode === 'art' ? 'Art subject' : 'Unit subject'} value={form.subject} onChange={value => update('subject', value)} />
         <TextField label="Palette/materials" value={form.colors} onChange={value => update('colors', value)} />
         <label className="block">
           <span className="text-[10px] uppercase text-slate-500">Style preset</span>
@@ -2443,6 +2493,24 @@ function mergeDmbBlocks(targetText, blocks, sourceId, targetId) {
   return { text: toCRLF(`${base}${base ? '\n\n' : ''}${appended.join('\n\n')}\n`), count: appended.length };
 }
 
+function dmbAssetPaths(blocks) {
+  const paths = new Set();
+  const rx = /\b(?:data[\\/])?(?:models_unit|unit_models|models_strat|sprites|textures|ui)[\\/][^\s,;'"<>]+/gi;
+  for (const block of blocks || []) {
+    for (const match of String(block.text || '').matchAll(rx)) {
+      const clean = match[0].replace(/\\/g, '/').replace(/[),.]+$/, '');
+      paths.add(clean.toLowerCase().startsWith('data/') ? clean : `data/${clean}`);
+    }
+  }
+  return [...paths];
+}
+
+function indexedEntryForDataPath(index, path) {
+  const lower = String(path || '').replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
+  const bare = lower.replace(/^data\//, '');
+  return index.find(entry => entry.lowerData === lower || entry.lowerData.endsWith(`/${bare}`));
+}
+
 function unitAssetTokens(units, sourceId, faction) {
   const tokens = new Set([sourceId.toLowerCase()]);
   if (faction?.culture) tokens.add(String(faction.culture).toLowerCase());
@@ -2542,6 +2610,7 @@ function ModCopierTab() {
     const index = indexModFiles(files);
     const zip = new JSZip();
     const lines = [`Source id: ${cleanSource}`, `Target id: ${cleanTarget}`];
+    let copiedDmbBlocks = [];
 
     const sourceSm = await readIndexedText(index, ['data/descr_sm_factions.txt', 'descr_sm_factions.txt']);
     const targetSm = getLoadedSmFactionText();
@@ -2582,6 +2651,7 @@ function ModCopierTab() {
     const sourceDmb = await readIndexedText(index, ['data/descr_model_battle.txt', 'descr_model_battle.txt']);
     if (sourceDmb.trim() && copiedUnits.length) {
       const blocks = extractDmbBlocks(sourceDmb, dmbTypeNamesFromUnits(copiedPairs.map(pair => pair.source)));
+      copiedDmbBlocks = blocks;
       const targetDmb = await getLoadedDmbText();
       const mergedDmb = mergeDmbBlocks(targetDmb, blocks, cleanSource, cleanTarget);
       if (mergedDmb.text?.trim()) zip.file('data/descr_model_battle.txt', mergedDmb.text);
@@ -2601,7 +2671,13 @@ function ModCopierTab() {
 
     if (copyAssets) {
       const tokens = unitAssetTokens(copiedPairs.map(pair => pair.source), cleanSource, factionCopy.faction);
-      const assets = index.filter(entry => shouldCopyModAsset(entry, tokens));
+      const assetMap = new Map();
+      for (const entry of index.filter(entry => shouldCopyModAsset(entry, tokens))) assetMap.set(entry.lowerData, entry);
+      for (const path of dmbAssetPaths(copiedDmbBlocks)) {
+        const entry = indexedEntryForDataPath(index, path);
+        if (entry) assetMap.set(entry.lowerData, entry);
+      }
+      const assets = [...assetMap.values()];
       let copied = 0;
       for (const entry of assets) {
         const path = renamedDataPath(entry.dataPath, cleanSource, cleanTarget);
@@ -2610,6 +2686,7 @@ function ModCopierTab() {
         if (copied % 40 === 0) await yieldToBrowser();
       }
       lines.push(`+ asset files copied: ${copied}`);
+      if (copiedDmbBlocks.length) lines.push(`  DMB path-following enabled for models_unit/unit_models assets`);
     }
 
     let referenceCount = 0;
@@ -2638,7 +2715,7 @@ function ModCopierTab() {
     <div className="grid grid-cols-[320px_1fr] gap-3 min-h-0">
       <div className="space-y-3">
         <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
-          <input type="file" multiple webkitdirectory="true" className="hidden" onChange={handleFolder} />
+          <input type="file" multiple webkitdirectory="" className="hidden" onChange={handleFolder} />
           <span className="flex items-center gap-2 text-xs text-slate-200"><FolderOpen className="w-3.5 h-3.5 text-amber-400" />Load source mod folder</span>
         </label>
         <TextField label="Source/replacer id" value={sourceId} onChange={setSourceId} />
@@ -2667,6 +2744,115 @@ function ModCopierTab() {
       <pre className="min-h-[560px] overflow-auto rounded border border-slate-700 bg-black/30 p-3 text-[11px] text-slate-300 whitespace-pre-wrap">
         {report || 'Copier report appears here after export.'}
       </pre>
+    </div>
+  );
+}
+
+function optimizedPngName(file, flattenTgaDds) {
+  const rawPath = String(file.webkitRelativePath || file.name || 'texture').replace(/\\/g, '/');
+  const withoutSuffix = flattenTgaDds
+    ? rawPath.replace(/\.tga\.dds$/i, '').replace(/\.(tga|dds)$/i, '')
+    : rawPath.replace(/\.(tga|dds)$/i, '');
+  return `${withoutSuffix || 'texture'}.png`;
+}
+
+function PngConverterTab() {
+  const [files, setFiles] = useState([]);
+  const [flattenTgaDds, setFlattenTgaDds] = useState(true);
+  const [status, setStatus] = useState('Load .tga, .dds, or .tga.dds files/folders, then export optimized lossless PNGs.');
+  const [busy, setBusy] = useState(false);
+
+  const loadFiles = (event) => {
+    const picked = Array.from(event.target.files || [])
+      .filter(file => /\.(?:tga|dds)$/i.test(file.name) || /\.tga\.dds$/i.test(file.name));
+    event.target.value = '';
+    setFiles(picked);
+    setStatus(picked.length ? `Loaded ${picked.length} texture file${picked.length === 1 ? '' : 's'}.` : 'No .tga/.dds files found.');
+  };
+
+  const exportPngZip = async () => {
+    if (!files.length) {
+      setStatus('Load texture files first.');
+      return;
+    }
+    setBusy(true);
+    const zip = new JSZip();
+    const report = [];
+    let converted = 0;
+    let failed = 0;
+    try {
+      await mapWithLimit(files, textureWorkerLimit(files.length), async (file, index) => {
+        try {
+          const imageData = await decodeImageFile(file);
+          const png = await imageDataToPngBlob(imageData);
+          if (!png) throw new Error('Browser PNG encoder returned no data.');
+          const outPath = optimizedPngName(file, flattenTgaDds);
+          zip.file(outPath, png);
+          converted += 1;
+          report.push(`OK\t${file.webkitRelativePath || file.name}\t${outPath}\t${imageData.width}x${imageData.height}`);
+        } catch (err) {
+          failed += 1;
+          report.push(`FAIL\t${file.webkitRelativePath || file.name}\t${err.message}`);
+        }
+        if (index % 12 === 0) setStatus(`Converted ${converted}/${files.length} PNGs...`);
+      });
+      zip.file('png_conversion_report.txt', toCRLF([
+        'RTW TGA/DDS to optimized PNG conversion',
+        `Converted: ${converted}`,
+        `Failed: ${failed}`,
+        '',
+        ...report,
+      ].join('\n')));
+      const blob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 9 },
+      });
+      downloadBlob(blob, 'rtw_optimized_pngs.zip');
+      setStatus(`Exported ${converted} optimized PNG${converted === 1 ? '' : 's'}${failed ? `, ${failed} failed` : ''}.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-[320px_1fr] gap-3 min-h-0">
+      <div className="space-y-3">
+        <label className="block rounded border border-slate-700 bg-slate-900/70 p-3 cursor-pointer hover:border-amber-500/60">
+          <input type="file" accept=".tga,.dds" multiple webkitdirectory="" className="hidden" onChange={loadFiles} />
+          <span className="flex items-center gap-2 text-xs text-slate-200">
+            <Upload className="w-3.5 h-3.5 text-amber-400" />
+            Load texture folder/files
+          </span>
+          <span className="block mt-1 text-[10px] text-slate-500">Accepts .tga, .dds, and .tga.dds while preserving folder paths in the zip.</span>
+        </label>
+        <label className="flex items-center gap-2 text-[11px] text-slate-300">
+          <input type="checkbox" checked={flattenTgaDds} onChange={e => setFlattenTgaDds(e.target.checked)} className="accent-amber-500" />
+          Convert names like texture.tga.dds to texture.png
+        </label>
+        <Button className="w-full h-8 text-xs gap-1.5" onClick={exportPngZip} disabled={!files.length || busy}>
+          <Download className="w-3.5 h-3.5" />
+          Export optimized PNG zip
+        </Button>
+        <p className="text-xs text-amber-300 whitespace-pre-wrap">{status}</p>
+      </div>
+      <div className="rounded border border-slate-700 bg-slate-900/50 p-3 min-h-[560px]">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <p className="text-xs font-semibold text-slate-200">Queued Textures</p>
+          <span className="text-[10px] text-slate-500">{files.length} files</span>
+        </div>
+        <div className="max-h-[520px] overflow-auto text-[11px] font-mono text-slate-400 space-y-1">
+          {files.length ? files.slice(0, 500).map(file => (
+            <div key={`${file.webkitRelativePath || file.name}:${file.size}`} className="flex items-center justify-between gap-3 rounded bg-slate-950/40 px-2 py-1">
+              <span className="truncate">{file.webkitRelativePath || file.name}</span>
+              <span className="text-slate-600 shrink-0">{Math.ceil(file.size / 1024)} KB</span>
+            </div>
+          )) : (
+            <div className="text-slate-600">No textures loaded yet.</div>
+          )}
+          {files.length > 500 && <div className="text-slate-600">Showing first 500 files. Export still includes all loaded textures.</div>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2812,6 +2998,7 @@ export default function RomeTools({ initialTab = 'importer' }) {
     ['mod-copier', 'Mod Copier', FolderOpen],
     ['balancer', 'Unit Balancer', Wand2],
     ['recolor', 'Texture Recolorizer', Wand2],
+    ['png-converter', 'PNG Converter', Image],
     ['ai-img2img', 'AI Img2Img', Image],
     ['sprite-logos', 'Sprite Logos', Image],
     ['dmb-slave', 'DMB Textures', FileText],
@@ -2844,6 +3031,7 @@ export default function RomeTools({ initialTab = 'importer' }) {
         {tab === 'mod-copier' && <ModCopierTab />}
         {tab === 'balancer' && <VanillaUnitBalancerTab />}
         {tab === 'recolor' && <TextureRecolorTab />}
+        {tab === 'png-converter' && <PngConverterTab />}
         {tab === 'ai-img2img' && <AiImageWorkshopTab />}
         {tab === 'sprite-logos' && <SpriteLogoGeneratorTab />}
         {tab === 'dmb-slave' && <DmbSlaveTextureTab />}

@@ -1,7 +1,9 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
-import { Download, Plus, Trash2, ExternalLink, Search, Info, RefreshCw, X, Image, ChevronDown, CheckSquare, Square, Zap, FileText, AlertCircle } from 'lucide-react';
+import * as THREE from 'three';
+import { Download, Plus, Trash2, ExternalLink, Search, Info, RefreshCw, X, Image, ChevronDown, CheckSquare, Square, Zap, FileText, AlertCircle, Box } from 'lucide-react';
 import { parseEDU } from '../components/units/EDUParser';
+import { parseCasFile, parseMeshFile } from '@/lib/casCodec';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { getEduRawText } from '@/lib/eduStorage';
 
@@ -230,6 +232,516 @@ function downloadBlob(blob, filename) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+function encodeCardTga(imageData) {
+  const { width, height, data } = imageData;
+  const out = new Uint8Array(18 + width * height * 4);
+  out[2] = 2;
+  out[12] = width & 255; out[13] = width >> 8;
+  out[14] = height & 255; out[15] = height >> 8;
+  out[16] = 32; out[17] = 0x28;
+  let p = 18;
+  for (let i = 0; i < data.length; i += 4) {
+    out[p++] = data[i + 2];
+    out[p++] = data[i + 1];
+    out[p++] = data[i];
+    out[p++] = data[i + 3];
+  }
+  return out;
+}
+
+function encodeCardDds(imageData) {
+  const { width, height, data } = imageData;
+  const out = new Uint8Array(128 + width * height * 4);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, 0x20534444, true);
+  view.setUint32(4, 124, true);
+  view.setUint32(8, 0x0002100f, true);
+  view.setUint32(12, height, true);
+  view.setUint32(16, width, true);
+  view.setUint32(20, width * 4, true);
+  view.setUint32(76, 32, true);
+  view.setUint32(80, 0x41, true);
+  view.setUint32(88, 32, true);
+  view.setUint32(92, 0x00ff0000, true);
+  view.setUint32(96, 0x0000ff00, true);
+  view.setUint32(100, 0x000000ff, true);
+  view.setUint32(104, 0xff000000, true);
+  view.setUint32(108, 0x1000, true);
+  let p = 128;
+  for (let i = 0; i < data.length; i += 4) {
+    out[p++] = data[i + 2];
+    out[p++] = data[i + 1];
+    out[p++] = data[i];
+    out[p++] = data[i + 3];
+  }
+  return out;
+}
+
+function canvasToBlob(canvas, type = 'image/png') {
+  return new Promise(resolve => canvas.toBlob(blob => resolve(blob), type));
+}
+
+function drawVanillaCardBackground(ctx, width, height, background) {
+  if (background) {
+    const scale = Math.max(width / background.width, height / background.height);
+    const w = background.width * scale;
+    const h = background.height * scale;
+    ctx.drawImage(background, (width - w) / 2, (height - h) / 2, w, h);
+  } else {
+    const sky = ctx.createLinearGradient(0, 0, 0, height);
+    sky.addColorStop(0, '#7f8d95');
+    sky.addColorStop(0.45, '#4b5554');
+    sky.addColorStop(0.46, '#5e563d');
+    sky.addColorStop(1, '#1d1a12');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = 'rgba(255, 226, 150, 0.18)';
+    ctx.fillRect(0, Math.round(height * 0.48), width, Math.max(1, Math.round(height * 0.03)));
+  }
+  const vignette = ctx.createRadialGradient(width * 0.50, height * 0.44, width * 0.18, width * 0.50, height * 0.44, width * 0.82);
+  vignette.addColorStop(0, 'rgba(255,255,255,0)');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.52)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = '#111111';
+  ctx.lineWidth = Math.max(1, Math.round(width * 0.035));
+  ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, width - ctx.lineWidth, height - ctx.lineWidth);
+  ctx.strokeStyle = '#b59a52';
+  ctx.lineWidth = Math.max(1, Math.round(width * 0.014));
+  ctx.strokeRect(ctx.lineWidth + 1, ctx.lineWidth + 1, width - (ctx.lineWidth + 1) * 2, height - (ctx.lineWidth + 1) * 2);
+}
+
+function uniqueSorted(values) {
+  return [...new Set(values.map(v => String(v || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function extractAsciiStrings(buffer, minLength = 4) {
+  const bytes = new Uint8Array(buffer);
+  const strings = [];
+  let start = -1;
+  for (let i = 0; i <= bytes.length; i++) {
+    const value = i < bytes.length ? bytes[i] : 0;
+    const printable = value >= 32 && value <= 126;
+    if (printable && start < 0) start = i;
+    if ((!printable || i === bytes.length) && start >= 0) {
+      if (i - start >= minLength) {
+        strings.push(new TextDecoder('latin1').decode(bytes.slice(start, i)));
+      }
+      start = -1;
+    }
+  }
+  return strings;
+}
+
+function parseAnimationListText(text) {
+  return uniqueSorted(String(text || '').split(/\r?\n/).map(line => line.replace(/;.*$/, '').trim()));
+}
+
+function parseSkeletonIndexBuffer(buffer) {
+  return uniqueSorted(extractAsciiStrings(buffer, 5).filter(value => /^fs_|^strat_|pole|flag|standard/i.test(value)));
+}
+
+function parseAnimationPackIndex(buffer) {
+  return uniqueSorted(extractAsciiStrings(buffer, 8)
+    .filter(value => /\.cas$/i.test(value) || /data\/animations\//i.test(value))
+    .map(value => value.replace(/\\/g, '/')));
+}
+
+function animationLabel(path) {
+  return String(path || '').replace(/^data\/animations\//i, '').replace(/\.cas$/i, '');
+}
+
+function suggestSkeletonForModel(modelName, skeletons) {
+  const name = String(modelName || '').toLowerCase();
+  const candidates = [
+    [/(dog|hound|wardog|war_dog)/, 'fs_dog'],
+    [/(pig)/, 'fs_pig'],
+    [/(camel)/, 'fs_camel'],
+    [/(elephant)/, 'fs_african_elephant'],
+    [/(horse|cavalry|cataphract|mounted)/, 'fs_horse'],
+    [/(archer|bow)/, 'fs_archer'],
+    [/(javelin|peltast)/, 'fs_javelinman'],
+    [/(slinger)/, 'fs_slinger_new'],
+    [/(spear|hoplite|phalanx|pike)/, 'fs_spearman'],
+    [/(2h|twohand|two_hand|berserker)/, 'fs_2handed'],
+  ];
+  for (const [pattern, skeleton] of candidates) {
+    if (pattern.test(name) && skeletons.includes(skeleton)) return skeleton;
+  }
+  return skeletons.includes('fs_swordsman') ? 'fs_swordsman' : (skeletons[0] || '');
+}
+
+function CasUnitCardStudio() {
+  const mountRef = useRef(null);
+  const rendererRef = useRef(null);
+  const sceneRef = useRef(null);
+  const cameraRef = useRef(null);
+  const groupRef = useRef(null);
+  const cardRef = useRef(null);
+  const [model, setModel] = useState(null);
+  const [background, setBackground] = useState(null);
+  const [animationPack, setAnimationPack] = useState({ files: [], skeletons: [], animations: [] });
+  const [animationSearch, setAnimationSearch] = useState('');
+  const [status, setStatus] = useState('Load a .cas or .mesh model, optionally load a background, then export RTW-style card files.');
+  const [settings, setSettings] = useState({
+    name: 'unit_card',
+    width: 48,
+    height: 64,
+    modelScale: 92,
+    modelX: 0,
+    modelY: 2,
+    yaw: -28,
+    pitch: 8,
+    roll: 0,
+    material: '#d7c7a2',
+    shadow: true,
+    stamp: true,
+    skeleton: '',
+    animation: '',
+  });
+
+  const update = (key, value) => setSettings(prev => ({ ...prev, [key]: value }));
+
+  const loadModel = async (file) => {
+    const buffer = await file.arrayBuffer();
+    const ext = file.name.split('.').pop().toLowerCase();
+    const parsed = ext === 'mesh' ? parseMeshFile(buffer) : parseCasFile(buffer);
+    if (!parsed?.meshes?.length) throw new Error(parsed?.errors?.join('\n') || 'No mesh data found.');
+    setModel({ name: file.name, parsed });
+    setSettings(prev => {
+      const skeleton = prev.skeleton || suggestSkeletonForModel(file.name, animationPack.skeletons);
+      return { ...prev, name: sanitizeCardName(file.name.replace(/\.(cas|mesh)$/i, '')), skeleton };
+    });
+    setStatus(`Loaded ${file.name}: ${parsed.meshes.length} group${parsed.meshes.length === 1 ? '' : 's'}.`);
+  };
+
+  const handleModelInput = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try { await loadModel(file); } catch (err) { setStatus(`Model load failed: ${err.message}`); }
+  };
+
+  const handleBackground = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const bitmap = await createImageBitmap(file);
+      setBackground({ name: file.name, bitmap });
+      setStatus(`Loaded background ${file.name}.`);
+    } catch (err) {
+      setStatus(`Background load failed: ${err.message}`);
+    }
+  };
+
+  const handleAnimationPack = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    try {
+      const loadedFiles = [];
+      let skeletons = [];
+      let animations = [];
+      for (const file of files) {
+        const name = file.name.toLowerCase();
+        loadedFiles.push({ name: file.name, size: file.size });
+        if (name === 'list.txt') {
+          skeletons.push(...parseAnimationListText(await file.text()));
+        } else if (name === 'skeletons.idx') {
+          skeletons.push(...parseSkeletonIndexBuffer(await file.arrayBuffer()));
+        } else if (name === 'pack.idx') {
+          animations.push(...parseAnimationPackIndex(await file.arrayBuffer()));
+        }
+      }
+      skeletons = uniqueSorted(skeletons);
+      animations = uniqueSorted(animations);
+      setAnimationPack({ files: loadedFiles, skeletons, animations });
+      setSettings(prev => ({
+        ...prev,
+        skeleton: prev.skeleton || suggestSkeletonForModel(model?.name || prev.name, skeletons),
+        animation: prev.animation || animations.find(path => /stand|idle/i.test(path)) || animations[0] || '',
+      }));
+      setStatus(`Loaded animation pack references: ${skeletons.length} skeletons, ${animations.length} animation CAS entries, ${loadedFiles.length} files.`);
+    } catch (err) {
+      setStatus(`Animation pack load failed: ${err.message}`);
+    }
+  };
+
+  const exportAnimationAssignment = () => {
+    const safe = sanitizeCardName(settings.name);
+    const text = [
+      'RTW unit card skeleton/animation assignment',
+      '',
+      `Model: ${model?.name || ''}`,
+      `Card: ${safe}`,
+      `Skeleton: ${settings.skeleton || ''}`,
+      `Animation: ${settings.animation || ''}`,
+      `Animation label: ${animationLabel(settings.animation)}`,
+      '',
+      'Loaded files:',
+      ...animationPack.files.map(file => `- ${file.name}\t${Math.ceil(file.size / 1024)} KB`),
+      '',
+      'Notes:',
+      '- This assignment is for the CAS card studio and Blender/unit-card workflow.',
+      '- The browser preview uses the static CAS mesh plus manual pose controls; RTW pack.dat/aninterp.cache are kept as source references.',
+    ].join('\n');
+    downloadText(toCRLF(text), `${safe}_animation_assignment.txt`);
+  };
+
+  useEffect(() => {
+    if (!model || !mountRef.current) return undefined;
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(512, 512);
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setClearColor(0x000000, 0);
+    mountRef.current.replaceChildren(renderer.domElement);
+    rendererRef.current = renderer;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(24, 1, 0.01, 10000);
+    const group = new THREE.Group();
+    scene.add(group);
+    scene.add(new THREE.AmbientLight(0xfff1d0, 0.72));
+    const key = new THREE.DirectionalLight(0xffffff, 1.35);
+    key.position.set(4, 7, 6);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0xa8c8ff, 0.42);
+    fill.position.set(-5, 3, 2);
+    scene.add(fill);
+
+    const material = new THREE.MeshPhongMaterial({
+      color: settings.material,
+      shininess: 18,
+      specular: 0x383226,
+      side: THREE.DoubleSide,
+    });
+
+    let box = new THREE.Box3();
+    for (const mesh of model.parsed.meshes) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(mesh.uvs, 2));
+      geo.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+      geo.computeBoundingBox();
+      const obj = new THREE.Mesh(geo, material.clone());
+      group.add(obj);
+      box.union(geo.boundingBox);
+    }
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    group.position.set(-center.x, -center.y, -center.z);
+    const maxAxis = Math.max(size.x, size.y, size.z) || 1;
+    const scale = 2.25 / maxAxis;
+    group.scale.setScalar(scale);
+    camera.position.set(0, size.y * scale * 0.18, 4.4);
+    camera.lookAt(0, 0.1, 0);
+    sceneRef.current = scene;
+    cameraRef.current = camera;
+    groupRef.current = group;
+
+    return () => {
+      renderer.dispose();
+      scene.traverse(obj => {
+        obj.geometry?.dispose?.();
+        obj.material?.dispose?.();
+      });
+      rendererRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
+      groupRef.current = null;
+    };
+  }, [model]);
+
+  const renderCard = useCallback(() => {
+    const canvas = cardRef.current;
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const group = groupRef.current;
+    if (!canvas || !renderer || !scene || !camera || !group) return null;
+    const width = Math.max(24, Math.min(512, Number(settings.width) || 48));
+    const height = Math.max(32, Math.min(768, Number(settings.height) || 64));
+    canvas.width = width;
+    canvas.height = height;
+    group.rotation.set(
+      THREE.MathUtils.degToRad(Number(settings.pitch) || 0),
+      THREE.MathUtils.degToRad(Number(settings.yaw) || 0),
+      THREE.MathUtils.degToRad(Number(settings.roll) || 0),
+    );
+    group.traverse(obj => {
+      if (obj.isMesh && obj.material?.color) obj.material.color.set(settings.material || '#d7c7a2');
+    });
+    renderer.render(scene, camera);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.clearRect(0, 0, width, height);
+    drawVanillaCardBackground(ctx, width, height, background?.bitmap);
+    if (settings.shadow) {
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.beginPath();
+      ctx.ellipse(width * 0.5, height * 0.83, width * 0.28, height * 0.055, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const modelSide = Math.max(width, height) * (Number(settings.modelScale) || 92) / 100;
+    const x = (width - modelSide) / 2 + (Number(settings.modelX) || 0);
+    const y = height * 0.10 + (Number(settings.modelY) || 0);
+    ctx.drawImage(renderer.domElement, x, y, modelSide, modelSide);
+    if (settings.stamp && width >= 96) {
+      ctx.font = `${Math.max(7, Math.round(width * 0.035))}px serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(244, 225, 170, 0.55)';
+      ctx.fillText('REX BY ATREUS ONLY', width / 2, height - Math.max(4, Math.round(height * 0.025)));
+    }
+    return canvas;
+  }, [background, settings]);
+
+  useEffect(() => { renderCard(); }, [renderCard, model]);
+
+  const exportCards = async () => {
+    const canvas = renderCard();
+    if (!canvas) {
+      setStatus('Load a model first.');
+      return;
+    }
+    const safe = sanitizeCardName(settings.name);
+    const imageData = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
+    const zip = new JSZip();
+    zip.file(`${safe}.tga`, encodeCardTga(imageData));
+    zip.file(`${safe}.dds`, encodeCardDds(imageData));
+    const png = await canvasToBlob(canvas, 'image/png');
+    if (png) zip.file(`${safe}.png`, png);
+    zip.file('unit_card_render_report.txt', toCRLF([
+      `Model: ${model?.name || ''}`,
+      `Background: ${background?.name || 'generated vanilla-style gradient'}`,
+      `Size: ${canvas.width}x${canvas.height}`,
+      `Pose: yaw ${settings.yaw}, pitch ${settings.pitch}, roll ${settings.roll}`,
+      `Skeleton: ${settings.skeleton || ''}`,
+      `Animation: ${settings.animation || ''}`,
+      'Outputs: .tga, .dds, .png',
+    ].join('\n')));
+    downloadBlob(await zip.generateAsync({ type: 'blob' }), `${safe}_unit_card.zip`);
+    setStatus(`Exported ${safe}_unit_card.zip.`);
+  };
+
+  const animationOptions = useMemo(() => {
+    const q = animationSearch.trim().toLowerCase();
+    const list = q
+      ? animationPack.animations.filter(path => path.toLowerCase().includes(q))
+      : animationPack.animations;
+    return list.slice(0, 160);
+  }, [animationPack.animations, animationSearch]);
+
+  return (
+    <div className="grid grid-cols-[300px_1fr_240px] gap-3 p-3 bg-slate-950/60">
+      <div className="space-y-2">
+        <label className="block rounded border border-slate-700 bg-slate-900 p-2 cursor-pointer hover:border-amber-500/60">
+          <input type="file" accept=".cas,.mesh" className="hidden" onChange={handleModelInput} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><Box className="w-3.5 h-3.5 text-amber-400" />Load .cas/.mesh model</span>
+        </label>
+        <label className="block rounded border border-slate-700 bg-slate-900 p-2 cursor-pointer hover:border-amber-500/60">
+          <input type="file" accept=".png,.jpg,.jpeg,.webp" className="hidden" onChange={handleBackground} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load background image</span>
+        </label>
+        <label className="block rounded border border-slate-700 bg-slate-900 p-2 cursor-pointer hover:border-amber-500/60">
+          <input type="file" accept=".txt,.idx,.dat,.cache" multiple webkitdirectory="" className="hidden" onChange={handleAnimationPack} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><FileText className="w-3.5 h-3.5 text-amber-400" />Load animation pack folder</span>
+          <span className="block mt-1 text-[9px] text-slate-500">Reads list.txt, skeletons.idx, pack.idx and records .dat/.cache references.</span>
+        </label>
+        {(animationPack.skeletons.length > 0 || animationPack.animations.length > 0) && (
+          <div className="rounded border border-slate-700 bg-slate-900/60 p-2 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[9px] uppercase text-slate-500">Skeleton / Animation</span>
+              <span className="text-[9px] text-slate-600">{animationPack.files.length} files</span>
+            </div>
+            <label className="block">
+              <span className="text-[9px] text-slate-500">Skeleton</span>
+              <select value={settings.skeleton} onChange={e => update('skeleton', e.target.value)}
+                className="w-full h-7 mt-1 px-1 text-[10px] bg-slate-950 border border-slate-700 rounded text-slate-200">
+                <option value="">-- none --</option>
+                {animationPack.skeletons.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[9px] text-slate-500">Filter animations</span>
+              <input value={animationSearch} onChange={e => setAnimationSearch(e.target.value)}
+                placeholder="stand, idle, attack..."
+                className="w-full h-7 mt-1 px-2 text-[10px] bg-slate-950 border border-slate-700 rounded text-slate-200 placeholder-slate-600" />
+            </label>
+            <label className="block">
+              <span className="text-[9px] text-slate-500">Animation CAS</span>
+              <select value={settings.animation} onChange={e => update('animation', e.target.value)}
+                className="w-full h-7 mt-1 px-1 text-[10px] bg-slate-950 border border-slate-700 rounded text-slate-200">
+                <option value="">-- none --</option>
+                {animationOptions.map(path => <option key={path} value={path}>{animationLabel(path)}</option>)}
+              </select>
+            </label>
+            <div className="grid grid-cols-2 gap-1">
+              <Button variant="outline" className="h-7 text-[10px]" onClick={() => update('skeleton', suggestSkeletonForModel(model?.name || settings.name, animationPack.skeletons))}>
+                Suggest
+              </Button>
+              <Button variant="outline" className="h-7 text-[10px]" onClick={exportAnimationAssignment} disabled={!settings.skeleton && !settings.animation}>
+                Export assign
+              </Button>
+            </div>
+            {animationPack.animations.length > animationOptions.length && (
+              <p className="text-[9px] text-slate-600">Showing {animationOptions.length}/{animationPack.animations.length}; filter to narrow.</p>
+            )}
+          </div>
+        )}
+        <label className="block">
+          <span className="text-[9px] uppercase text-slate-500">Card filename</span>
+          <input value={settings.name} onChange={e => update('name', e.target.value)} className="w-full h-7 mt-1 px-2 text-[11px] font-mono bg-slate-900 border border-slate-700 rounded" />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {['width', 'height'].map(key => (
+            <label key={key} className="block">
+              <span className="text-[9px] uppercase text-slate-500">{key}</span>
+              <input type="number" min="24" max="768" value={settings[key]} onChange={e => update(key, e.target.value)} className="w-full h-7 mt-1 px-2 text-[11px] bg-slate-900 border border-slate-700 rounded" />
+            </label>
+          ))}
+        </div>
+        <label className="flex items-center gap-2 text-[11px] text-slate-300">
+          <input type="checkbox" checked={settings.stamp} onChange={e => update('stamp', e.target.checked)} className="accent-amber-500" />
+          REX BY ATREUS ONLY stamp on larger cards
+        </label>
+        <Button className="w-full h-8 text-xs gap-1.5" onClick={exportCards} disabled={!model}>
+          <Download className="w-3.5 h-3.5" />
+          Export TGA/DDS/PNG
+        </Button>
+        <p className="text-[11px] text-amber-300 whitespace-pre-wrap">{status}</p>
+      </div>
+      <div className="rounded border border-slate-700 bg-black/40 grid place-items-center min-h-[260px] overflow-hidden">
+        <canvas ref={cardRef} className="max-h-[360px] max-w-full image-render-pixelated" style={{ width: 'auto', height: 'auto' }} />
+      </div>
+      <div className="space-y-2">
+        {[
+          ['modelScale', 'Scale', 30, 180],
+          ['modelX', 'X', -80, 80],
+          ['modelY', 'Y', -80, 80],
+          ['yaw', 'Yaw', -180, 180],
+          ['pitch', 'Pitch', -90, 90],
+          ['roll', 'Roll', -90, 90],
+        ].map(([key, label, min, max]) => (
+          <label key={key} className="block">
+            <span className="text-[9px] uppercase text-slate-500 flex justify-between"><span>{label}</span><span>{settings[key]}</span></span>
+            <input type="range" min={min} max={max} value={settings[key]} onChange={e => update(key, e.target.value)} className="w-full accent-amber-500" />
+          </label>
+        ))}
+        <label className="block">
+          <span className="text-[9px] uppercase text-slate-500">Model material</span>
+          <input type="color" value={settings.material} onChange={e => update('material', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded" />
+        </label>
+        <label className="flex items-center gap-2 text-[11px] text-slate-300">
+          <input type="checkbox" checked={settings.shadow} onChange={e => update('shadow', e.target.checked)} className="accent-amber-500" />
+          Ground shadow
+        </label>
+      </div>
+      <div ref={mountRef} className="fixed -left-[9999px] top-0 w-[512px] h-[512px] pointer-events-none opacity-0" />
+    </div>
+  );
 }
 
 // ─── Entry Form ───────────────────────────────────────────────────────────────
@@ -557,6 +1069,7 @@ export default function UnitCardGenerator() {
   const [search, setSearch]         = useState('');
   const [showInfo, setShowInfo]     = useState(false);
   const [showPoses, setShowPoses]   = useState(false);
+  const [showCasStudio, setShowCasStudio] = useState(false);
   const [importMsg, setImportMsg]   = useState('');
 
   const factions  = useMemo(() => parseFactionList(), []);
@@ -737,6 +1250,10 @@ export default function UnitCardGenerator() {
           className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border border-amber-500/30 text-amber-400 hover:bg-amber-600/20 transition-colors">
           <Plus className="w-3 h-3" /> Add Entry
         </button>
+        <button onClick={() => setShowCasStudio(v => !v)}
+          className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors ${showCasStudio ? 'bg-blue-600/20 border-blue-500/40 text-blue-300' : 'border-slate-600/40 text-slate-400 hover:text-slate-200 hover:border-slate-500'}`}>
+          <Box className="w-3 h-3" /> CAS Card Studio
+        </button>
         <div className="flex-1" />
         <span className="text-[10px] text-slate-600">{entries.length} entries ({filtered.length} shown)</span>
         <button onClick={exportInputFile} disabled={entries.length === 0}
@@ -754,6 +1271,12 @@ export default function UnitCardGenerator() {
           <Download className="w-3 h-3" /> Export UI folders
         </button>
       </div>
+
+      {showCasStudio && (
+        <div className="border-b border-border shrink-0 max-h-[46vh] overflow-auto">
+          <CasUnitCardStudio />
+        </div>
+      )}
 
       {/* ── Main ── */}
       <div className="flex-1 flex overflow-hidden">

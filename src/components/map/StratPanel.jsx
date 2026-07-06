@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Upload, Download, Eye, EyeOff, Trash2, Plus, ChevronDown, ChevronRight, Edit2, Check, X, FolderDown, MapPin, Anchor, Save, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { getItemIcon, getItemLabel } from './StratOverlay';
+import { getItemIcon } from './StratOverlay';
 import { serializeDescrStrat, serializeDescrRegions, serializeWinConditions, parseWinConditions, SETTLEMENT_LEVELS, SETTLEMENT_LEVEL_ICONS } from './stratParser';
 import { exportTGA, downloadBlob } from './tgaExporter';
 import { LAYER_DEFS, LAYER_BY_ID } from './mapLayerConstants';
@@ -1453,7 +1453,7 @@ export default function StratPanel({
             className="flex-1 h-6 px-2 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-slate-200 placeholder-slate-600" />
             <button onClick={() => setShowNewRegion((v) => !v)}
             className={`flex items-center gap-0.5 px-2 h-6 rounded text-[10px] border transition-colors shrink-0 ${showNewRegion ? 'bg-green-600/20 border-green-500/40 text-green-400' : 'border-slate-600/40 text-slate-400 hover:text-slate-200'}`}>
-              <Plus className="w-3 h-3" /> Region
+              <Plus className="w-3 h-3" /> Add Region
             </button>
           </div>
           {showNewRegion &&

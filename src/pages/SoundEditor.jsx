@@ -1,10 +1,9 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Volume2, FolderOpen, Download, Search, Plus, Trash2,
-  ChevronDown, ChevronRight, FileText, RefreshCw, Save
+  ChevronDown, ChevronRight, FileText, Save, Wand2, Copy
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
@@ -80,6 +79,36 @@ function serializeEntries(entries) {
   }).join('\n'));
 }
 
+function buildSoundAiPrompt({ kind, faction, culture, scene, voiceTone }) {
+  const target = kind === 'music' ? 'music loop' : kind === 'voice' ? 'voice line set' : 'sound effect set';
+  return [
+    `Generate ${target} ideas for Rome Total War modding.`,
+    `Faction: ${faction || 'new faction'}. Culture/style: ${culture || 'historically plausible ancient culture'}.`,
+    `Use case: ${scene || 'campaign and battle feedback'}. Tone: ${voiceTone || 'clear, grounded, non-modern, game-ready'}.`,
+    'Return short file-stem names and concise direction notes. Keep names ASCII, lowercase, underscore-separated, and easy to assign in descr_sounds text files.',
+  ].join('\n');
+}
+
+function buildSoundEntryDraft({ label, folder, stem, count, kind }) {
+  const cleanLabel = String(label || `${kind}_entry`).trim().replace(/\s+/g, '_');
+  const cleanFolder = String(folder || 'data/sounds').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  const cleanStem = String(stem || cleanLabel).trim().replace(/\s+/g, '_');
+  const n = Math.max(1, Math.min(24, Number(count) || 3));
+  const lines = [
+    `\tfolder ${cleanFolder}`,
+    ...Array.from({ length: n }, (_, i) => `\tfile ${cleanStem}_${String(i + 1).padStart(2, '0')}.wav`),
+  ];
+  if (kind === 'music') lines.push('\tmode loop');
+  if (kind === 'voice') lines.push('\tpriority high');
+  return {
+    type: 'entry',
+    label: cleanLabel,
+    lines: lines.map(raw => ({ key: raw.trim(), raw })),
+    raw: `${cleanLabel}\n${lines.join('\n')}\n`,
+    comments: '',
+  };
+}
+
 function SoundEntry({ entry, onUpdate, onDelete }) {
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState(entry.lines.map(l => l.raw));
@@ -150,6 +179,18 @@ export default function SoundEditor() {
   const [activeFile, setActiveFile] = useState(null);
   const [search, setSearch] = useState('');
   const [newEntryLabel, setNewEntryLabel] = useState('');
+  const [soundAi, setSoundAi] = useState({
+    kind: 'voice',
+    faction: 'thamud_01',
+    culture: 'Hellenized Phoenician pre-Islamic Arabic',
+    scene: 'unit confirmations, battle orders, and campaign alerts',
+    voiceTone: 'dry desert authority, historical, non-modern',
+    label: 'thamud_01_voice_confirm',
+    folder: 'data/sounds/voice/thamud_01',
+    stem: 'thamud_01_confirm',
+    count: 4,
+    prompt: '',
+  });
   const folderRef = useRef();
 
   const handleFolderLoad = (e) => {
@@ -215,9 +256,30 @@ export default function SoundEditor() {
     setNewEntryLabel('');
   };
 
+  const updateSoundAi = (key, value) => setSoundAi(prev => ({ ...prev, [key]: value }));
+
+  const handleGenerateSoundPrompt = async () => {
+    const prompt = buildSoundAiPrompt(soundAi);
+    setSoundAi(prev => ({ ...prev, prompt }));
+    try { await navigator.clipboard?.writeText(prompt); } catch {}
+  };
+
+  const handleAssignGeneratedSound = () => {
+    if (!activeFile) return;
+    const entry = buildSoundEntryDraft(soundAi);
+    setFiles(prev => ({
+      ...prev,
+      [activeFile]: {
+        ...prev[activeFile],
+        entries: [...prev[activeFile].entries, entry],
+      },
+    }));
+    setSearch(entry.label);
+  };
+
   const handleExportAll = async () => {
     const zip = new JSZip();
-    const folder = zip.folder('data/sounds/');
+    const folder = zip.folder('data/');
     Object.entries(files).forEach(([name, { entries }]) => {
       folder.file(name, toCRLF(serializeEntries(entries)));
     });
@@ -263,7 +325,7 @@ export default function SoundEditor() {
             </>
           )}
           <label className="cursor-pointer">
-            <input ref={folderRef} type="file" className="hidden" webkitdirectory="" directory="" multiple onChange={handleFolderLoad} />
+            <input ref={folderRef} type="file" className="hidden" webkitdirectory="" multiple onChange={handleFolderLoad} />
             <Button asChild variant="outline" size="sm" className="h-7 text-[11px] gap-1 pointer-events-none">
               <span><FolderOpen className="w-3 h-3" /> Load sounds folder</span>
             </Button>
@@ -350,6 +412,49 @@ export default function SoundEditor() {
                 <Button size="sm" className="h-7 text-[10px] gap-1" onClick={handleAddEntry} disabled={!newEntryLabel.trim()}>
                   <Plus className="w-3 h-3" /> Add
                 </Button>
+              </div>
+
+              <div className="border-b border-border px-3 py-2 shrink-0 bg-card/20">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                  <select value={soundAi.kind} onChange={e => updateSoundAi('kind', e.target.value)}
+                    className="h-7 px-2 text-[11px] bg-background border border-border rounded">
+                    <option value="voice">Voice lines</option>
+                    <option value="music">Music</option>
+                    <option value="effect">Sound effects</option>
+                  </select>
+                  <input value={soundAi.label} onChange={e => updateSoundAi('label', e.target.value)} placeholder="entry_label"
+                    className="h-7 px-2 text-[11px] font-mono bg-background border border-border rounded" />
+                  <input value={soundAi.folder} onChange={e => updateSoundAi('folder', e.target.value)} placeholder="data/sounds/..."
+                    className="h-7 px-2 text-[11px] font-mono bg-background border border-border rounded" />
+                  <div className="flex gap-1">
+                    <input value={soundAi.stem} onChange={e => updateSoundAi('stem', e.target.value)} placeholder="file_stem"
+                      className="min-w-0 flex-1 h-7 px-2 text-[11px] font-mono bg-background border border-border rounded" />
+                    <input type="number" min="1" max="24" value={soundAi.count} onChange={e => updateSoundAi('count', e.target.value)}
+                      className="w-14 h-7 px-2 text-[11px] bg-background border border-border rounded" />
+                  </div>
+                  <input value={soundAi.faction} onChange={e => updateSoundAi('faction', e.target.value)} placeholder="faction"
+                    className="h-7 px-2 text-[11px] font-mono bg-background border border-border rounded" />
+                  <input value={soundAi.culture} onChange={e => updateSoundAi('culture', e.target.value)} placeholder="culture/style"
+                    className="h-7 px-2 text-[11px] bg-background border border-border rounded" />
+                  <input value={soundAi.scene} onChange={e => updateSoundAi('scene', e.target.value)} placeholder="scene/use case"
+                    className="h-7 px-2 text-[11px] bg-background border border-border rounded" />
+                  <input value={soundAi.voiceTone} onChange={e => updateSoundAi('voiceTone', e.target.value)} placeholder="tone"
+                    className="h-7 px-2 text-[11px] bg-background border border-border rounded" />
+                </div>
+                <div className="mt-2 grid grid-cols-[auto_auto_1fr_auto] gap-2 items-start">
+                  <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={handleGenerateSoundPrompt}>
+                    <Wand2 className="w-3 h-3" /> AI prompt
+                  </Button>
+                  <Button size="sm" className="h-7 text-[10px] gap-1" onClick={handleAssignGeneratedSound} disabled={!activeFile || !soundAi.label.trim()}>
+                    <Plus className="w-3 h-3" /> Assign
+                  </Button>
+                  <textarea value={soundAi.prompt} onChange={e => updateSoundAi('prompt', e.target.value)} placeholder="Generated audio direction prompt appears here."
+                    className="min-h-7 max-h-20 px-2 py-1 text-[10px] bg-background border border-border rounded text-muted-foreground" />
+                  <button onClick={() => navigator.clipboard?.writeText(soundAi.prompt || '')} disabled={!soundAi.prompt}
+                    className="h-7 px-2 rounded border border-border text-muted-foreground hover:text-foreground disabled:opacity-40">
+                    <Copy className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
 
               {/* Entries */}

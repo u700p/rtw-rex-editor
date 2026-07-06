@@ -261,6 +261,23 @@ function displayForInternalName(name) {
     .replace(/\bof\b/gi, 'of');
 }
 
+function parseCultureComboInput(value) {
+  const text = String(value || '').toLowerCase();
+  if (!text.trim()) return [];
+  const aliases = {
+    arabic: ['arabic', 'pre-islamic', 'pre islamic', 'thamud', 'thamudic', 'nabataean', 'sabaean'],
+    phoenician: ['phoenician', 'punic', 'carthaginian', 'tyrian', 'sidonian'],
+    hellenized: ['hellenized', 'hellenic', 'greek', 'seleucid', 'ptolemaic'],
+    hittite: ['hittite', 'nesite', 'hatti'],
+    luwian: ['luwian', 'lycian', 'lukka', 'anatolian'],
+  };
+  const found = [];
+  for (const [key, names] of Object.entries(aliases)) {
+    if (names.some(name => text.includes(name)) || text.includes(key)) found.push(key);
+  }
+  return [...new Set(found)].filter(key => NAME_MODULES[key]);
+}
+
 function buildGeneratedNamelist({ faction, cultureKeys, maleCount, surnameCount, femaleCount }) {
   const modules = cultureKeys.map(key => NAME_MODULES[key]).filter(Boolean);
   const seed = `${faction}|${cultureKeys.join(',')}|${maleCount}|${surnameCount}|${femaleCount}`;
@@ -355,6 +372,7 @@ export default function CharacterNamesTab() {
   const [factionSearch, setFactionSearch] = useState('');
   const [parseError, setParseError] = useState('');
   const [generatorFaction, setGeneratorFaction] = useState('thamud_01');
+  const [generatorCultureText, setGeneratorCultureText] = useState('Hellenized, Phoenician, Pre-Islamic Arabic');
   const [generatorCultures, setGeneratorCultures] = useState(DEFAULT_GENERATOR_CULTURES);
   const [generatorCounts, setGeneratorCounts] = useState(DEFAULT_GENERATOR_COUNTS);
   const [generatorMessage, setGeneratorMessage] = useState('');
@@ -500,7 +518,8 @@ export default function CharacterNamesTab() {
 
   const generateNamelist = () => {
     const faction = sanitizeName(generatorFaction) || 'thamud_01';
-    const cultureKeys = generatorCultures.length ? generatorCultures : DEFAULT_GENERATOR_CULTURES;
+    const typedCultureKeys = parseCultureComboInput(generatorCultureText);
+    const cultureKeys = typedCultureKeys.length ? typedCultureKeys : (generatorCultures.length ? generatorCultures : DEFAULT_GENERATOR_CULTURES);
     const generated = buildGeneratedNamelist({
       faction,
       cultureKeys,
@@ -525,6 +544,7 @@ export default function CharacterNamesTab() {
     });
 
     setGeneratorFaction(faction);
+    setGeneratorCultures(cultureKeys);
     setSelectedFaction(faction);
     setActiveSection('characters');
     setSearch('');
@@ -668,6 +688,15 @@ export default function CharacterNamesTab() {
             <datalist id="namelist-generator-factions">
               {[...new Set([...factionNames, ...factionList])].sort().map(f => <option key={f} value={f} />)}
             </datalist>
+          </label>
+          <label className="min-w-64 flex-[1.4] space-y-1">
+            <span className="block text-[9px] text-slate-500 uppercase font-semibold tracking-wider">Culture combo input</span>
+            <input
+              value={generatorCultureText}
+              onChange={e => setGeneratorCultureText(e.target.value)}
+              placeholder="hellenized, hittite, luwian"
+              className="w-full h-7 px-2 text-[11px] bg-slate-800 border border-slate-600/60 rounded text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+            />
           </label>
           {GENERATOR_COUNT_FIELDS.map(field => (
             <label key={field.key} className="w-24 space-y-1">

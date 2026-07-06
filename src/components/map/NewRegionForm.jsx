@@ -4,6 +4,31 @@ import { extractHiddenResourcesFromEDB, extractBuildingLevelsFromEDB } from './a
 
 const SETTLEMENT_LEVELS = ['village', 'town', 'large_town', 'city', 'large_city', 'huge_city'];
 
+function clampRgb(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(255, Math.round(n)));
+}
+
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map(v => clampRgb(v).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function hexToRgb(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!match) return null;
+  const n = parseInt(match[1], 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function randomRegionColor() {
+  return {
+    r: Math.floor(Math.random() * 200) + 30,
+    g: Math.floor(Math.random() * 200) + 30,
+    b: Math.floor(Math.random() * 200) + 30,
+  };
+}
+
 // ─── Searchable dropdown ──────────────────────────────────────────────────────
 function SearchableSelect({ value, onChange, options, placeholder, emptyMsg }) {
   const [open, setOpen] = useState(false);
@@ -191,6 +216,11 @@ export default function NewRegionForm({ factionColors, onAdd, onCancel, edbData,
 
   const canSubmit = draft.regionName && draft.settlementName && !religionError;
 
+  const setRegionColorHex = (hex) => {
+    const rgb = hexToRgb(hex);
+    if (rgb) setDraft(d => ({ ...d, ...rgb }));
+  };
+
   const handleSubmit = () => {
     if (!canSubmit) return;
     onAdd(draft);
@@ -233,17 +263,27 @@ export default function NewRegionForm({ factionColors, onAdd, onCancel, edbData,
       <div>
         <span className="text-[9px] text-slate-500">Region Color (RGB)</span>
         <div className="flex items-center gap-1.5">
-          <span className="w-4 h-4 rounded border border-slate-600/40 shrink-0"
-            style={{ background: `rgb(${draft.r},${draft.g},${draft.b})` }} />
+          <label className="relative w-6 h-6 rounded border border-slate-600/40 shrink-0 overflow-hidden cursor-pointer"
+            title="Open region color picker">
+            <span className="absolute inset-0"
+              style={{ background: `rgb(${draft.r},${draft.g},${draft.b})` }} />
+            <input type="color" value={rgbToHex(draft.r, draft.g, draft.b)}
+              onChange={e => setRegionColorHex(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer" />
+          </label>
           <input type="number" min="0" max="255" value={draft.r}
-            onChange={e => setDraft(d => ({ ...d, r: parseInt(e.target.value) || 0 }))}
+            onChange={e => setDraft(d => ({ ...d, r: clampRgb(e.target.value) }))}
             className="h-6 px-1 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-red-400 w-14 font-mono text-center" />
           <input type="number" min="0" max="255" value={draft.g}
-            onChange={e => setDraft(d => ({ ...d, g: parseInt(e.target.value) || 0 }))}
+            onChange={e => setDraft(d => ({ ...d, g: clampRgb(e.target.value) }))}
             className="h-6 px-1 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-green-400 w-14 font-mono text-center" />
           <input type="number" min="0" max="255" value={draft.b}
-            onChange={e => setDraft(d => ({ ...d, b: parseInt(e.target.value) || 0 }))}
+            onChange={e => setDraft(d => ({ ...d, b: clampRgb(e.target.value) }))}
             className="h-6 px-1 text-[11px] bg-slate-800 border border-slate-600/40 rounded text-blue-400 w-14 font-mono text-center" />
+          <button type="button" onClick={() => setDraft(d => ({ ...d, ...randomRegionColor() }))}
+            className="h-6 px-2 rounded border border-slate-600/40 text-[10px] text-slate-400 hover:text-slate-200 hover:border-slate-500">
+            Random
+          </button>
         </div>
       </div>
 
