@@ -1908,6 +1908,8 @@ export default function FactionsEditor() {
   const [duplicateOptions, setDuplicateOptions] = useState({
     createCharacters: true,
     assignSlaveUnits: true,
+    unitCount: AUTO_UNIT_ASSIGNMENT_LIMIT,
+    copySourceOwnership: false,
     packUnitCards: true,
   });
 
@@ -1935,6 +1937,8 @@ export default function FactionsEditor() {
     setDuplicateOptions({
       createCharacters: true,
       assignSlaveUnits: true,
+      unitCount: AUTO_UNIT_ASSIGNMENT_LIMIT,
+      copySourceOwnership: false,
       packUnitCards: true,
     });
     setDuplicateModalOpen(true);
@@ -2080,9 +2084,11 @@ export default function FactionsEditor() {
       ? copyDescrCharacterEntries(src.name, newFactionName, src.culture)
       : false;
     const unitAssign = duplicateOptions.assignSlaveUnits
-      ? assignSlaveUnitsToFaction(newFactionName, unitProfileText, { count: AUTO_UNIT_ASSIGNMENT_LIMIT, packUi: duplicateOptions.packUnitCards })
+      ? assignSlaveUnitsToFaction(newFactionName, unitProfileText, { count: duplicateOptions.unitCount, packUi: duplicateOptions.packUnitCards })
       : { count: 0 };
-    const eduCopied = copyEduOwnershipFromFaction(src.name, newFactionName);
+    const eduCopied = duplicateOptions.copySourceOwnership
+      ? copyEduOwnershipFromFaction(src.name, newFactionName)
+      : false;
     const edbCopied = copyEdbFactionRequirements(src.name, newFactionName, src.culture);
     applyFactionAutomation(newFactionName, {
       displayName: displayNameValue,
@@ -2116,12 +2122,14 @@ export default function FactionsEditor() {
     setDuplicateOptions({
       createCharacters: true,
       assignSlaveUnits: true,
+      unitCount: AUTO_UNIT_ASSIGNMENT_LIMIT,
+      copySourceOwnership: false,
       packUnitCards: true,
     });
   };
 
-  const handleAssignUnitsForFaction = (factionName, description) => {
-    const result = assignSlaveUnitsToFaction(factionName, description || factionName, { count: AUTO_UNIT_ASSIGNMENT_LIMIT, packUi: true });
+  const handleAssignUnitsForFaction = (factionName, description, count = AUTO_UNIT_ASSIGNMENT_LIMIT) => {
+    const result = assignSlaveUnitsToFaction(factionName, description || factionName, { count, packUi: true });
     if (result.changed) {
       try { setEduUnits(parseEduUnits(getEduRawText())); } catch {}
       applyFactionAutomation(factionName, {
