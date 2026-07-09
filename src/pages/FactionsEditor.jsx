@@ -1534,7 +1534,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
           <ColourPickerField label="Primary Colour" colour={draft.primary_colour} onChange={(v) => set('primary_colour', v)} />
           <ColourPickerField label="Secondary Colour" colour={draft.secondary_colour} onChange={(v) => set('secondary_colour', v)} />
           <div className="flex items-center gap-2 py-0.5">
-            <span className="text-[10px] text-slate-300 w-40 shrink-0">Tertiary Colour (M2EX only)</span>
+            <span className="text-[10px] text-slate-300 w-40 shrink-0">Tertiary Colour (REX only)</span>
             <button
               onClick={() => {
                 if (tertiaryEnabled) {
@@ -1554,7 +1554,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
           {tertiaryEnabled && (
             <ColourPickerField label="Tertiary Colour" colour={draft.tertiary_colour || { r: 0, g: 0, b: 0 }} onChange={(v) => set('tertiary_colour', v)} />
           )}
-          <p className="text-[9px] text-amber-300 mt-1">⚠ Tertiary colour only works with M2EX</p>
+          <p className="text-[9px] text-amber-300 mt-1">Tertiary colour only works with REX</p>
         </section>
 
         <section className="space-y-2">
@@ -2306,7 +2306,7 @@ export default function FactionsEditor() {
         {overLimit &&
         <span className="flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/30 border border-amber-700 rounded px-2 py-0.5">
             <AlertTriangle className="w-3 h-3" />
-            {factions.length} — vanilla limit {VANILLA_FACTION_LIMIT}. Extras require M2EX.
+            {factions.length} — vanilla limit {VANILLA_FACTION_LIMIT}. Extras require REX.
           </span>
         }
         <div className="ml-auto flex items-center gap-1.5 flex-wrap">

@@ -1,6 +1,6 @@
 /**
  * Parser / serialiser for M2TW *.sd.xml sprite-sheet files.
- * Supports both original M2TW format and M2EX modified format.
+ * Supports both original M2TW format and REX modified format.
  * 
  * Original M2TW Format:
  *   <root>
@@ -15,7 +15,7 @@
  *     </sprites>
  *   </root>
  * 
- * M2EX Modified Format:
+ * REX Modified Format:
  *   <sprite_definitions version="7">
  *     <page file="battlepage_01.tga" w="512" h="512">
  *       <sprite name="BATTLE_HUD_LEFT" x="0" y="0" w="512" h="181" alpha="1" cursor="0" hotspot_x="0" hotspot_y="0"/>
@@ -32,7 +32,7 @@ export function parseSdXml(text) {
   const root = doc.querySelector('root');
   
   if (spriteDefs) {
-    // M2EX modified format
+    // REX modified format
     const version = spriteDefs.getAttribute('version') ?? '7';
     
     const pages = [];
@@ -69,7 +69,7 @@ export function parseSdXml(text) {
     });
     
     return { 
-      format: 'm2ex',
+      format: 'rex',
       version, 
       enumName: '', 
       pages, 
@@ -116,8 +116,8 @@ export function parseSdXml(text) {
 }
 
 export function serialiseSdXml({ format, version, enumName, pages, sprites }) {
-  if (format === 'm2ex') {
-    // M2EX format output
+  if (format === 'rex' || format === 'm2ex') {
+    // REX format output
     const pageLines = pages.map((p, pageIndex) => {
       const pageSprites = sprites.filter(s => s.page === pageIndex);
       const spriteLines = pageSprites.map(s => {
