@@ -2846,10 +2846,6 @@ export function AiImageWorkshopTab({ recolorOnly = false } = {}) {
   );
 }
 
-export function AiFactionRecolorGeneratorTab() {
-  return <AiImageWorkshopTab recolorOnly />;
-}
-
 function cloneDelimitedBlock(text, startRegex, stopRegex, transform) {
   const lines = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const start = lines.findIndex(line => startRegex.test(stripComment(line)));
@@ -3729,7 +3725,6 @@ export default function RomeTools({ initialTab = 'importer' }) {
     ['recolor', 'Texture Recolorizer', Wand2],
     ['png-converter', 'PNG Converter', Image],
     ['ai-img2img', 'AI Img2Img', Image],
-    ['ai-recolor', 'AI Faction Recolor', Image],
     ['sprite-logos', 'Sprite Logos', Image],
     ['dmb-slave', 'DMB Textures', FileText],
     ['duplicate', 'Duplicators', Copy],
@@ -3763,7 +3758,6 @@ export default function RomeTools({ initialTab = 'importer' }) {
         {tab === 'recolor' && <TextureRecolorTab />}
         {tab === 'png-converter' && <PngConverterTab />}
         {tab === 'ai-img2img' && <AiImageWorkshopTab />}
-        {tab === 'ai-recolor' && <AiFactionRecolorGeneratorTab />}
         {tab === 'sprite-logos' && <SpriteLogoGeneratorTab />}
         {tab === 'dmb-slave' && <DmbSlaveTextureTab />}
         {tab === 'duplicate' && <DuplicatorsTab />}

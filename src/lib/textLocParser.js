@@ -149,6 +149,56 @@ export function serializeTextLocEntries(entries, { rawText = '', header, preserv
   return serializeTextLocFile(textLocEntriesToMap(entries, rawText, { preserveMissing }), { header });
 }
 
+function normalizeLocEntryKey(key) {
+  return String(key || '').trim().replace(/^\{/, '').replace(/\}$/, '');
+}
+
+function detectEol(text) {
+  return String(text || '').includes('\r\n') ? '\r\n' : '\n';
+}
+
+function serializeAppendEntry(key, value, eol) {
+  const cleanKey = normalizeLocEntryKey(key);
+  const strValue = String(value ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!strValue) return `{${cleanKey}}`;
+  const valueLines = strValue.split('\n');
+  if (valueLines.length === 1) return `{${cleanKey}}\t${valueLines[0]}`;
+  return [`{${cleanKey}}`, ...valueLines].join(eol);
+}
+
+export function appendTextLocEntries(rawText, entries, { header } = {}) {
+  const source = String(rawText || '');
+  const eol = detectEol(source);
+  const existing = parseTextLocFile(source);
+  const existingKeys = new Set(Object.keys(existing || {}).map((key) => normalizeLocEntryKey(key).toUpperCase()));
+  const added = [];
+  const kept = [];
+  const blocks = [];
+
+  for (const entry of entries || []) {
+    const key = normalizeLocEntryKey(entry?.key);
+    if (!key) continue;
+    const upper = key.toUpperCase();
+    if (existingKeys.has(upper)) {
+      kept.push(key);
+      continue;
+    }
+    existingKeys.add(upper);
+    added.push(key);
+    blocks.push(serializeAppendEntry(key, entry.value, eol));
+  }
+
+  if (!blocks.length) return { text: source, added, kept };
+
+  let text = source;
+  if (!text.trim() && header) text = `; ${header}${eol}`;
+  if (text && !/[\r\n]$/.test(text)) text += eol;
+  if (text.trim()) text += eol;
+  text += blocks.join(`${eol}${eol}`);
+  if (!text.endsWith(eol)) text += eol;
+  return { text, added, kept };
+}
+
 export function serializeTextLocFile(map, { header } = {}) {
   const lines = [];
   const meta = map?.[TEXT_LOC_META];

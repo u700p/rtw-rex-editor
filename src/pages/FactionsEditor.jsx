@@ -20,11 +20,12 @@ import FactionSymbolsTab, {
   missingFactionSymbolKeys,
   normalizeFactionName,
   repairFactionSymbolsFromAliases,
+  storeFactionSymbols,
   storeFactionSymbolAliases,
   storeFactionSymbolAliasesFromText,
 } from '@/components/factions/FactionSymbolsTab';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
-import { parseTextLocFile, serializeTextLocEntries, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
+import { appendTextLocEntries, parseTextLocFile, serializeTextLocEntries, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { ensureRtwFactionLocEntries } from '@/lib/factionLoc';
 import { getEduRawText, loadEduRawText, setEduRawText } from '@/lib/eduStorage';
 import { cleanOwnershipList, parseEDU, serializeEDU } from '@/components/units/EDUParser';
@@ -75,15 +76,6 @@ function locEntriesFromRawText(rawText) {
     .filter((entry) => entry.key);
 }
 
-function locEntriesEqual(a, b) {
-  if ((a || []).length !== (b || []).length) return false;
-  for (let i = 0; i < (a || []).length; i++) {
-    if (normalizeLocKey(a[i]?.key).toUpperCase() !== normalizeLocKey(b[i]?.key).toUpperCase()) return false;
-    if (String(a[i]?.value ?? '') !== String(b[i]?.value ?? '')) return false;
-  }
-  return true;
-}
-
 function getExpandedStringsData() {
   const store = getTextLocalizationStore();
   const expanded = store[EXPANDED_BI_FILE] || store['expanded.txt'];
@@ -123,12 +115,28 @@ function getExpandedStringsData() {
   return { entries: [], rawText: '' };
 }
 
+function storeExpandedRawText(rawText) {
+  const storedEntries = locEntriesFromRawText(rawText);
+  updateTextLocalizationFile(EXPANDED_BI_FILE, {
+    entries: storedEntries,
+    rawText,
+    sourceFormat: 'txt',
+  });
+  try { localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries: storedEntries, rawText })); } catch {}
+  return storedEntries;
+}
+
 function persistExpandedStrings(entries, rawText = '') {
   const normalizedEntries = (entries || [])
     .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }))
     .filter((entry) => entry.key);
+  if (rawText) {
+    const appended = appendTextLocEntries(rawText, normalizedEntries);
+    if (!appended.added.length) return false;
+    storeExpandedRawText(appended.text);
+    return true;
+  }
   const nextRawText = serializeTextLocEntries(normalizedEntries, { rawText, preserveMissing: true });
-  if (rawText && toCRLF(rawText) === nextRawText && locEntriesEqual(normalizedEntries, locEntriesFromRawText(rawText))) return false;
   const storedEntries = textLocMapToEntries(parseTextLocFile(nextRawText))
     .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }));
   updateTextLocalizationFile(EXPANDED_BI_FILE, {
@@ -632,6 +640,14 @@ function resizeImageData(imageData, size) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(src, 0, 0, size, size);
   return ctx.getImageData(0, 0, size, size);
+}
+
+function imageDataToDataUrl(imageData) {
+  const canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  canvas.getContext('2d').putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/png');
 }
 
 function encodeSymbolTga(imageData) {
@@ -1679,6 +1695,8 @@ export default function FactionsEditor() {
   const [automationReport, setAutomationReport] = useState(() => {
     try { return localStorage.getItem('m2tw_faction_automation_report') || ''; } catch { return ''; }
   });
+  const [logoBatchLoading, setLogoBatchLoading] = useState(false);
+  const [logoBatchStatus, setLogoBatchStatus] = useState('');
 
   const flushFactionsSave = useCallback(() => {
     if (!pendingFactionsSaveRef.current) return;
@@ -1756,6 +1774,44 @@ export default function FactionsEditor() {
     return () => events.forEach(event => window.removeEventListener(event, loadCached));
   }, []);
 
+  const regenerateAllFactionLogos = useCallback(async () => {
+    if (!factions?.length || logoBatchLoading) return;
+    setLogoBatchLoading(true);
+    setLogoBatchStatus('Regenerating cached logos at FE 128x128 and loading 256x256...');
+    let factionCount = 0;
+    let slotCount = 0;
+    try {
+      for (const faction of factions) {
+        const factionName = normalizeFactionName(faction?.name);
+        if (!factionName) continue;
+        const images = loadFactionSymbols(factionName);
+        const next = {};
+        for (const slot of allSymbolSlots(factionName)) {
+          const dataUrl = images[slot.key];
+          if (!dataUrl) continue;
+          const imageData = await imageDataFromDataUrl(dataUrl);
+          const sized = resizeImageData(imageData, symbolTargetSize(slot.key));
+          next[slot.key] = imageDataToDataUrl(sized);
+          slotCount++;
+        }
+        if (Object.keys(next).length) {
+          storeFactionSymbols(factionName, { ...images, ...next });
+          factionCount++;
+        }
+        if (factionCount && factionCount % 6 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+      setLogoBatchStatus(slotCount
+        ? `Regenerated ${slotCount} cached logo slot${slotCount === 1 ? '' : 's'} for ${factionCount} faction${factionCount === 1 ? '' : 's'}. FE icons are 128x128; loading symbols are 256x256.`
+        : 'No cached faction logos found to regenerate. Load or generate logos first.');
+    } catch (err) {
+      setLogoBatchStatus(`Logo regeneration failed: ${err.message}`);
+    } finally {
+      setLogoBatchLoading(false);
+    }
+  }, [factions, logoBatchLoading]);
+
   const loadFactions = useCallback(async (e) => {
     const file = e.target.files?.[0];if (!file) return;
     const text = await file.text();
@@ -1813,12 +1869,8 @@ export default function FactionsEditor() {
   const loadExpandedText = useCallback(async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     const text = await file.text();
-    const entries = textLocMapToEntries(parseTextLocFile(text))
-      .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value }));
-    if (entries.length) {
-      persistExpandedStrings(entries, text);
-      setStringsLoaded(true);
-    }
+    const entries = storeExpandedRawText(text);
+    setStringsLoaded(entries.length > 0);
     e.target.value = '';
   }, []);
 
@@ -2363,6 +2415,12 @@ export default function FactionsEditor() {
               <Download className="w-3 h-3 mr-1" /> Export setup zip
             </Button>
           )}
+          {factions && (
+            <Button variant="outline" size="sm" className="text-[10px] h-7 text-emerald-200 border-emerald-700/70 hover:bg-emerald-900/30" onClick={regenerateAllFactionLogos} disabled={logoBatchLoading}>
+              {logoBatchLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Image className="w-3 h-3 mr-1" />}
+              Regenerate all logos
+            </Button>
+          )}
           {bannersLoaded && (
             <Button variant="outline" size="sm" className="text-[10px] h-7 text-slate-200 border-slate-600 hover:bg-slate-700" onClick={() => {
               const data = localStorage.getItem(BANNERS_GLOBAL_KEY);
@@ -2392,6 +2450,12 @@ export default function FactionsEditor() {
       {automationReport && (
         <div className="border-b border-amber-700/40 bg-amber-950/20 px-4 py-2 text-[10px] text-amber-100 whitespace-pre-wrap font-mono">
           {automationReport}
+        </div>
+      )}
+
+      {logoBatchStatus && (
+        <div className="border-b border-emerald-700/40 bg-emerald-950/20 px-4 py-2 text-[10px] text-emerald-100 font-mono">
+          {logoBatchStatus}
         </div>
       )}
 
