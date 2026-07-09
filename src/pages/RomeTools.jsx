@@ -991,6 +991,105 @@ function resizeIconImageData(imageData, size, mode) {
   return ctx.getImageData(0, 0, size, size);
 }
 
+function factionColorToCss(color, fallback = '#3f6a9f') {
+  if (!color) return fallback;
+  return rgbToHex(color.r ?? 0, color.g ?? 0, color.b ?? 0);
+}
+
+function drawAutoFactionIconImageData(faction, size, variant = 'standard') {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.clearRect(0, 0, size, size);
+  const primary = factionColorToCss(faction.primary_colour, '#476d9e');
+  const secondary = factionColorToCss(faction.secondary_colour, '#e8dfc3');
+  const name = String(faction.name || 'faction');
+  const hash = [...name].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = size * 0.43;
+
+  const bg = ctx.createRadialGradient(cx - size * 0.16, cy - size * 0.18, size * 0.06, cx, cy, radius);
+  bg.addColorStop(0, variant === 'grey' ? '#d8d8d8' : '#ffffff');
+  bg.addColorStop(0.18, variant === 'grey' ? '#a8a8a8' : secondary);
+  bg.addColorStop(1, variant === 'grey' ? '#505050' : primary);
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.lineWidth = Math.max(2, size * 0.045);
+  ctx.strokeStyle = variant === 'select' ? '#fff4a8' : variant === 'roll' ? '#f4d47a' : '#111111';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = Math.max(1, size * 0.018);
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius - ctx.lineWidth * 2.2, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.strokeStyle = variant === 'grey' ? '#f2f2f2' : secondary;
+  ctx.fillStyle = variant === 'grey' ? '#f2f2f2' : secondary;
+  ctx.lineWidth = Math.max(2, size * 0.035);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const motif = hash % 5;
+  if (motif === 0) {
+    ctx.beginPath();
+    ctx.moveTo(0, -size * 0.26);
+    ctx.lineTo(0, size * 0.22);
+    ctx.moveTo(-size * 0.17, -size * 0.04);
+    ctx.lineTo(size * 0.17, -size * 0.04);
+    ctx.moveTo(-size * 0.10, size * 0.18);
+    ctx.lineTo(size * 0.10, size * 0.18);
+    ctx.stroke();
+  } else if (motif === 1) {
+    ctx.beginPath();
+    ctx.arc(-size * 0.04, 0, size * 0.20, Math.PI * 0.18, Math.PI * 1.82);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(size * 0.08, 0, size * 0.16, Math.PI * 0.18, Math.PI * 1.82);
+    ctx.strokeStyle = primary;
+    ctx.stroke();
+  } else if (motif === 2) {
+    ctx.beginPath();
+    ctx.moveTo(0, -size * 0.25);
+    ctx.lineTo(size * 0.22, size * 0.18);
+    ctx.lineTo(-size * 0.22, size * 0.18);
+    ctx.closePath();
+    ctx.stroke();
+  } else if (motif === 3) {
+    for (let i = 0; i < 4; i++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.26);
+      ctx.quadraticCurveTo(size * 0.09, -size * 0.09, 0, 0);
+      ctx.stroke();
+    }
+  } else {
+    ctx.font = `700 ${Math.round(size * 0.34)}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const initials = name.split('_').filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'F';
+    ctx.fillText(initials, 0, size * 0.02);
+  }
+  ctx.restore();
+
+  if (variant === 'grey') {
+    const data = ctx.getImageData(0, 0, size, size);
+    for (let i = 0; i < data.data.length; i += 4) {
+      const avg = data.data[i] * 0.299 + data.data[i + 1] * 0.587 + data.data[i + 2] * 0.114;
+      data.data[i] = data.data[i + 1] = data.data[i + 2] = avg;
+    }
+    ctx.putImageData(data, 0, 0);
+  }
+  return ctx.getImageData(0, 0, size, size);
+}
+
 function factionNameFromIconFile(file) {
   const stem = String(file?.name || 'faction')
     .replace(/\.(tga|png)$/i, '')
@@ -1186,6 +1285,57 @@ function buildBingStylePrompt(form, referenceName = 'uploaded reference') {
     form.negative ? `Avoid: ${form.negative}.` : 'Avoid modern fantasy, glowing effects, blurry edges, new backgrounds, and layout drift.',
     'Output should look like the same game asset after a careful AI-assisted art pass, not a new unrelated illustration.'
   ].join('\n');
+}
+
+function parseRtwPromptColorPairs(text) {
+  const matches = [...String(text || '').matchAll(/(primary_colour|secondary_colour)\s+red\s+(\d+)\s*,\s*green\s+(\d+)\s*,\s*blue\s+(\d+)/gi)]
+    .map(match => ({
+      key: match[1].toLowerCase(),
+      rgb: {
+        r: Math.max(0, Math.min(255, Number(match[2]) || 0)),
+        g: Math.max(0, Math.min(255, Number(match[3]) || 0)),
+        b: Math.max(0, Math.min(255, Number(match[4]) || 0)),
+      },
+    }));
+  const byKey = { primary_colour: [], secondary_colour: [] };
+  for (const match of matches) byKey[match.key]?.push(match.rgb);
+  return {
+    primarySource: byKey.primary_colour[0] || null,
+    primaryTarget: byKey.primary_colour[1] || null,
+    secondarySource: byKey.secondary_colour[0] || null,
+    secondaryTarget: byKey.secondary_colour[1] || null,
+  };
+}
+
+function buildAtlasPromptSettings(text) {
+  const parsed = parseRtwPromptColorPairs(text);
+  const primarySource = parsed.primarySource || { r: 255, g: 255, b: 140 };
+  const primaryTarget = parsed.primaryTarget || { r: 91, g: 190, b: 183 };
+  const secondarySource = parsed.secondarySource || { r: 0, g: 0, b: 0 };
+  const secondaryTarget = parsed.secondaryTarget || { r: 192, g: 178, b: 109 };
+  return {
+    ...BEST_RECOLOR_SETTINGS,
+    source: rgbToHex(primarySource.r, primarySource.g, primarySource.b),
+    target: rgbToHex(primaryTarget.r, primaryTarget.g, primaryTarget.b),
+    secondaryEnabled: !!(parsed.secondarySource && parsed.secondaryTarget),
+    secondarySource: rgbToHex(secondarySource.r, secondarySource.g, secondarySource.b),
+    secondaryTarget: rgbToHex(secondaryTarget.r, secondaryTarget.g, secondaryTarget.b),
+    tolerance: 16,
+    rgbTolerance: 96,
+    strength: 100,
+    targetMix: 82,
+    minSat: parsed.secondarySource ? 0 : 12,
+    recolorNeutrals: !!parsed.secondarySource,
+    preserveLight: true,
+    lightnessMix: 0,
+    saturationBoost: 0,
+    desaturate: 0,
+    contrast: 100,
+    protectExtremes: true,
+    protectMaterials: true,
+    useSource: true,
+    exactTarget: true,
+  };
 }
 
 function generateAiImageIdeas({ mode, faction, culture, colors }) {
@@ -1921,6 +2071,57 @@ function SpriteLogoGeneratorTab() {
     try { localStorage.setItem('rtw_tools_last_output', report); } catch {}
   };
 
+  const generateAllFactionIcons = async () => {
+    const parsed = parseDescrSmFactions(factionText);
+    const factions = parsed.filter(faction => faction?.name);
+    if (!factions.length) {
+      setStatus('Load descr_sm_factions.txt first so the tool can read faction IDs and colors.');
+      return;
+    }
+    setStatus(`Generating icon sets for ${factions.length} factions...`);
+    await yieldToBrowser();
+    const zip = new JSZip();
+    const report = [];
+    const slots = [
+      ['data/menu/symbols/FE_buttons_24', 'symbol24', 24, ['standard', 'grey', 'roll', 'select']],
+      ['data/menu/symbols/FE_buttons_48', 'symbol48', 48, ['standard', 'grey', 'roll', 'select']],
+      ['data/menu/symbols/FE_buttons_128', 'symbol128', 128, ['standard']],
+      ['data/loading_screen/symbols', 'symbol128', 128, ['standard']],
+      ['data/loading_screen/symbols', 'symbol128', 256, ['standard']],
+    ];
+
+    for (const faction of factions) {
+      for (const [folder, prefixName, size, variants] of slots) {
+        for (const variant of variants) {
+          const suffix = variant === 'standard' ? '' : `_${variant}`;
+          const x2 = folder.includes('loading_screen') && size === 256 ? '_x2' : '';
+          const name = `${prefixName}_${faction.name}${suffix}${x2}.tga`;
+          const imageData = drawAutoFactionIconImageData(faction, size, variant);
+          zip.file(`${folder}/${name}`, encodeTga(imageData));
+          report.push(`${folder}/${name}`);
+        }
+      }
+    }
+
+    const patched = updateFactionLogoIndexes(factionText, Object.fromEntries(
+      factions.map(faction => [faction.name.toLowerCase(), `FACTION_LOGO_${faction.name.toUpperCase()}`])
+    ));
+    if (patched.text) zip.file('descr_sm_factions_patched.txt', patched.text);
+    zip.file('auto_faction_icon_report.txt', toCRLF([
+      `Generated faction icon sets: ${factions.length}`,
+      `Files: ${report.length}`,
+      '',
+      ...report,
+    ].join('\n')));
+    const blob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 9 },
+    });
+    downloadBlob(blob, 'rtw_auto_faction_icons.zip');
+    setStatus(`Generated ${report.length} icon files for ${factions.length} factions.`);
+  };
+
   return (
     <div className="grid grid-cols-[320px_1fr_360px] gap-3 min-h-0">
       <div className="space-y-3">
@@ -1963,6 +2164,10 @@ function SpriteLogoGeneratorTab() {
         <Button className="w-full h-8 text-xs gap-1.5" onClick={generate} disabled={!files.length}>
           <Wand2 className="w-3.5 h-3.5" />
           Generate sheets
+        </Button>
+        <Button className="w-full h-8 text-xs gap-1.5 bg-emerald-700 hover:bg-emerald-600" onClick={generateAllFactionIcons} disabled={!factionText.trim()}>
+          <Wand2 className="w-3.5 h-3.5" />
+          Auto-generate all faction icons
         </Button>
         <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={() => result?.blob && downloadBlob(result.blob, 'rtw_faction_logo_spritesheets.zip')} disabled={!result?.blob}>
           <Download className="w-3.5 h-3.5" />
@@ -2022,6 +2227,7 @@ export function AiImageWorkshopTab() {
   const [reference, setReference] = useState(null);
   const [prompt, setPrompt] = useState('');
   const [ideas, setIdeas] = useState([]);
+  const [generated, setGenerated] = useState(null);
   const [status, setStatus] = useState('');
 
   const update = (key, value) => {
@@ -2047,7 +2253,8 @@ export function AiImageWorkshopTab() {
     if (!file) return;
     try {
       const imageData = await decodeImageFile(file);
-      setReference({ name: file.name, width: imageData.width, height: imageData.height, src: imageDataUrl(imageData) });
+      setReference({ name: file.name, width: imageData.width, height: imageData.height, src: imageDataUrl(imageData), imageData });
+      setGenerated(null);
       setStatus(`Loaded ${file.name} (${imageData.width}x${imageData.height}).`);
     } catch (err) {
       setStatus(`Reference load failed: ${err.message}`);
@@ -2078,12 +2285,43 @@ export function AiImageWorkshopTab() {
     }
   };
 
+  const generateLocalAtlasPng = async () => {
+    if (!reference?.imageData) {
+      setStatus('Load a RTW texture atlas first.');
+      return;
+    }
+    const activePrompt = prompt || buildBingStylePrompt(form, reference.name);
+    const settings = buildAtlasPromptSettings(activePrompt);
+    setStatus('Generating local RTW atlas recolor PNG...');
+    await yieldToBrowser();
+    const output = recolorImageData(reference.imageData, settings);
+    const blob = await imageDataToPngBlob(output);
+    if (!blob) {
+      setStatus('PNG export failed.');
+      return;
+    }
+    const outName = String(reference.name || 'rtw_texture.png')
+      .replace(/\.(tga|dds|png|jpg|jpeg|webp)$/i, '')
+      .replace(/\.tga\.dds$/i, '') + '.png';
+    const src = imageDataUrl(output);
+    setGenerated({
+      name: outName,
+      src,
+      blob,
+      width: output.width,
+      height: output.height,
+      settings,
+    });
+    setStatus(`Generated ${outName} with preserved canvas, UV layout, and alpha.`);
+  };
+
   const downloadKit = () => {
     const kit = {
       mode: form.mode,
       reference: reference ? { name: reference.name, width: reference.width, height: reference.height } : null,
       prompt: prompt || buildBingStylePrompt(form, reference?.name || 'uploaded reference'),
       ideas,
+      generated: generated ? { name: generated.name, width: generated.width, height: generated.height, settings: generated.settings } : null,
       settings: form,
     };
     downloadBlob(new Blob([JSON.stringify(kit, null, 2)], { type: 'application/json' }), `ai_img2img_${form.mode}_kit.json`);
@@ -2127,6 +2365,14 @@ export function AiImageWorkshopTab() {
           <Wand2 className="w-3.5 h-3.5" />
           Generate img2img prompt
         </Button>
+        <Button className="w-full h-8 text-xs gap-1.5 bg-emerald-700 hover:bg-emerald-600" onClick={generateLocalAtlasPng} disabled={!reference}>
+          <Image className="w-3.5 h-3.5" />
+          Generate local PNG
+        </Button>
+        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={() => generated?.blob && downloadBlob(generated.blob, generated.name)} disabled={!generated?.blob}>
+          <Download className="w-3.5 h-3.5" />
+          Download generated PNG
+        </Button>
         <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={generateIdeas}>
           <Search className="w-3.5 h-3.5" />
           Generate ideas
@@ -2140,13 +2386,28 @@ export function AiImageWorkshopTab() {
 
       <div className="rounded border border-slate-700 bg-slate-950/60 p-3 min-h-[520px] overflow-auto">
         {reference ? (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
-              <span className="font-mono text-slate-300 truncate">{reference.name}</span>
-              <span>{reference.width}x{reference.height}</span>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                <span className="font-mono text-slate-300 truncate">{reference.name}</span>
+                <span>{reference.width}x{reference.height}</span>
+              </div>
+              <div className="rounded border border-slate-700 bg-black/40 overflow-hidden">
+                <img src={reference.src} alt={reference.name} className="w-full h-auto image-render-pixelated" />
+              </div>
             </div>
-            <div className="rounded border border-slate-700 bg-black/40 overflow-hidden">
-              <img src={reference.src} alt={reference.name} className="w-full h-auto image-render-pixelated" />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                <span className="font-mono text-slate-300 truncate">{generated?.name || 'Generated PNG'}</span>
+                {generated && <span>{generated.width}x{generated.height}</span>}
+              </div>
+              <div className="rounded border border-slate-700 bg-black/40 overflow-hidden min-h-32 grid place-items-center">
+                {generated ? (
+                  <img src={generated.src} alt={generated.name} className="w-full h-auto image-render-pixelated" />
+                ) : (
+                  <span className="text-xs text-slate-600">Generated atlas preview appears here.</span>
+                )}
+              </div>
             </div>
           </div>
         ) : (
