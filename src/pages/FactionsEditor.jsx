@@ -818,14 +818,73 @@ function buildFactionSetupManifest(included) {
 }
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
-const rgbToHex = ({ r, g, b }) => '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+const clampRgb = (value) => Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+const rgbToHex = ({ r, g, b }) => '#' + [r, g, b].map((v) => clampRgb(v).toString(16).padStart(2, '0')).join('');
 const hexToRgb = (hex) => {
-  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r: 0, g: 0, b: 0 };
+  const value = String(hex || '').trim();
+  const short = /^#?([a-f\d])([a-f\d])([a-f\d])$/i.exec(value);
+  if (short) return {
+    r: parseInt(short[1] + short[1], 16),
+    g: parseInt(short[2] + short[2], 16),
+    b: parseInt(short[3] + short[3], 16),
+  };
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(value);
+  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+};
+const rgbToHsl = ({ r, g, b }) => {
+  r = clampRgb(r) / 255;
+  g = clampRgb(g) / 255;
+  b = clampRgb(b) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+};
+const hslToRgb = (h, s, l) => {
+  h = ((Number(h) % 360) + 360) % 360;
+  s = Math.max(0, Math.min(100, Number(s) || 0)) / 100;
+  l = Math.max(0, Math.min(100, Number(l) || 0)) / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return { r: clampRgb((r + m) * 255), g: clampRgb((g + m) * 255), b: clampRgb((b + m) * 255) };
+};
+const rgbToHslText = (rgb) => {
+  const hsl = rgbToHsl(rgb);
+  return `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
+};
+const parseColourInput = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const hex = hexToRgb(text);
+  if (hex) return hex;
+  let m = text.match(/^rgb\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/i);
+  if (m) return { r: clampRgb(m[1]), g: clampRgb(m[2]), b: clampRgb(m[3]) };
+  m = text.match(/^hsl\(\s*([-\d.]+)\s*,?\s*([\d.]+)%?\s*,?\s*([\d.]+)%?\s*\)$/i)
+    || text.match(/^([-\d.]+)\s+([\d.]+)%?\s+([\d.]+)%?$/i);
+  if (m) return hslToRgb(m[1], m[2], m[3]);
+  m = text.match(/red\s+(\d+)[,\s]+green\s+(\d+)[,\s]+blue\s+(\d+)/i);
+  return m ? { r: clampRgb(m[1]), g: clampRgb(m[2]), b: clampRgb(m[3]) } : null;
 };
 const parseColour = (v) => {
-  const m = v.match(/red\s+(\d+)[,\s]+green\s+(\d+)[,\s]+blue\s+(\d+)/i);
-  return m ? { r: +m[1], g: +m[2], b: +m[3] } : { r: 0, g: 0, b: 0 };
+  return parseColourInput(v) || { r: 0, g: 0, b: 0 };
 };
 
 // ── Reference file parsers ────────────────────────────────────────────────────
