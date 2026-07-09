@@ -1374,8 +1374,20 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
             placeholder="e.g. Egyptian/Greek infantry, archers, light cavalry"
             className="w-full h-16 bg-slate-700 border border-slate-600 rounded p-2 text-[10px] text-slate-100 resize-none"
           />
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] text-slate-300">Max units to assign</label>
+            <input
+              type="number"
+              min={0}
+              max={50}
+              value={unitAssignCount}
+              onChange={(e) => setUnitAssignCount(Math.max(0, Math.min(50, Math.floor(Number(e.target.value) || 0))))}
+              className="w-20 h-7 bg-slate-700 border border-slate-600 rounded px-2 text-[11px] text-slate-100"
+            />
+            <span className="text-[9px] text-slate-500">0 disables assignment.</span>
+          </div>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] text-slate-500">Adds up to {AUTO_UNIT_ASSIGNMENT_LIMIT} matching slave-owned EDU units. It will not pad the roster with unrelated rebel units.</p>
+            <p className="text-[9px] text-slate-500">Adds only the typed number of matched slave-owned EDU units. It will not pad the roster with unrelated rebel units.</p>
             <button
               type="button"
               onClick={runUnitAssignment}
