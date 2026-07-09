@@ -65,6 +65,8 @@ function alphaBounds(img) {
 // Canvas / pixel helpers
 // ---------------------------------------------------------------------------
 
+const RTW_LOGO_PADDING_RATIO = 0.075;
+
 function fittedRect(img, w, h, fitMode, { trim = true, padding = 0 } = {}) {
   const bounds = trim && img._trimBounds ? img._trimBounds : { x: 0, y: 0, w: img.width, h: img.height };
   const innerW = Math.max(1, w - padding * 2);
@@ -103,7 +105,7 @@ function drawToImageData(img, w, h, fitMode, options = {}) {
   wctx.clearRect(0, 0, work.width, work.height);
   wctx.imageSmoothingEnabled = true;
   wctx.imageSmoothingQuality = 'high';
-  const padding = options.padding ?? (options.trim === false || fitMode === 'stretch' ? 0 : Math.max(1, Math.round(Math.min(w, h) * 0.04)));
+  const padding = options.padding ?? (options.trim === false || fitMode === 'stretch' ? 0 : Math.max(1, Math.round(Math.min(w, h) * RTW_LOGO_PADDING_RATIO)));
   const rect = fittedRect(img, w, h, fitMode, { trim: options.trim !== false, padding });
   wctx.drawImage(
     img,

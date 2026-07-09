@@ -650,6 +650,8 @@ function imageDataToDataUrl(imageData) {
   return canvas.toDataURL('image/png');
 }
 
+const RTW_LOGO_PADDING_RATIO = 0.075;
+
 function alphaBoundsFromImageData(imageData) {
   const { width, height, data } = imageData;
   let minX = width, minY = height, maxX = -1, maxY = -1;
@@ -737,7 +739,7 @@ function renderLogoFrame(sourceImageData, size, variant = 'standard') {
   ctx.clearRect(0, 0, size, size);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  const padding = Math.max(1, Math.round(size * 0.04));
+  const padding = Math.max(1, Math.round(size * RTW_LOGO_PADDING_RATIO));
   const inner = size - padding * 2;
   const scale = Math.min(inner / Math.max(1, bounds.w), inner / Math.max(1, bounds.h));
   const dw = Math.max(1, Math.round(bounds.w * scale));
@@ -829,7 +831,7 @@ async function addFactionSymbolPreviewsToZip(zip, factionList, included) {
       const path = symbolExportPath(slot, faction);
       if (!path || used.has(path)) continue;
       const imageData = await imageDataFromDataUrl(dataUrl);
-      const sized = resizeImageData(imageData, symbolTargetSize(slot.key));
+      const sized = renderLogoFrame(imageData, symbolTargetSize(slot.key), 'standard');
       zip.file(path, encodeSymbolTga(sized));
       included.push(path);
       used.add(path);

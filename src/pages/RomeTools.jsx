@@ -961,6 +961,8 @@ function alphaBoundsFromImageData(imageData) {
   return maxX < minX ? null : { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
 }
 
+const RTW_LOGO_PADDING_RATIO = 0.075;
+
 function resizeIconImageData(imageData, size, mode) {
   const src = imageDataToCanvas(imageData);
   const out = document.createElement('canvas');
@@ -979,7 +981,7 @@ function resizeIconImageData(imageData, size, mode) {
 
   let dx = 0, dy = 0, dw = size, dh = size;
   if (mode !== 'stretch') {
-    const padding = mode === 'trim-fit' ? Math.max(1, Math.round(size * 0.03)) : 0;
+    const padding = mode === 'trim-fit' ? Math.max(1, Math.round(size * RTW_LOGO_PADDING_RATIO)) : 0;
     const inner = Math.max(1, size - padding * 2);
     const scale = Math.min(inner / sw, inner / sh);
     dw = sw * scale;
@@ -2376,10 +2378,9 @@ function SpriteLogoGeneratorTab() {
     const zip = new JSZip();
     const report = [];
     const slots = [
-      ['data/menu/symbols/FE_buttons_24', 'symbol24', 24, ['standard', 'grey', 'roll', 'select']],
-      ['data/menu/symbols/FE_buttons_48', 'symbol48', 48, ['standard', 'grey', 'roll', 'select']],
+      ['data/menu/symbols/FE_buttons_24', 'symbol24', 128, ['standard', 'grey', 'roll', 'select']],
+      ['data/menu/symbols/FE_buttons_48', 'symbol48', 128, ['standard', 'grey', 'roll', 'select']],
       ['data/menu/symbols/FE_buttons_128', 'symbol128', 128, ['standard']],
-      ['data/loading_screen/symbols', 'symbol128', 128, ['standard']],
       ['data/loading_screen/symbols', 'symbol128', 256, ['standard']],
     ];
 
@@ -2387,8 +2388,7 @@ function SpriteLogoGeneratorTab() {
       for (const [folder, prefixName, size, variants] of slots) {
         for (const variant of variants) {
           const suffix = variant === 'standard' ? '' : `_${variant}`;
-          const x2 = folder.includes('loading_screen') && size === 256 ? '_x2' : '';
-          const name = `${prefixName}_${faction.name}${suffix}${x2}.tga`;
+          const name = `${prefixName}_${faction.name}${suffix}.tga`;
           const imageData = drawAutoFactionIconImageData(faction, size, variant);
           zip.file(`${folder}/${name}`, encodeTga(imageData));
           report.push(`${folder}/${name}`);
@@ -3280,12 +3280,11 @@ async function addResizedFactionIcons(zip, iconEntry, targetId) {
   if (!iconEntry) return [];
   const imageData = await decodeImageFile(iconEntry.file);
   const outputs = [
-    [`data/loading_screen/symbols/symbol128_${targetId}.tga`, 128],
-    [`data/loading_screen/symbols/symbol128_${targetId}_x2.tga`, 256],
+    [`data/loading_screen/symbols/symbol128_${targetId}.tga`, 256],
     [`data/loading_screen/symbols/symbol256_${targetId}.tga`, 256],
     [`data/menu/symbols/FE_buttons_128/symbol128_${targetId}.tga`, 128],
-    [`data/menu/symbols/FE_buttons_48/symbol48_${targetId}.tga`, 48],
-    [`data/menu/symbols/FE_buttons_24/symbol24_${targetId}.tga`, 24],
+    [`data/menu/symbols/FE_buttons_48/symbol48_${targetId}.tga`, 128],
+    [`data/menu/symbols/FE_buttons_24/symbol24_${targetId}.tga`, 128],
   ];
   for (const [path, size] of outputs) {
     zip.file(path, encodeTga(resizeIconImageData(imageData, size, 'trim-fit')));
