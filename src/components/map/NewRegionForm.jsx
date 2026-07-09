@@ -21,6 +21,54 @@ function hexToRgb(hex) {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
+function rgbToHslText(r, g, b) {
+  r = clampRgb(r) / 255;
+  g = clampRgb(g) / 255;
+  b = clampRgb(b) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return `hsl(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
+}
+
+function hslToRgb(h, s, l) {
+  h = ((Number(h) % 360) + 360) % 360;
+  s = Math.max(0, Math.min(100, Number(s) || 0)) / 100;
+  l = Math.max(0, Math.min(100, Number(l) || 0)) / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return { r: clampRgb((r + m) * 255), g: clampRgb((g + m) * 255), b: clampRgb((b + m) * 255) };
+}
+
+function parseColorText(value) {
+  const text = String(value || '').trim();
+  const hex = hexToRgb(text);
+  if (hex) return hex;
+  let match = text.match(/^rgb\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/i);
+  if (match) return { r: clampRgb(match[1]), g: clampRgb(match[2]), b: clampRgb(match[3]) };
+  match = text.match(/^hsl\(\s*([-\d.]+)\s*,?\s*([\d.]+)%?\s*,?\s*([\d.]+)%?\s*\)$/i)
+    || text.match(/^([-\d.]+)\s+([\d.]+)%?\s+([\d.]+)%?$/i);
+  return match ? hslToRgb(match[1], match[2], match[3]) : null;
+}
+
 function randomRegionColor() {
   return {
     r: Math.floor(Math.random() * 200) + 30,
@@ -185,6 +233,7 @@ export default function NewRegionForm({ factionColors, onAdd, onCancel, edbData,
     religions: {},
   });
   const [selectedTree, setSelectedTree] = useState('');
+  const [colorText, setColorText] = useState('');
 
   const factionList = factionColors ? Object.keys(factionColors).sort() : [];
   const edbHiddenRes = useMemo(() => hiddenResourceList?.length ? hiddenResourceList : extractHiddenResourcesFromEDB(edbData), [hiddenResourceList, edbData]);
@@ -215,10 +264,28 @@ export default function NewRegionForm({ factionColors, onAdd, onCancel, edbData,
   const religionError = religionList?.length > 0 && religionSum !== 100;
 
   const canSubmit = draft.regionName && draft.settlementName && !religionError;
+  const currentColorText = `${rgbToHex(draft.r, draft.g, draft.b).toUpperCase()} ${rgbToHslText(draft.r, draft.g, draft.b)}`;
 
   const setRegionColorHex = (hex) => {
     const rgb = hexToRgb(hex);
     if (rgb) setDraft(d => ({ ...d, ...rgb }));
+  };
+  const applyColorText = (value = colorText) => {
+    const rgb = parseColorText(value);
+    if (rgb) setDraft(d => ({ ...d, ...rgb }));
+    setColorText('');
+  };
+  const copyColorText = async () => {
+    try { await navigator.clipboard?.writeText(currentColorText); } catch {}
+  };
+  const pasteColorText = async () => {
+    try {
+      const text = await navigator.clipboard?.readText();
+      if (text) {
+        setColorText(text);
+        applyColorText(text);
+      }
+    } catch {}
   };
 
   const handleSubmit = () => {
@@ -284,6 +351,21 @@ export default function NewRegionForm({ factionColors, onAdd, onCancel, edbData,
             className="h-6 px-2 rounded border border-slate-600/40 text-[10px] text-slate-400 hover:text-slate-200 hover:border-slate-500">
             Random
           </button>
+        </div>
+        <div className="grid grid-cols-[1fr_auto_auto] gap-1 mt-1">
+          <input
+            value={colorText || currentColorText}
+            onChange={e => setColorText(e.target.value)}
+            onBlur={() => colorText && applyColorText()}
+            onKeyDown={e => {
+              if (e.key === 'Enter') applyColorText();
+              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); copyColorText(); }
+              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteColorText(); }
+            }}
+            className="min-w-0 h-6 px-1.5 text-[10px] bg-slate-800 border border-slate-600/40 rounded text-slate-200 font-mono"
+          />
+          <button type="button" onClick={copyColorText} className="h-6 px-2 rounded border border-slate-600/40 text-[10px] text-slate-400 hover:text-slate-200">Copy</button>
+          <button type="button" onClick={pasteColorText} className="h-6 px-2 rounded border border-slate-600/40 text-[10px] text-slate-400 hover:text-slate-200">Paste</button>
         </div>
       </div>
 
