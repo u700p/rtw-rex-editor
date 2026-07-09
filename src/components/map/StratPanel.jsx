@@ -843,7 +843,11 @@ export default function StratPanel({
   onLoadTgaLayer,
   descrNames, namesDisplayMap, traitsList, ancillariesList, eduUnits, onPinCharacter,
   openItemId, onOpenItemHandled,
-  onPickFromMap
+  onPickFromMap,
+  stratOverlayMode = 'off',
+  stratOverlayOpacity = 0.65,
+  onStratOverlayModeChange,
+  onStratOverlayOpacityChange
 }) {
   const [addMode, setAddMode] = useState(null);
   const [newType, setNewType] = useState('');
@@ -1263,6 +1267,36 @@ export default function StratPanel({
           {/* Map Overlay sub-tab */}
           {overviewTab === 'overlay' && <div className="rounded-lg border border-slate-700/40 bg-slate-900/30 p-2.5 space-y-1.5">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Map Overlay</p>
+            <div className="rounded border border-slate-700/50 bg-slate-950/40 p-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-slate-300">Strat ownership overlay</span>
+                <select
+                  value={stratOverlayMode}
+                  onChange={(e) => onStratOverlayModeChange?.(e.target.value)}
+                  className="h-6 px-1.5 text-[10px] bg-slate-800 border border-slate-600/40 rounded text-slate-300"
+                >
+                  <option value="off">Off</option>
+                  <option value="owners">Owners</option>
+                  <option value="solid">Solid</option>
+                </select>
+              </div>
+              {stratOverlayMode !== 'off' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-slate-500 w-12">Opacity</span>
+                  <input
+                    type="range"
+                    min={0.15}
+                    max={1}
+                    step={0.05}
+                    value={stratOverlayOpacity}
+                    onChange={(e) => onStratOverlayOpacityChange?.(parseFloat(e.target.value))}
+                    className="flex-1 accent-amber-400"
+                  />
+                  <span className="text-[9px] text-slate-500 font-mono w-8 text-right">{Math.round(stratOverlayOpacity * 100)}%</span>
+                </div>
+              )}
+              <p className="text-[9px] text-slate-500">Uses descr_strat settlement ownership plus descr_sm_factions primary colours over map_regions.tga.</p>
+            </div>
             {CATEGORIES.map((cat) => {
               const visible = visibleCategories?.has(cat.id) ?? true;
               const count = (overlayItems || []).filter((i) => i.category === cat.id).length;

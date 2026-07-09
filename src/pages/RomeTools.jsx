@@ -783,7 +783,7 @@ function encodeDds(imageData) {
 function appendSuffix(filename, suffix, ext) {
   const parts = String(filename || 'texture').replace(/\\/g, '/').split('/');
   const base = parts.pop() || 'texture';
-  const stem = base.replace(/\.(tga|dds|png|jpg|jpeg)$/i, '');
+  const stem = base.replace(/\.(tga|dds|png|jpg|jpeg|webp)$/i, '');
   parts.push(`${stem}${suffix || ''}.${ext}`);
   return parts.join('/');
 }
@@ -2552,11 +2552,25 @@ export function AiImageWorkshopTab({ recolorOnly = false } = {}) {
       blob,
       width: output.width,
       height: output.height,
+      imageData: output,
       settings: result.settings,
       report: result.report,
       prompt: activePrompt,
     });
     setStatus(`Generated ${outName}. Changed ${result.report.changed.toLocaleString()} pixels, protected ${result.report.protectedCount.toLocaleString()}, alpha preserved.`);
+  };
+
+  const useGeneratedAsReference = () => {
+    if (!generated?.imageData) return;
+    setReference({
+      name: generated.name,
+      width: generated.width,
+      height: generated.height,
+      src: generated.src,
+      imageData: generated.imageData,
+    });
+    setGenerated(null);
+    setStatus(`Loaded generated PNG ${generated.name} as the new recolor input.`);
   };
 
   const downloadKit = () => {
@@ -2633,6 +2647,10 @@ export function AiImageWorkshopTab({ recolorOnly = false } = {}) {
         <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={() => generated?.blob && downloadBlob(generated.blob, generated.name)} disabled={!generated?.blob}>
           <Download className="w-3.5 h-3.5" />
           Download generated PNG
+        </Button>
+        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={useGeneratedAsReference} disabled={!generated?.imageData}>
+          <Image className="w-3.5 h-3.5" />
+          Use generated PNG as input
         </Button>
         {!recolorOnly && (
           <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={generateIdeas}>
@@ -3379,15 +3397,15 @@ function optimizedPngName(file, flattenTgaDds) {
 function PngConverterTab() {
   const [files, setFiles] = useState([]);
   const [flattenTgaDds, setFlattenTgaDds] = useState(true);
-  const [status, setStatus] = useState('Load .tga, .dds, or .tga.dds files/folders, then export optimized lossless PNGs.');
+  const [status, setStatus] = useState('Load .tga, .dds, .tga.dds, .png, .jpg, or .webp files/folders, then export optimized lossless PNGs.');
   const [busy, setBusy] = useState(false);
 
   const loadFiles = (event) => {
     const picked = Array.from(event.target.files || [])
-      .filter(file => /\.(?:tga|dds)$/i.test(file.name) || /\.tga\.dds$/i.test(file.name));
+      .filter(file => /\.(?:tga|dds|png|jpe?g|webp)$/i.test(file.name) || /\.tga\.dds$/i.test(file.name));
     event.target.value = '';
     setFiles(picked);
-    setStatus(picked.length ? `Loaded ${picked.length} texture file${picked.length === 1 ? '' : 's'}.` : 'No .tga/.dds files found.');
+    setStatus(picked.length ? `Loaded ${picked.length} texture file${picked.length === 1 ? '' : 's'}.` : 'No supported image files found.');
   };
 
   const exportPngZip = async () => {
@@ -3439,12 +3457,12 @@ function PngConverterTab() {
     <div className="grid grid-cols-[320px_1fr] gap-3 min-h-0">
       <div className="space-y-3">
         <label className="block rounded border border-slate-700 bg-slate-900/70 p-3 cursor-pointer hover:border-amber-500/60">
-          <input type="file" accept=".tga,.dds" multiple webkitdirectory="" className="hidden" onChange={loadFiles} />
+          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg,.webp" multiple webkitdirectory="" className="hidden" onChange={loadFiles} />
           <span className="flex items-center gap-2 text-xs text-slate-200">
             <Upload className="w-3.5 h-3.5 text-amber-400" />
             Load texture folder/files
           </span>
-          <span className="block mt-1 text-[10px] text-slate-500">Accepts .tga, .dds, and .tga.dds while preserving folder paths in the zip.</span>
+          <span className="block mt-1 text-[10px] text-slate-500">Accepts .tga, .dds, .tga.dds, .png, .jpg, and .webp while preserving folder paths in the zip.</span>
         </label>
         <label className="flex items-center gap-2 text-[11px] text-slate-300">
           <input type="checkbox" checked={flattenTgaDds} onChange={e => setFlattenTgaDds(e.target.checked)} className="accent-amber-500" />

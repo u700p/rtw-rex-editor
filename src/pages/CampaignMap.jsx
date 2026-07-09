@@ -1298,6 +1298,10 @@ export default function CampaignMap() {
                   regionsData={regionsData}
                   settlementNames={settlementNames}
                   factionColors={factionColors}
+                  stratOverlayMode={stratOverlayMode}
+                  stratOverlayOpacity={stratOverlayOpacity}
+                  onStratOverlayModeChange={setStratOverlayMode}
+                  onStratOverlayOpacityChange={setStratOverlayOpacity}
                   cultureList={cultureList}
                  edbData={edbData}
                  onStratDataChange={(updatedStratData) => {
