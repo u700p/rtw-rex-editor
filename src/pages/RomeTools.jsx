@@ -1622,30 +1622,75 @@ function TextureRecolorTab() {
 function Swatch({ label, value, onChange }) {
   const normalized = normalizeColorInput(value) || '#000000';
   const [draft, setDraft] = useState(value || normalized);
+  const [message, setMessage] = useState('');
   const draftColor = normalizeColorInput(draft);
   const draftIsValid = !!draftColor;
   useEffect(() => {
     setDraft(value || normalized);
+    setMessage('');
   }, [value, normalized]);
 
   const commit = () => {
     const next = normalizeColorInput(draft);
-    if (next) onChange(next);
-    else setDraft(value || normalized);
+    if (next) {
+      setDraft(next);
+      setMessage('');
+      onChange(next);
+    } else {
+      setDraft(value || normalized);
+      setMessage('Use #RRGGBB, rgb(r,g,b), hsl(h,s%,l%), or a named color.');
+    }
   };
   const commitPicker = (next) => {
     const normalizedNext = normalizeColorInput(next) || normalized;
     setDraft(normalizedNext);
+    setMessage('');
     onChange(normalizedNext);
+  };
+  const copyColor = async () => {
+    const text = `${normalized.toUpperCase()} ${hexToHslText(normalized)}`;
+    try {
+      await navigator.clipboard?.writeText(text);
+      setMessage('Copied.');
+    } catch {
+      setDraft(text);
+      setMessage('Copy blocked; text placed in the field.');
+    }
+  };
+  const pasteColor = async () => {
+    try {
+      const text = await navigator.clipboard?.readText();
+      const next = normalizeColorInput(text);
+      if (!next) {
+        setMessage('Clipboard does not contain a supported color.');
+        return;
+      }
+      setDraft(next);
+      setMessage('');
+      onChange(next);
+    } catch {
+      setMessage('Clipboard read blocked; paste into the field.');
+    }
+  };
+  const handleKeyDown = (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+      event.preventDefault();
+      copyColor();
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+      event.preventDefault();
+      pasteColor();
+    } else if (event.key === 'Enter') {
+      commit();
+    }
   };
 
   return (
     <div className="block space-y-1">
       <span className="flex items-center justify-between gap-2 text-[10px] uppercase text-slate-500">
         <span className="truncate">{label}</span>
-        <span className="font-mono text-[9px] text-slate-600">{normalized.toUpperCase()}</span>
+        <span className="font-mono text-[9px] text-slate-600">{normalized.toUpperCase()} {hexToHslText(normalized)}</span>
       </span>
-      <div className="grid grid-cols-[2.25rem_1fr] items-center gap-1.5">
+      <div className="grid grid-cols-[2.25rem_1fr_auto_auto] items-center gap-1.5">
         <input
           type="color"
           value={normalized}
@@ -1659,12 +1704,15 @@ function Swatch({ label, value, onChange }) {
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onBlur={commit}
-          onKeyDown={e => e.key === 'Enter' && commit()}
-          placeholder="#808000 or olive"
+          onKeyDown={handleKeyDown}
+          placeholder="#808000, hsl(60, 100%, 25%), or olive"
           spellCheck={false}
           className={`h-7 min-w-0 px-2 text-[11px] font-mono bg-slate-900 border rounded cursor-text focus:outline-none focus:ring-1 ${draftIsValid ? 'border-slate-700 focus:border-amber-400 focus:ring-amber-400/40' : 'border-red-700/70 text-red-300 focus:border-red-500 focus:ring-red-500/40'}`}
         />
+        <button type="button" onClick={copyColor} className="h-7 px-2 rounded border border-slate-700 text-[10px] text-slate-300 hover:border-amber-500">Copy</button>
+        <button type="button" onClick={pasteColor} className="h-7 px-2 rounded border border-slate-700 text-[10px] text-slate-300 hover:border-amber-500">Paste</button>
       </div>
+      {message && <p className="text-[9px] text-amber-300">{message}</p>}
     </div>
   );
 }
