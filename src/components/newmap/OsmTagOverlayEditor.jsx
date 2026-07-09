@@ -119,31 +119,43 @@ function computeTiles(bbox) {
   return tiles;
 }
 
-async function fetchTile(key, value, tile) {
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function fetchTile(key, value, tile, attempt = 0) {
   const bboxStr = `${tile.south},${tile.west},${tile.north},${tile.east}`;
-  const query = `[out:json][timeout:90];\n(\n  way["${key}"="${value}"](${bboxStr});\n  relation["${key}"="${value}"](${bboxStr});\n);\nout geom;`;
-  let lastErr;
-  for (const mirror of OSM_OVERPASS_MIRRORS) {
-    try {
-      const res = await fetch(mirror, {
-        method: 'POST',
-        mode: 'cors',
-        body: 'data=' + encodeURIComponent(query),
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-      if (res.status === 429 || res.status === 504) { lastErr = new Error(`HTTP ${res.status}`); continue; }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.remark && /runtime error|out of memory|exceeded/i.test(json.remark)) {
-        throw new Error(`Overpass: ${json.remark}`);
+  const query = `[out:json][timeout:120];\n(\n  way["${key}"="${value}"](${bboxStr});\n  relation["${key}"="${value}"](${bboxStr});\n);\nout geom;`;
+  // Try each mirror; on rate-limit/timeout, wait and retry up to 3 times total
+  const MAX_ATTEMPTS = 3;
+  for (let a = 0; a <= MAX_ATTEMPTS; a++) {
+    for (const mirror of OSM_OVERPASS_MIRRORS) {
+      try {
+        const res = await fetch(mirror, {
+          method: 'POST',
+          mode: 'cors',
+          body: 'data=' + encodeURIComponent(query),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        });
+        if (res.status === 429 || res.status === 504 || res.status === 502) {
+          // Rate-limited or gateway error — wait before trying next mirror/attempt
+          await sleep(2000 * (a + 1));
+          continue;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (json.remark && /runtime error|out of memory|exceeded/i.test(json.remark)) {
+          throw new Error(`Overpass: ${json.remark}`);
+        }
+        return (json.elements || []).filter(e =>
+          (e.type === 'way' && e.geometry?.length > 1) ||
+          (e.type === 'relation' && e.members?.some(m => m.geometry?.length > 1))
+        );
+      } catch (e) {
+        if (a < MAX_ATTEMPTS) await sleep(1500 * (a + 1));
       }
-      return (json.elements || []).filter(e =>
-        (e.type === 'way' && e.geometry?.length > 1) ||
-        (e.type === 'relation' && e.members?.some(m => m.geometry?.length > 1))
-      );
-    } catch (e) { lastErr = e; }
+    }
   }
-  throw lastErr ?? new Error('All mirrors failed');
+  // Return empty rather than throwing so one bad tile doesn't kill the whole job
+  return [];
 }
 
 function latToMercN(lat) {
@@ -258,7 +270,6 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
     const color = GT[gtId] ?? [96, 160, 64];
 
     const tiles = computeTiles(bbox);
-    const CONCURRENCY = 4; // fetch up to 4 tiles in parallel
 
     // Capture base layer before first tag application
     if (Object.keys(tagStates).filter(tk => tagStates[tk]?.status?.startsWith('done')).length === 0) {
@@ -270,11 +281,10 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
     let tilesDone = 0;
     let totalElements = 0;
     let allElements = [];
-    let fetchError = null;
 
-    // Process tiles in parallel batches of CONCURRENCY
+    // Process tiles in small parallel batches; fetchTile never throws — returns [] on failure
+    const CONCURRENCY = 2;
     for (let i = 0; i < tiles.length; i += CONCURRENCY) {
-      if (fetchError) break;
       const batch = tiles.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(batch.map(tile => fetchTile(tag.key, tag.value, tile)));
 
@@ -283,11 +293,7 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
         const pct = Math.round((tilesDone / tiles.length) * 100);
         setFetchProgress(p => ({ ...p, [k]: { pct, tilesDone, tilesTotal: tiles.length } }));
 
-        if (result.status === 'rejected') {
-          fetchError = result.reason;
-          break;
-        }
-        const elements = result.value;
+        const elements = result.status === 'fulfilled' ? result.value : [];
         if (elements.length > 0) {
           const src = groundLayerRef.current.imageData;
           const copy = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
@@ -297,11 +303,9 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
           allElements = allElements.concat(elements);
         }
       }
-    }
 
-    if (fetchError) {
-      setTagStates(s => ({ ...s, [k]: { ...s[k], status: `error: ${fetchError.message}` } }));
-      return;
+      // Brief pause between batches to avoid rate-limiting
+      if (i + CONCURRENCY < tiles.length) await sleep(500);
     }
 
     setFetchProgress(p => ({ ...p, [k]: { pct: 100, tilesDone: tiles.length, tilesTotal: tiles.length } }));
@@ -420,8 +424,8 @@ export default function OsmTagOverlayEditor({ bbox, groundLayer, onLayerUpdate }
                                     <p className="text-[8px] text-blue-400">
                                       Tile {fp.tilesDone}/{fp.tilesTotal} — {pct}% complete
                                     </p>
-                                    <p className="text-[8px] text-amber-500/80 leading-snug">
-                                      Large area split into {fp.tilesTotal} tiles. Map updates as each tile arrives.
+                                    <p className="text-[8px] text-amber-400 leading-snug font-medium">
+                                      ⚠ Large area: {fp.tilesTotal} tiles — this may take several minutes. Do not refresh the page.
                                     </p>
                                   </>
                                 ) : (

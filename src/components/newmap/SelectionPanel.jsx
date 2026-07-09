@@ -1,8 +1,31 @@
-import React from 'react';
-import { Crop, Check, X } from 'lucide-react';
+import React, { useRef } from 'react';
+import { Crop, Check, X, FolderOpen } from 'lucide-react';
 
 export default function SelectionPanel({ selectionMode, onToggleSelection, selection, onConfirmSelection, onClearSelection, bboxConfirmed, onBboxEdit }) {
+  const fileInputRef = useRef(null);
   const hasSel = selection?.start && selection?.end;
+
+  const handleImportBbox = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const lines = ev.target.result.split('\n');
+      const vals = {};
+      for (const line of lines) {
+        const m = line.match(/^(north|south|east|west)=([-\d.]+)/);
+        if (m) vals[m[1]] = parseFloat(m[2]);
+      }
+      if (vals.north && vals.south && vals.east && vals.west) {
+        onBboxEdit?.({
+          start: { lat: vals.north, lng: vals.west },
+          end:   { lat: vals.south, lng: vals.east },
+        });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   const latMin = hasSel ? Math.min(selection.start.lat, selection.end.lat) : null;
   const latMax = hasSel ? Math.max(selection.start.lat, selection.end.lat) : null;
@@ -32,6 +55,17 @@ export default function SelectionPanel({ selectionMode, onToggleSelection, selec
       )}
       {bboxConfirmed && (
         <p className="text-[10px] text-green-400 font-medium">✓ Area confirmed. Generate layers below.</p>
+      )}
+
+      {!bboxConfirmed && (
+        <>
+        <input ref={fileInputRef} type="file" accept=".txt" className="hidden" onChange={handleImportBbox} />
+        <button onClick={() => fileInputRef.current?.click()}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-[11px] border transition-colors bg-slate-700 border-slate-600 text-slate-200 hover:bg-slate-600">
+          <FolderOpen className="w-3.5 h-3.5" />
+          Import bbox_coords.txt
+        </button>
+        </>
       )}
 
       {!bboxConfirmed && (
