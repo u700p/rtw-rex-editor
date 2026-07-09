@@ -109,6 +109,20 @@ function factionPrimaryColor(factionColors, faction) {
   return key ? factionColors[key]?.primaryColor : null;
 }
 
+const STRAT_OVERLAY_FALLBACKS = {
+  slave: { r: 132, g: 88, b: 64 },
+  sea: { r: 42, g: 76, b: 118 },
+};
+
+const MAP_REGIONS_SEA_KEY = colorKey(41, 140, 233);
+
+function stratOverlayColorForFaction(factionColors, faction) {
+  const lower = String(faction || '').toLowerCase();
+  return factionPrimaryColor(factionColors, faction)
+    || STRAT_OVERLAY_FALLBACKS[lower]
+    || hashColor(faction);
+}
+
 function buildStrategicOverlayBitmap(data, width, height, regionsData, overlayItems, factionColors, mode = 'owners') {
   const ownerByRegion = new Map();
   for (const item of overlayItems || []) {
@@ -120,8 +134,8 @@ function buildStrategicOverlayBitmap(data, width, height, regionsData, overlayIt
   for (const region of regionsData || []) {
     const regionName = String(region.regionName || '').toLowerCase();
     const faction = ownerByRegion.get(regionName) || region.factionCreator || region.rebelFaction || '';
-    if (!faction || String(faction).toLowerCase() === 'slave') continue;
-    const fc = factionPrimaryColor(factionColors, faction) || hashColor(faction);
+    if (!faction) continue;
+    const fc = stratOverlayColorForFaction(factionColors, faction);
     colorByRegionRgb.set(colorKey(region.r, region.g, region.b), {
       r: Math.round(fc.r * 0.82 + 28),
       g: Math.round(fc.g * 0.82 + 28),
@@ -130,11 +144,13 @@ function buildStrategicOverlayBitmap(data, width, height, regionsData, overlayIt
   }
 
   const out = new Uint8ClampedArray(width * height * 4);
-  if (!colorByRegionRgb.size) return createImageBitmap(new ImageData(out, width, height));
 
   for (let pixel = 0; pixel < width * height; pixel++) {
     const i = pixel * 4;
-    const color = colorByRegionRgb.get(colorKey(data[i], data[i + 1], data[i + 2]));
+    const sourceKey = colorKey(data[i], data[i + 1], data[i + 2]);
+    const color = sourceKey === MAP_REGIONS_SEA_KEY
+      ? STRAT_OVERLAY_FALLBACKS.sea
+      : colorByRegionRgb.get(sourceKey);
     if (!color) continue;
     out[i] = color.r;
     out[i + 1] = color.g;
