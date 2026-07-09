@@ -27,7 +27,7 @@ import { textBlob, toCRLF } from '@/lib/lineEndings';
 import { parseTextLocFile, serializeTextLocEntries, serializeTextLocFile, textLocMapToEntries } from '@/lib/textLocParser';
 import { ensureRtwFactionLocEntries } from '@/lib/factionLoc';
 import { getEduRawText, loadEduRawText, setEduRawText } from '@/lib/eduStorage';
-import { parseEDU, serializeEDU } from '@/components/units/EDUParser';
+import { cleanOwnershipList, parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { getTextLocalizationStore, hydrateTextLocalizationStore, updateTextLocalizationFile } from '@/lib/textLocalizationStore';
 import { loadLargeText, saveLargeText } from '@/lib/largeTextStore';
 
@@ -508,7 +508,7 @@ function assignSlaveUnitsToFaction(targetFaction, profileText, options = {}) {
   if (!selected.length) return { changed: false, count: 0, units: [] };
 
   for (const { unit } of selected) {
-    unit.ownership = [...(unit.ownership || []), dst];
+    unit.ownership = cleanOwnershipList([...(unit.ownership || []), dst]);
   }
   setEduRawText(serializeEDU(units), 'export_descr_unit.txt');
   window.dispatchEvent(new CustomEvent('edu-file-loaded'));

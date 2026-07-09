@@ -12,16 +12,15 @@ import NewRegionPaintWizard from '../components/map/NewRegionPaintWizard';
 import { loadTGA } from '../components/map/tgaLoader';
 import { exportTGA, downloadBlob } from '../components/map/tgaExporter';
 import { LAYER_DEFS, LAYER_BY_ID } from '../components/map/mapLayerConstants';
-import { parseDescrStrat, parseDescrRegions, parseSettlementNames, parseDescrSmFactions, computeSettlementPositions, serializeDescrStrat, serializeDescrRegions } from '../components/map/stratParser';
+import { parseDescrStrat, parseDescrRegions, parseSettlementNames, parseDescrSmFactions, computeSettlementPositions, serializeDescrStrat } from '../components/map/stratParser';
 import { parseDescrRebelFactions, parseDescrReligions, parseDescrSmResources, parseDescrMercenaries, parseDescrSoundsMusicTypes, parseDescrCultures, extractHiddenResourcesFromEDB, extractBuildingLevelsFromEDB, parseDescrNames, parseExportDescrTraits, parseExportDescrAncillaries } from '../components/map/additionalParsers';
-import { parseFactionMovies } from '../components/map/factionMoviesParser';
 import { parseEDU } from '../components/units/EDUParser';
 import { parseStringsBin } from '../components/strings/stringsBinCodec';
 import { getTextLocalizationStore } from '../lib/textLocalizationStore';
 import { importCampaignToDatabase } from '../components/map/campaignImporter';
 import { useEDB } from '../components/edb/EDBContext';
 import { base44 } from '@/api/base44Client';
-import { setLayer, getLayer, getAllLayers, hasAnyLayer } from '../lib/mapLayerStore';
+import { setLayer, getAllLayers } from '../lib/mapLayerStore';
 
 const INITIAL_PAINT = {
   active: false,
@@ -64,6 +63,17 @@ export default function CampaignMap() {
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [showPixelGrid, setShowPixelGrid] = useState(false);
   const [regionsMode, setRegionsMode] = useState('fill');
+  const [stratOverlayMode, setStratOverlayMode] = useState(() => {
+    try { return sessionStorage.getItem('m2tw_strat_overlay_mode') || 'off'; } catch { return 'off'; }
+  });
+  const [stratOverlayOpacity, setStratOverlayOpacity] = useState(() => {
+    try {
+      const saved = Number(sessionStorage.getItem('m2tw_strat_overlay_opacity'));
+      return Number.isFinite(saved) && saved >= 0 ? saved : 0.65;
+    } catch {
+      return 0.65;
+    }
+  });
 
   // Strat overlay state — initialize from sessionStorage if available
   const [stratData, setStratDataRaw] = useState(() => {
@@ -174,6 +184,13 @@ export default function CampaignMap() {
   useEffect(() => {
     try { sessionStorage.setItem('m2tw_overlay_items_json', JSON.stringify(overlayItems)); } catch {}
   }, [overlayItems]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('m2tw_strat_overlay_mode', stratOverlayMode);
+      sessionStorage.setItem('m2tw_strat_overlay_opacity', String(stratOverlayOpacity));
+    } catch {}
+  }, [stratOverlayMode, stratOverlayOpacity]);
 
   // Persist regionsData to sessionStorage whenever it changes
   useEffect(() => {
@@ -1047,7 +1064,7 @@ export default function CampaignMap() {
         <label className="ml-auto cursor-pointer flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-slate-800 border border-slate-600/40 text-slate-300 hover:bg-slate-700 transition-colors">
           <FolderOpen className="w-3 h-3" />
           Import folder
-          <input ref={folderInputRef} type="file" className="hidden" webkitdirectory="" directory="" multiple onChange={handleFolderImport} />
+          <input ref={folderInputRef} type="file" className="hidden" webkitdirectory="" multiple onChange={handleFolderImport} />
         </label>
 
         {/* OSM bbox import */}
@@ -1101,6 +1118,30 @@ export default function CampaignMap() {
           <option value="fill">Regions: fill</option>
           <option value="citiesports">Regions: cities+ports</option>
         </select>
+
+        {/* Strategic ownership overlay */}
+        <select
+          value={stratOverlayMode}
+          onChange={e => setStratOverlayMode(e.target.value)}
+          className="h-6 px-1.5 text-[10px] bg-slate-800 border border-slate-600/40 rounded text-slate-300"
+          title="Faction ownership overlay from descr_strat settlements + map_regions.tga"
+        >
+          <option value="off">Strat overlay: off</option>
+          <option value="owners">Strat overlay: owners</option>
+          <option value="solid">Strat overlay: solid</option>
+        </select>
+        {stratOverlayMode !== 'off' && (
+          <input
+            type="range"
+            min={0.15}
+            max={1}
+            step={0.05}
+            value={stratOverlayOpacity}
+            onChange={e => setStratOverlayOpacity(parseFloat(e.target.value))}
+            className="w-16 accent-amber-400 h-1"
+            title={`Strat overlay opacity: ${Math.round(stratOverlayOpacity * 100)}%`}
+          />
+        )}
 
         {/* DB import progress */}
         {importProgress && (
@@ -1199,6 +1240,10 @@ export default function CampaignMap() {
             ) : null}
             layers={layers}
             regionsMode={regionsMode}
+            stratOverlayMode={stratOverlayMode}
+            stratOverlayOpacity={stratOverlayOpacity}
+            overlayItems={overlayItems}
+            factionColors={factionColors}
             onRegionClick={handleCanvasClick}
             jumpRef={jumpRef}
             paintState={paintState}

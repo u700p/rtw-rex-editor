@@ -30,6 +30,20 @@ export const OWNERSHIP_FACTIONS = [
   'dacia','numidia','scythia','spain','thrace','armenia','slave',
 ];
 
+export function cleanOwnershipList(ownership) {
+  const values = Array.isArray(ownership) ? ownership : String(ownership || '').split(',');
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const name = String(value || '').replace(/,+$/g, '').trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
 function parseKV(line) {
   const match = String(line || '').match(/^(\S+)(?:\s+(.*))?$/);
   if (!match) return { key: '', value: '' };
@@ -173,7 +187,7 @@ function parseUnit(lines) {
       case 'stat_fire_delay': unit.stat_fire_delay = parseInt(cleanVal) || 0; break;
       case 'stat_food': unit.stat_food = cleanVal; break;
       case 'stat_cost': unit.stat_cost = cleanVal; break;
-      case 'ownership': unit.ownership = cleanVal.split(',').map(s => s.trim()).filter(Boolean); break;
+      case 'ownership': unit.ownership = cleanOwnershipList(cleanVal); break;
       case 'info_pic_dir': unit.info_pics = cleanVal; break;
       case 'card_pic_dir': unit.card_pic = cleanVal; break;
       case 'card_info_pic_dir': unit.card_info = cleanVal; break;
@@ -245,7 +259,7 @@ function serializeKnownLine(key, unit, rawLine) {
     case 'stat_fire_delay': return kvLine('stat_fire_delay', unit.stat_fire_delay, rawLine);
     case 'stat_food': return kvLine('stat_food', unit.stat_food, rawLine);
     case 'stat_cost': return kvLine('stat_cost', unit.stat_cost, rawLine);
-    case 'ownership': return kvLine('ownership', (unit.ownership || []).join(', '), rawLine);
+    case 'ownership': return kvLine('ownership', cleanOwnershipList(unit.ownership).join(', '), rawLine);
     case 'info_pic_dir': return unit.info_pics ? kvLine('info_pic_dir', unit.info_pics, rawLine) : null;
     case 'card_pic_dir': return unit.card_pic ? kvLine('card_pic_dir', unit.card_pic, rawLine) : null;
     case 'card_info_pic_dir': return unit.card_info ? kvLine('card_info_pic_dir', unit.card_info, rawLine) : null;
@@ -350,7 +364,7 @@ function serializeUnitCanonical(unit) {
   lines.push(`stat_fire_delay  ${unit.stat_fire_delay}`);
   lines.push(`stat_food        ${unit.stat_food}`);
   lines.push(`stat_cost        ${unit.stat_cost}`);
-  lines.push(`ownership        ${unit.ownership.join(', ')}`);
+  lines.push(`ownership        ${cleanOwnershipList(unit.ownership).join(', ')}`);
   if (unit.info_pics) lines.push(`info_pic_dir     ${unit.info_pics}`);
   if (unit.card_pic) lines.push(`card_pic_dir     ${unit.card_pic}`);
   if (unit.card_info) lines.push(`card_info_pic_dir ${unit.card_info}`);

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import { Clipboard, Download, FileText, Image, Upload, Wand2, Copy, Search, CheckCircle2, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { inferSiegeEngine, parseEDU, serializeEDU } from '@/components/units/EDUParser';
+import { cleanOwnershipList, inferSiegeEngine, parseEDU, serializeEDU } from '@/components/units/EDUParser';
 import { parseDescrSmFactions, serializeDescrSmFactions } from '@/lib/descrSmFactionsCodec';
 import { parseTextLocFile, serializeTextLocFile } from '@/lib/textLocParser';
 import { textBlob, toCRLF } from '@/lib/lineEndings';
@@ -77,14 +77,15 @@ function parseDependencyReport(unit, modelText) {
     soldier,
     mount: unit.mount || '',
     engine: inferSiegeEngine(unit) || '',
-    ownership: (unit.ownership || []).join(', '),
+    ownership: cleanOwnershipList(unit.ownership).join(', '),
     missing,
   };
 }
 
 function stripPlaceholderOwnership(unit) {
-  const ownership = (unit.ownership || []).filter(f => String(f || '').toLowerCase() !== 'new_faction');
-  if (ownership.length === (unit.ownership || []).length) return { unit, removed: false };
+  const before = cleanOwnershipList(unit.ownership);
+  const ownership = before.filter(f => String(f || '').toLowerCase() !== 'new_faction');
+  if (ownership.length === before.length) return { unit, removed: false };
   return { unit: { ...unit, ownership }, removed: true };
 }
 
@@ -1255,18 +1256,22 @@ primary_colour                red 255, green 255, blue 140
 secondary_colour              red 0, green 0, blue 0
 
 Objective:
-Replace ONLY existing faction color on clothing, cloth trim, shields, horse cloth, banners, painted leather, and other faction-colored elements with the exact RGB value:
+Replace ONLY existing faction color on clothing,  cloth trim, shields, horse cloth, banners, painted leather, and other faction-colored elements with the exact RGB value:
 
 primary_colour                red 91, green 190, blue 183
 secondary_colour              red 192, green 178, blue 109
 
 Requirements:
 - Preserve the original UV texture atlas exactly.
-- Do NOT add any new logos, or new random texture pieces anywhere.
+- DO NOT add any new logos, or new random texture pieces anywhere!
 - Do NOT move, resize, rotate, crop, or distort any UV islands.
 - Preserve the exact canvas dimensions, layout, spacing, and transparency.
-- Preserve every pixel of detail, original shading, highlights, ambient occlusion, shadows, and weathering.
-- Keep all edges aligned with no bleeding outside the original painted regions.
+- Preserve every pixel of detail including stitching, wrinkles, folds, dirt, scratches, wear, fabric weave, leather grain, wood grain, metal reflections, and painted ornamentation.
+- Maintain the original shading, highlights, ambient occlusion, shadows, and weathering.
+- Preserve contrast and material definition.
+- Recolor by changing hue only while retaining the original value and saturation where possible.
+- Keep all edges perfectly aligned with no bleeding outside the original painted regions.
+- Do not introduce blur, AI artifacts, hallucinated details, or new textures.
 
 Do NOT modify:
 - Skin tones
@@ -1285,8 +1290,13 @@ Do NOT modify:
 - Normal map appearance
 - Any non-faction-colored elements
 
+Only recolor the original faction-colored cloth and painted accents to RGB
+matching the brightness and shading of the source texture.
+
 Output:
-A pixel-perfect Rome: Total War PNG transparent-background-ready diffuse texture atlas with identical UV islands and only the faction color replaced.`;
+A pixel-perfect Rome: Total War png transparent background-ready diffuse texture atlas with identical UV islands and only the faction color replaced. The result should be visually indistinguishable from the original except for the faction color change.
+
+Keep the alpha transparent background and keep the file name, do it fast`;
 
 function randomPick(list) {
   return list[Math.floor(Math.random() * list.length)];
@@ -1298,7 +1308,6 @@ function buildBingStylePrompt(form, referenceName = 'uploaded reference') {
   const isArt = form.mode === 'art';
   const faction = form.faction || 'new faction';
   const culture = form.culture || 'ancient Mediterranean';
-  const ethnicity = form.ethnicity || 'Sudanese/Nubian Nile Valley';
   const colors = form.colors || 'historically plausible faction colors';
   const subject = isSymbol ? (form.subject || 'faction symbol') : isEventPic ? (form.subject || 'campaign event picture') : isArt ? (form.subject || 'historical concept art') : (form.subject || 'unit texture');
   const style = form.style || (AI_IMAGE_STYLE_PRESETS[form.mode]?.[0] || 'RTW asset art');
@@ -1321,7 +1330,6 @@ function buildBingStylePrompt(form, referenceName = 'uploaded reference') {
   return [
     `Image-to-image edit using "${referenceName}" as the strict reference.`,
     assetLine,
-    !isSymbol ? `Ethnicity/people: ${ethnicity}; avoid defaulting faces or costume identity to Egyptian unless specifically requested.` : '',
     `Style: ${style}. Palette/materials: ${colors}. Details: ${details}.`,
     preserveLine,
     'Do not crop, rotate, change UV island positions, add text, invent unrelated objects, alter skin, faces, hair, leather, fur, wood, bronze, steel, gold, iron, blackened metal, white/linen armor, transparent pixels, or baked shadows unless specifically requested.',
@@ -1348,6 +1356,10 @@ function parseRtwPromptColorPairs(text) {
     secondarySource: byKey.secondary_colour[0] || null,
     secondaryTarget: byKey.secondary_colour[1] || null,
   };
+}
+
+function rgbLabel(rgb) {
+  return rgb ? `red ${rgb.r}, green ${rgb.g}, blue ${rgb.b}` : 'not found';
 }
 
 function buildAtlasPromptSettings(text) {
@@ -1445,15 +1457,18 @@ function recolorAtlasFromPrompt(imageData, promptText) {
     const r = src[i], g = src[i + 1], b = src[i + 2];
     const hsl = rgbToHsl(r, g, b);
     const protectedType = materialProtectionType(r, g, b, hsl, true);
-    if (['skin', 'metal', 'dark_metal', 'white_armor', 'leather'].includes(protectedType)) {
+    if (['skin', 'metal', 'dark_metal', 'white_armor', 'leather', 'bronze'].includes(protectedType)) {
       protectedPixels[pixel] = 1;
       protectedCount++;
       continue;
     }
     for (let passIndex = 0; passIndex < plan.passes.length; passIndex++) {
       const pass = plan.passes[passIndex];
-      const score = atlasPassScore(r, g, b, hsl, pass, passIndex === darkSecondaryIndex ? 118 : 104);
-      const threshold = passIndex === darkSecondaryIndex ? 0.50 : 0.43;
+      const rgbDistance = weightedColorDistance(r, g, b, pass.srcRgb);
+      const score = atlasPassScore(r, g, b, hsl, pass, passIndex === darkSecondaryIndex ? 112 : 92);
+      const hueGate = pass.src.s < 0.10 || hueDistance(hsl.h, pass.src.h) <= 34 || rgbDistance <= 42;
+      const threshold = passIndex === darkSecondaryIndex ? 0.54 : 0.48;
+      if (!hueGate) continue;
       if (score <= threshold) continue;
       masks[passIndex][pixel] = smoothMask((score - threshold) / (1 - threshold));
       candidatePixels++;
@@ -2386,13 +2401,12 @@ function SpriteLogoGeneratorTab() {
   );
 }
 
-export function AiImageWorkshopTab() {
+export function AiImageWorkshopTab({ recolorOnly = false } = {}) {
   const [form, setForm] = useState({
     mode: 'unit',
     faction: 'thamud_01',
-    culture: 'Hellenized Phoenician pre-Islamic Arabic with Sudanese/Nubian Nile Valley influence',
-    ethnicity: 'Sudanese/Nubian Nile Valley',
-    subject: 'Sudanese/Nubian elite desert spearman unit texture',
+    culture: 'Hellenized Phoenician pre-Islamic Arabic',
+    subject: 'elite desert spearman unit texture',
     colors: 'target primary red 91, green 190, blue 183; target secondary red 192, green 178, blue 109; warm bronze, ivory linen, dark leather',
     style: AI_IMAGE_STYLE_PRESETS.unit[0],
     details: 'preserve the RTW UV atlas exactly, keep skin/hair/leather/metal/wood unchanged, sharper cloth folds, cleaner trim, historically plausible weathering',
@@ -2400,11 +2414,18 @@ export function AiImageWorkshopTab() {
   });
   const [reference, setReference] = useState(null);
   const [prompt, setPrompt] = useState(() => {
-    try { return localStorage.getItem('rtw_ai_generator_last_prompt') || RTW_ATLAS_RECOLOR_TEMPLATE; } catch { return RTW_ATLAS_RECOLOR_TEMPLATE; }
+    try {
+      if (recolorOnly) return localStorage.getItem('rtw_ai_recolor_last_prompt') || RTW_ATLAS_RECOLOR_TEMPLATE;
+      const saved = localStorage.getItem('rtw_ai_generator_last_prompt') || '';
+      return saved.includes('Ethnicity/people:') ? '' : saved;
+    } catch {
+      return recolorOnly ? RTW_ATLAS_RECOLOR_TEMPLATE : '';
+    }
   });
   const [ideas, setIdeas] = useState([]);
   const [generated, setGenerated] = useState(null);
   const [status, setStatus] = useState('');
+  const parsedPrompt = useMemo(() => parseRtwPromptColorPairs(prompt || RTW_ATLAS_RECOLOR_TEMPLATE), [prompt]);
 
   const update = (key, value) => {
     setForm(prev => {
@@ -2416,8 +2437,8 @@ export function AiImageWorkshopTab() {
           : value === 'eventpic'
             ? 'desert ambush campaign event picture'
             : value === 'art'
-              ? 'Sudanese/Nubian royal desert guard concept art'
-              : 'Sudanese/Nubian elite desert spearman unit texture';
+              ? 'royal desert guard concept art'
+              : 'elite desert spearman unit texture';
       }
       return next;
     });
@@ -2451,7 +2472,7 @@ export function AiImageWorkshopTab() {
 
   const loadAtlasTemplatePrompt = async () => {
     setPrompt(RTW_ATLAS_RECOLOR_TEMPLATE);
-    try { localStorage.setItem('rtw_ai_generator_last_prompt', RTW_ATLAS_RECOLOR_TEMPLATE); } catch {}
+    try { localStorage.setItem(recolorOnly ? 'rtw_ai_recolor_last_prompt' : 'rtw_ai_generator_last_prompt', RTW_ATLAS_RECOLOR_TEMPLATE); } catch {}
     try {
       await navigator.clipboard?.writeText(RTW_ATLAS_RECOLOR_TEMPLATE);
       setStatus('Loaded and copied the RTW atlas recolor prompt template.');
@@ -2468,7 +2489,7 @@ export function AiImageWorkshopTab() {
         return;
       }
       setPrompt(text);
-      try { localStorage.setItem('rtw_ai_generator_last_prompt', text); } catch {}
+      try { localStorage.setItem(recolorOnly ? 'rtw_ai_recolor_last_prompt' : 'rtw_ai_generator_last_prompt', text); } catch {}
       setStatus('Pasted prompt from clipboard.');
     } catch (err) {
       setStatus(`Prompt paste failed: ${err.message}`);
@@ -2493,6 +2514,7 @@ export function AiImageWorkshopTab() {
       return;
     }
     const activePrompt = prompt || RTW_ATLAS_RECOLOR_TEMPLATE;
+    try { localStorage.setItem(recolorOnly ? 'rtw_ai_recolor_last_prompt' : 'rtw_ai_generator_last_prompt', activePrompt); } catch {}
     setStatus('Generating local RTW atlas recolor PNG...');
     await yieldToBrowser();
     const result = recolorAtlasFromPrompt(reference.imageData, activePrompt);
@@ -2535,42 +2557,47 @@ export function AiImageWorkshopTab() {
   return (
     <div className="grid grid-cols-[320px_1fr_360px] gap-3 min-h-0">
       <div className="space-y-3">
-        <label className="block">
-          <span className="text-[10px] uppercase text-slate-500">Mode</span>
-          <select value={form.mode} onChange={e => update('mode', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
-            <option value="unit">Unit img2img</option>
-            <option value="symbol">Faction symbol/icon img2img</option>
-            <option value="eventpic">Event picture art</option>
-            <option value="art">General mod art</option>
-          </select>
-        </label>
+        {!recolorOnly && (
+          <label className="block">
+            <span className="text-[10px] uppercase text-slate-500">Mode</span>
+            <select value={form.mode} onChange={e => update('mode', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
+              <option value="unit">Unit img2img</option>
+              <option value="symbol">Faction symbol/icon img2img</option>
+              <option value="eventpic">Event picture art</option>
+              <option value="art">General mod art</option>
+            </select>
+          </label>
+        )}
         <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
           <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg,.webp" className="hidden" onChange={handleReference} />
           <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load reference image</span>
         </label>
-        <TextField label="Faction" value={form.faction} onChange={value => update('faction', value)} />
-        <TextField label="Culture combo" value={form.culture} onChange={value => update('culture', value)} />
-        <TextField label="Ethnicity/people" value={form.ethnicity} onChange={value => update('ethnicity', value)} />
-        <TextField label={form.mode === 'symbol' ? 'Symbol subject' : form.mode === 'eventpic' ? 'Event scene' : form.mode === 'art' ? 'Art subject' : 'Unit subject'} value={form.subject} onChange={value => update('subject', value)} />
-        <TextField label="Palette/materials" value={form.colors} onChange={value => update('colors', value)} />
-        <label className="block">
-          <span className="text-[10px] uppercase text-slate-500">Style preset</span>
-          <select value={form.style} onChange={e => update('style', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
-            {AI_IMAGE_STYLE_PRESETS[form.mode].map(style => <option key={style} value={style}>{style}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-[10px] uppercase text-slate-500">Extra description</span>
-          <textarea value={form.details} onChange={e => update('details', e.target.value)} className="w-full h-20 mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs" />
-        </label>
-        <label className="block">
-          <span className="text-[10px] uppercase text-slate-500">Avoid</span>
-          <textarea value={form.negative} onChange={e => update('negative', e.target.value)} className="w-full h-16 mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs" />
-        </label>
-        <Button className="w-full h-8 text-xs gap-1.5" onClick={generatePrompt}>
-          <Wand2 className="w-3.5 h-3.5" />
-          Generate img2img prompt
-        </Button>
+        {!recolorOnly && (
+          <>
+            <TextField label="Faction" value={form.faction} onChange={value => update('faction', value)} />
+            <TextField label="Culture combo" value={form.culture} onChange={value => update('culture', value)} />
+            <TextField label={form.mode === 'symbol' ? 'Symbol subject' : form.mode === 'eventpic' ? 'Event scene' : form.mode === 'art' ? 'Art subject' : 'Unit subject'} value={form.subject} onChange={value => update('subject', value)} />
+            <TextField label="Palette/materials" value={form.colors} onChange={value => update('colors', value)} />
+            <label className="block">
+              <span className="text-[10px] uppercase text-slate-500">Style preset</span>
+              <select value={form.style} onChange={e => update('style', e.target.value)} className="w-full h-8 mt-1 bg-slate-900 border border-slate-700 rounded px-2 text-xs">
+                {AI_IMAGE_STYLE_PRESETS[form.mode].map(style => <option key={style} value={style}>{style}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase text-slate-500">Extra description</span>
+              <textarea value={form.details} onChange={e => update('details', e.target.value)} className="w-full h-20 mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase text-slate-500">Avoid</span>
+              <textarea value={form.negative} onChange={e => update('negative', e.target.value)} className="w-full h-16 mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs" />
+            </label>
+            <Button className="w-full h-8 text-xs gap-1.5" onClick={generatePrompt}>
+              <Wand2 className="w-3.5 h-3.5" />
+              Generate img2img prompt
+            </Button>
+          </>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" className="h-8 text-xs gap-1.5" onClick={loadAtlasTemplatePrompt}>
             <Clipboard className="w-3.5 h-3.5" />
@@ -2589,10 +2616,12 @@ export function AiImageWorkshopTab() {
           <Download className="w-3.5 h-3.5" />
           Download generated PNG
         </Button>
-        <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={generateIdeas}>
-          <Search className="w-3.5 h-3.5" />
-          Generate ideas
-        </Button>
+        {!recolorOnly && (
+          <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={generateIdeas}>
+            <Search className="w-3.5 h-3.5" />
+            Generate ideas
+          </Button>
+        )}
         <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={downloadKit}>
           <Download className="w-3.5 h-3.5" />
           Download kit
@@ -2644,26 +2673,54 @@ export function AiImageWorkshopTab() {
           className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 text-[11px] text-slate-200"
           placeholder="Paste the RTW atlas recolor prompt here. The local generator parses primary_colour and secondary_colour red/green/blue lines and exports a transparent PNG."
         />
-        <div className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 overflow-auto">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] uppercase text-slate-500">Idea generator</span>
-            <button onClick={() => navigator.clipboard?.writeText(ideas.map((idea, i) => `${i + 1}. ${idea}`).join('\n'))} disabled={!ideas.length} className="text-[10px] text-slate-400 hover:text-slate-100 disabled:opacity-40">Copy</button>
-          </div>
-          {ideas.length ? (
-            <div className="space-y-2">
-              {ideas.map((idea, i) => (
-                <button key={`${idea}-${i}`} onClick={() => update('subject', idea)} className="w-full text-left rounded border border-slate-800 bg-slate-900/50 p-2 text-[11px] text-slate-300 hover:border-amber-500/50">
-                  {i + 1}. {idea}
-                </button>
-              ))}
+        {recolorOnly ? (
+          <div className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 overflow-auto">
+            <div className="text-[10px] uppercase text-slate-500 mb-2">Parsed recolor colors</div>
+            <div className="space-y-2 text-[11px] text-slate-300 font-mono">
+              <div className="rounded border border-slate-800 bg-slate-900/50 p-2">
+                <div className="text-slate-500">source primary</div>
+                <div>{rgbLabel(parsedPrompt.primarySource)}</div>
+              </div>
+              <div className="rounded border border-slate-800 bg-slate-900/50 p-2">
+                <div className="text-slate-500">target primary</div>
+                <div>{rgbLabel(parsedPrompt.primaryTarget)}</div>
+              </div>
+              <div className="rounded border border-slate-800 bg-slate-900/50 p-2">
+                <div className="text-slate-500">source secondary</div>
+                <div>{rgbLabel(parsedPrompt.secondarySource)}</div>
+              </div>
+              <div className="rounded border border-slate-800 bg-slate-900/50 p-2">
+                <div className="text-slate-500">target secondary</div>
+                <div>{rgbLabel(parsedPrompt.secondaryTarget)}</div>
+              </div>
             </div>
-          ) : (
-            <div className="h-full grid place-items-center text-xs text-slate-500">Generate ideas for units or faction symbols.</div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 overflow-auto">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] uppercase text-slate-500">Idea generator</span>
+              <button onClick={() => navigator.clipboard?.writeText(ideas.map((idea, i) => `${i + 1}. ${idea}`).join('\n'))} disabled={!ideas.length} className="text-[10px] text-slate-400 hover:text-slate-100 disabled:opacity-40">Copy</button>
+            </div>
+            {ideas.length ? (
+              <div className="space-y-2">
+                {ideas.map((idea, i) => (
+                  <button key={`${idea}-${i}`} onClick={() => update('subject', idea)} className="w-full text-left rounded border border-slate-800 bg-slate-900/50 p-2 text-[11px] text-slate-300 hover:border-amber-500/50">
+                    {i + 1}. {idea}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="h-full grid place-items-center text-xs text-slate-500">Generate ideas for units or faction symbols.</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+export function AiFactionRecolorGeneratorTab() {
+  return <AiImageWorkshopTab recolorOnly />;
 }
 
 function cloneDelimitedBlock(text, startRegex, stopRegex, transform) {
@@ -2925,11 +2982,11 @@ function copyUnitForFaction(unit, sourceId, targetId, targetOnlyOwnership) {
   if (targetOnlyOwnership) {
     copied.ownership = [targetId];
   } else {
-    const ownership = (copied.ownership || [])
+    const ownership = cleanOwnershipList(copied.ownership)
       .map(f => String(f || '').toLowerCase() === sourceId.toLowerCase() ? targetId : f)
       .filter(f => f && String(f).toLowerCase() !== 'new_faction');
     if (!ownership.some(f => String(f).toLowerCase() === targetId.toLowerCase())) ownership.push(targetId);
-    copied.ownership = [...new Set(ownership)];
+    copied.ownership = cleanOwnershipList(ownership);
   }
   copied.engine = copied.engine || inferSiegeEngine(copied) || '';
   return copied;
@@ -3246,7 +3303,7 @@ function ModCopierTab() {
     }
     if (referenceCount) lines.push(`+ extra text merge references: ${referenceCount}`);
 
-    lines.push('', ...copiedUnits.map(unit => `unit: ${unit.type} -> ownership ${unit.ownership.join(', ')}`));
+    lines.push('', ...copiedUnits.map(unit => `unit: ${unit.type} -> ownership ${cleanOwnershipList(unit.ownership).join(', ')}`));
     const finalReport = lines.join('\n');
     zip.file('mod_copier_report.txt', toCRLF(finalReport));
     const blob = await zip.generateAsync({ type: 'blob' });
@@ -3545,6 +3602,7 @@ export default function RomeTools({ initialTab = 'importer' }) {
     ['recolor', 'Texture Recolorizer', Wand2],
     ['png-converter', 'PNG Converter', Image],
     ['ai-img2img', 'AI Img2Img', Image],
+    ['ai-recolor', 'AI Faction Recolor', Image],
     ['sprite-logos', 'Sprite Logos', Image],
     ['dmb-slave', 'DMB Textures', FileText],
     ['duplicate', 'Duplicators', Copy],
@@ -3578,6 +3636,7 @@ export default function RomeTools({ initialTab = 'importer' }) {
         {tab === 'recolor' && <TextureRecolorTab />}
         {tab === 'png-converter' && <PngConverterTab />}
         {tab === 'ai-img2img' && <AiImageWorkshopTab />}
+        {tab === 'ai-recolor' && <AiFactionRecolorGeneratorTab />}
         {tab === 'sprite-logos' && <SpriteLogoGeneratorTab />}
         {tab === 'dmb-slave' && <DmbSlaveTextureTab />}
         {tab === 'duplicate' && <DuplicatorsTab />}

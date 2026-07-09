@@ -77,6 +77,94 @@ function buildRegionHighlightBitmap(data, width, height, hr, hg, hb) {
   return createImageBitmap(new ImageData(out, width, height));
 }
 
+function colorKey(r, g, b) {
+  return ((r & 255) << 16) | ((g & 255) << 8) | (b & 255);
+}
+
+function hashColor(name) {
+  let hash = 2166136261;
+  for (const ch of String(name || 'region')) {
+    hash ^= ch.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  const h = Math.abs(hash) % 360;
+  const c = 0.52;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  let r = 0, g = 0, b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const m = 0.34;
+  return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
+}
+
+function factionPrimaryColor(factionColors, faction) {
+  const direct = factionColors?.[faction]?.primaryColor;
+  if (direct) return direct;
+  const lower = String(faction || '').toLowerCase();
+  const key = Object.keys(factionColors || {}).find(name => name.toLowerCase() === lower);
+  return key ? factionColors[key]?.primaryColor : null;
+}
+
+function buildStrategicOverlayBitmap(data, width, height, regionsData, overlayItems, factionColors, mode = 'owners') {
+  const ownerByRegion = new Map();
+  for (const item of overlayItems || []) {
+    if (item?.category !== 'settlement' || !item.region || !item.faction) continue;
+    ownerByRegion.set(String(item.region).toLowerCase(), item.faction);
+  }
+
+  const colorByRegionRgb = new Map();
+  for (const region of regionsData || []) {
+    const regionName = String(region.regionName || '').toLowerCase();
+    const faction = ownerByRegion.get(regionName) || region.factionCreator || region.rebelFaction || '';
+    if (!faction || String(faction).toLowerCase() === 'slave') continue;
+    const fc = factionPrimaryColor(factionColors, faction) || hashColor(faction);
+    colorByRegionRgb.set(colorKey(region.r, region.g, region.b), {
+      r: Math.round(fc.r * 0.82 + 28),
+      g: Math.round(fc.g * 0.82 + 28),
+      b: Math.round(fc.b * 0.82 + 28),
+    });
+  }
+
+  const out = new Uint8ClampedArray(width * height * 4);
+  if (!colorByRegionRgb.size) return createImageBitmap(new ImageData(out, width, height));
+
+  for (let pixel = 0; pixel < width * height; pixel++) {
+    const i = pixel * 4;
+    const color = colorByRegionRgb.get(colorKey(data[i], data[i + 1], data[i + 2]));
+    if (!color) continue;
+    out[i] = color.r;
+    out[i + 1] = color.g;
+    out[i + 2] = color.b;
+    out[i + 3] = mode === 'solid' ? 235 : 185;
+  }
+
+  const rowSize = width * 4;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * rowSize + x * 4;
+      if (!out[i + 3]) continue;
+      const key = colorKey(data[i], data[i + 1], data[i + 2]);
+      if (
+        colorKey(data[i - 4], data[i - 3], data[i - 2]) !== key ||
+        colorKey(data[i + 4], data[i + 5], data[i + 6]) !== key ||
+        colorKey(data[i - rowSize], data[i - rowSize + 1], data[i - rowSize + 2]) !== key ||
+        colorKey(data[i + rowSize], data[i + rowSize + 1], data[i + rowSize + 2]) !== key
+      ) {
+        out[i] = 18;
+        out[i + 1] = 20;
+        out[i + 2] = 26;
+        out[i + 3] = 220;
+      }
+    }
+  }
+
+  return createImageBitmap(new ImageData(out, width, height));
+}
+
 function getCanvasSize(layers) {
   const reg = layers['regions'];
   if (reg?.bitmap) return { w: reg.bitmap.width, h: reg.bitmap.height };
@@ -144,6 +232,10 @@ function drawPixelGrid(ctx, layerW, layerH, mapW, mapH, scale, color = 'rgba(255
 
 export default function MapCanvas({
   layers, regionsMode = 'fill',
+  stratOverlayMode = 'off',
+  stratOverlayOpacity = 0.65,
+  overlayItems = [],
+  factionColors = null,
   onRegionClick, jumpRef,
   paintState, onPaint,
   showPixelGrid = false,
@@ -174,6 +266,22 @@ export default function MapCanvas({
   const highlightR = highlightRegion?.r;
   const highlightG = highlightRegion?.g;
   const highlightB = highlightRegion?.b;
+  const stratOverlaySignature = React.useMemo(() => {
+    if (stratOverlayMode === 'off') return '';
+    const settlements = (overlayItems || [])
+      .filter(item => item?.category === 'settlement' && item.region && item.faction)
+      .map(item => `${item.region}:${item.faction}`)
+      .sort()
+      .join('|');
+    const regions = (regionsData || [])
+      .map(region => `${region.regionName}:${region.r},${region.g},${region.b}:${region.factionCreator || ''}:${region.rebelFaction || ''}`)
+      .join('|');
+    const colors = Object.entries(factionColors || {})
+      .map(([name, fc]) => `${name}:${fc?.primaryColor?.r ?? 0},${fc?.primaryColor?.g ?? 0},${fc?.primaryColor?.b ?? 0}`)
+      .sort()
+      .join('|');
+    return `${stratOverlayMode}|${settlements}|${regions}|${colors}`;
+  }, [stratOverlayMode, overlayItems, regionsData, factionColors]);
 
   // Build highlight bitmap — border-only outline of the selected region
   useEffect(() => {
@@ -197,6 +305,43 @@ export default function MapCanvas({
     });
     return () => { cancelled = true; };
   }, [regionsLayer?.data, regionsLayer?.width, regionsLayer?.height, highlightR, highlightG, highlightB]);
+
+  useEffect(() => {
+    if (stratOverlayMode === 'off' || !regionsLayer?.data || !regionsData?.length) {
+      if (replaceCachedBitmap(transCache.current, 'stratOverlay', null)) setTransCacheVer(v => v + 1);
+      return;
+    }
+    const cached = transCache.current.stratOverlay;
+    if (cached?.src === regionsLayer.data && cached.signature === stratOverlaySignature) return;
+
+    let cancelled = false;
+    buildStrategicOverlayBitmap(
+      regionsLayer.data,
+      regionsLayer.width,
+      regionsLayer.height,
+      regionsData,
+      overlayItems,
+      factionColors,
+      stratOverlayMode
+    ).then(bmp => {
+      if (cancelled) {
+        closeBitmap(bmp);
+        return;
+      }
+      replaceCachedBitmap(transCache.current, 'stratOverlay', { bmp, src: regionsLayer.data, signature: stratOverlaySignature });
+      setTransCacheVer(v => v + 1);
+    });
+    return () => { cancelled = true; };
+  }, [
+    stratOverlayMode,
+    stratOverlaySignature,
+    regionsLayer?.data,
+    regionsLayer?.width,
+    regionsLayer?.height,
+    regionsData,
+    overlayItems,
+    factionColors,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -258,6 +403,12 @@ export default function MapCanvas({
       }
     }
 
+    if (stratOverlayMode !== 'off' && transCache.current.stratOverlay?.bmp) {
+      ctx.globalAlpha = stratOverlayOpacity;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(transCache.current.stratOverlay.bmp, 0, 0, mapW, mapH);
+    }
+
     // Draw region highlight overlay
     if (transCache.current.highlight?.bmp) {
       ctx.globalAlpha = 1;
@@ -274,7 +425,7 @@ export default function MapCanvas({
       if (coarseLayer?.width) drawPixelGrid(ctx, coarseLayer.width, coarseLayer.height, mapW, mapH, transform.scale, 'rgba(255,200,80,0.10)');
     }
     ctx.restore();
-  }, [layers, transform, mapW, mapH, regionsMode, transCacheVer, showPixelGrid, highlightRegion]);
+  }, [layers, transform, mapW, mapH, regionsMode, stratOverlayMode, stratOverlayOpacity, transCacheVer, showPixelGrid, highlightRegion]);
 
   const fitToContainer = useCallback(() => {
     const container = containerRef.current;
