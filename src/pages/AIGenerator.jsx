@@ -17,7 +17,7 @@ export default function AIGenerator() {
           </div>
           <div className="hidden md:flex items-center gap-2 text-[11px] text-slate-400">
             <Image className="w-4 h-4 text-amber-400" />
-            Img2img prompts, icon concepts, and idea kits
+            Local atlas PNG generation, img2img prompts, icon concepts, and idea kits
           </div>
         </div>
       </div>

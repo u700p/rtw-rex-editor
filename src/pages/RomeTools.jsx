@@ -1247,6 +1247,47 @@ const AI_IDEA_PARTS = {
   moods: ['disciplined and ancient', 'weathered but elite', 'sacred and royal', 'frontier-born and practical', 'maritime and wealthy', 'nomadic and fast-moving'],
 };
 
+const RTW_ATLAS_RECOLOR_TEMPLATE = `Recolor this Rome: Total War unit texture atlas only. This is a game texture, not concept art.
+
+Input Colors Radius in THIS rgb format red xyz, green xyz, blue xyz:
+
+primary_colour                red 255, green 255, blue 140
+secondary_colour              red 0, green 0, blue 0
+
+Objective:
+Replace ONLY existing faction color on clothing, cloth trim, shields, horse cloth, banners, painted leather, and other faction-colored elements with the exact RGB value:
+
+primary_colour                red 91, green 190, blue 183
+secondary_colour              red 192, green 178, blue 109
+
+Requirements:
+- Preserve the original UV texture atlas exactly.
+- Do NOT add any new logos, or new random texture pieces anywhere.
+- Do NOT move, resize, rotate, crop, or distort any UV islands.
+- Preserve the exact canvas dimensions, layout, spacing, and transparency.
+- Preserve every pixel of detail, original shading, highlights, ambient occlusion, shadows, and weathering.
+- Keep all edges aligned with no bleeding outside the original painted regions.
+
+Do NOT modify:
+- Skin tones
+- Faces
+- Hair
+- Eyes
+- Fur
+- Bone
+- Teeth
+- Weapons
+- Metallic armor
+- Wood
+- Horse skin
+- Background
+- Alpha channel
+- Normal map appearance
+- Any non-faction-colored elements
+
+Output:
+A pixel-perfect Rome: Total War PNG transparent-background-ready diffuse texture atlas with identical UV islands and only the faction color replaced.`;
+
 function randomPick(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
@@ -1257,6 +1298,7 @@ function buildBingStylePrompt(form, referenceName = 'uploaded reference') {
   const isArt = form.mode === 'art';
   const faction = form.faction || 'new faction';
   const culture = form.culture || 'ancient Mediterranean';
+  const ethnicity = form.ethnicity || 'Sudanese/Nubian Nile Valley';
   const colors = form.colors || 'historically plausible faction colors';
   const subject = isSymbol ? (form.subject || 'faction symbol') : isEventPic ? (form.subject || 'campaign event picture') : isArt ? (form.subject || 'historical concept art') : (form.subject || 'unit texture');
   const style = form.style || (AI_IMAGE_STYLE_PRESETS[form.mode]?.[0] || 'RTW asset art');
@@ -1279,12 +1321,13 @@ function buildBingStylePrompt(form, referenceName = 'uploaded reference') {
   return [
     `Image-to-image edit using "${referenceName}" as the strict reference.`,
     assetLine,
+    !isSymbol ? `Ethnicity/people: ${ethnicity}; avoid defaulting faces or costume identity to Egyptian unless specifically requested.` : '',
     `Style: ${style}. Palette/materials: ${colors}. Details: ${details}.`,
     preserveLine,
     'Do not crop, rotate, change UV island positions, add text, invent unrelated objects, alter skin, faces, hair, leather, fur, wood, bronze, steel, gold, iron, blackened metal, white/linen armor, transparent pixels, or baked shadows unless specifically requested.',
     form.negative ? `Avoid: ${form.negative}.` : 'Avoid modern fantasy, glowing effects, blurry edges, new backgrounds, and layout drift.',
     'Output should look like the same game asset after a careful AI-assisted art pass, not a new unrelated illustration.'
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function parseRtwPromptColorPairs(text) {
@@ -1335,6 +1378,136 @@ function buildAtlasPromptSettings(text) {
     protectMaterials: true,
     useSource: true,
     exactTarget: true,
+  };
+}
+
+function atlasPassScore(r, g, b, hsl, pass, rgbTolerance) {
+  const rgbMask = Math.max(0, 1 - weightedColorDistance(r, g, b, pass.srcRgb) / rgbTolerance);
+  const hueMask = pass.src.s < 0.10 ? 0 : Math.max(0, 1 - hueDistance(hsl.h, pass.src.h) / 22);
+  const satMask = pass.src.s < 0.10 ? 1 : Math.max(0, 1 - Math.abs(hsl.s - pass.src.s) / 0.72);
+  const lightMask = Math.max(0, 1 - Math.abs(hsl.l - pass.src.l) / 0.58);
+  return clamp01(rgbMask * 0.62 + hueMask * 0.22 + satMask * 0.08 + lightMask * 0.08);
+}
+
+function dilateMask(mask, width, height, radius = 2) {
+  const out = new Float32Array(mask.length);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      let best = mask[idx];
+      if (best >= 0.98) {
+        out[idx] = best;
+        continue;
+      }
+      for (let oy = -radius; oy <= radius; oy++) {
+        const yy = y + oy;
+        if (yy < 0 || yy >= height) continue;
+        for (let ox = -radius; ox <= radius; ox++) {
+          const xx = x + ox;
+          if (xx < 0 || xx >= width) continue;
+          const dist = Math.max(Math.abs(ox), Math.abs(oy));
+          const value = mask[yy * width + xx] * (1 - dist / (radius + 1));
+          if (value > best) best = value;
+        }
+      }
+      out[idx] = best;
+    }
+  }
+  return out;
+}
+
+function shadeMatchedTargetColor(hsl, pass) {
+  const lightOffset = hsl.l - pass.src.l;
+  const satRatio = pass.src.s > 0.03 ? hsl.s / pass.src.s : 1;
+  const targetSat = clamp01(pass.tgt.s * (0.72 + Math.min(0.70, satRatio) * 0.28));
+  const targetLight = clamp01(pass.tgt.l + lightOffset);
+  return hslToRgb(pass.tgt.h, targetSat, targetLight);
+}
+
+function recolorAtlasFromPrompt(imageData, promptText) {
+  const settings = buildAtlasPromptSettings(promptText);
+  const plan = buildRecolorPlan(settings);
+  const out = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  const src = imageData.data;
+  const dst = out.data;
+  const { width, height } = imageData;
+  const total = width * height;
+  const masks = plan.passes.map(() => new Float32Array(total));
+  const protectedPixels = new Uint8Array(total);
+  const darkSecondaryIndex = plan.passes.findIndex(pass => pass.srcRgb.r <= 24 && pass.srcRgb.g <= 24 && pass.srcRgb.b <= 24);
+  let candidatePixels = 0;
+  let protectedCount = 0;
+
+  for (let pixel = 0; pixel < total; pixel++) {
+    const i = pixel * 4;
+    const a = src[i + 3];
+    if (a < 8) continue;
+    const r = src[i], g = src[i + 1], b = src[i + 2];
+    const hsl = rgbToHsl(r, g, b);
+    const protectedType = materialProtectionType(r, g, b, hsl, true);
+    if (['skin', 'metal', 'dark_metal', 'white_armor', 'leather'].includes(protectedType)) {
+      protectedPixels[pixel] = 1;
+      protectedCount++;
+      continue;
+    }
+    for (let passIndex = 0; passIndex < plan.passes.length; passIndex++) {
+      const pass = plan.passes[passIndex];
+      const score = atlasPassScore(r, g, b, hsl, pass, passIndex === darkSecondaryIndex ? 118 : 104);
+      const threshold = passIndex === darkSecondaryIndex ? 0.50 : 0.43;
+      if (score <= threshold) continue;
+      masks[passIndex][pixel] = smoothMask((score - threshold) / (1 - threshold));
+      candidatePixels++;
+    }
+  }
+
+  const primaryMask = masks[0] || new Float32Array(total);
+  const nearPrimary = dilateMask(primaryMask, width, height, 3);
+  let changed = 0;
+
+  for (let pixel = 0; pixel < total; pixel++) {
+    if (protectedPixels[pixel]) continue;
+    const i = pixel * 4;
+    const a = src[i + 3];
+    if (a < 8) continue;
+    const r = src[i], g = src[i + 1], b = src[i + 2];
+    const hsl = rgbToHsl(r, g, b);
+    let bestIndex = -1;
+    let bestMask = 0;
+    for (let passIndex = 0; passIndex < masks.length; passIndex++) {
+      let mask = masks[passIndex][pixel];
+      if (passIndex === darkSecondaryIndex && mask > 0 && nearPrimary[pixel] < 0.08) {
+        const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+        if (hsl.l > 0.34 || chroma > 42) mask *= 0.35;
+        else mask *= 0.70;
+      }
+      if (mask > bestMask) {
+        bestMask = mask;
+        bestIndex = passIndex;
+      }
+    }
+    if (bestIndex < 0 || bestMask <= 0.05) continue;
+    const recolored = shadeMatchedTargetColor(hsl, plan.passes[bestIndex]);
+    const mask = clamp01(bestMask);
+    dst[i] = Math.round(r * (1 - mask) + recolored.r * mask);
+    dst[i + 1] = Math.round(g * (1 - mask) + recolored.g * mask);
+    dst[i + 2] = Math.round(b * (1 - mask) + recolored.b * mask);
+    dst[i + 3] = a;
+    if (Math.abs(dst[i] - r) + Math.abs(dst[i + 1] - g) + Math.abs(dst[i + 2] - b) > 2) {
+      changed++;
+    }
+  }
+
+  return {
+    imageData: out,
+    settings,
+    report: {
+      changed,
+      total,
+      protectedCount,
+      candidatePixels,
+      alphaPreserved: true,
+      canvas: `${width}x${height}`,
+    },
   };
 }
 
@@ -2217,15 +2390,18 @@ export function AiImageWorkshopTab() {
   const [form, setForm] = useState({
     mode: 'unit',
     faction: 'thamud_01',
-    culture: 'Hellenized Phoenician pre-Islamic Arabic',
-    subject: 'elite desert spearman unit texture',
-    colors: 'deep red cloth, warm bronze, ivory linen, dark leather',
+    culture: 'Hellenized Phoenician pre-Islamic Arabic with Sudanese/Nubian Nile Valley influence',
+    ethnicity: 'Sudanese/Nubian Nile Valley',
+    subject: 'Sudanese/Nubian elite desert spearman unit texture',
+    colors: 'target primary red 91, green 190, blue 183; target secondary red 192, green 178, blue 109; warm bronze, ivory linen, dark leather',
     style: AI_IMAGE_STYLE_PRESETS.unit[0],
-    details: 'sharper cloth folds, cleaner trim, historically plausible weathering',
+    details: 'preserve the RTW UV atlas exactly, keep skin/hair/leather/metal/wood unchanged, sharper cloth folds, cleaner trim, historically plausible weathering',
     negative: '',
   });
   const [reference, setReference] = useState(null);
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(() => {
+    try { return localStorage.getItem('rtw_ai_generator_last_prompt') || RTW_ATLAS_RECOLOR_TEMPLATE; } catch { return RTW_ATLAS_RECOLOR_TEMPLATE; }
+  });
   const [ideas, setIdeas] = useState([]);
   const [generated, setGenerated] = useState(null);
   const [status, setStatus] = useState('');
@@ -2240,8 +2416,8 @@ export function AiImageWorkshopTab() {
           : value === 'eventpic'
             ? 'desert ambush campaign event picture'
             : value === 'art'
-              ? 'royal desert guard concept art'
-              : 'elite desert spearman unit texture';
+              ? 'Sudanese/Nubian royal desert guard concept art'
+              : 'Sudanese/Nubian elite desert spearman unit texture';
       }
       return next;
     });
@@ -2273,6 +2449,32 @@ export function AiImageWorkshopTab() {
     }
   };
 
+  const loadAtlasTemplatePrompt = async () => {
+    setPrompt(RTW_ATLAS_RECOLOR_TEMPLATE);
+    try { localStorage.setItem('rtw_ai_generator_last_prompt', RTW_ATLAS_RECOLOR_TEMPLATE); } catch {}
+    try {
+      await navigator.clipboard?.writeText(RTW_ATLAS_RECOLOR_TEMPLATE);
+      setStatus('Loaded and copied the RTW atlas recolor prompt template.');
+    } catch {
+      setStatus('Loaded the RTW atlas recolor prompt template.');
+    }
+  };
+
+  const pastePrompt = async () => {
+    try {
+      const text = await navigator.clipboard?.readText();
+      if (!text) {
+        setStatus('Clipboard is empty.');
+        return;
+      }
+      setPrompt(text);
+      try { localStorage.setItem('rtw_ai_generator_last_prompt', text); } catch {}
+      setStatus('Pasted prompt from clipboard.');
+    } catch (err) {
+      setStatus(`Prompt paste failed: ${err.message}`);
+    }
+  };
+
   const generateIdeas = async () => {
     const next = generateAiImageIdeas(form);
     setIdeas(next);
@@ -2290,11 +2492,11 @@ export function AiImageWorkshopTab() {
       setStatus('Load a RTW texture atlas first.');
       return;
     }
-    const activePrompt = prompt || buildBingStylePrompt(form, reference.name);
-    const settings = buildAtlasPromptSettings(activePrompt);
+    const activePrompt = prompt || RTW_ATLAS_RECOLOR_TEMPLATE;
     setStatus('Generating local RTW atlas recolor PNG...');
     await yieldToBrowser();
-    const output = recolorImageData(reference.imageData, settings);
+    const result = recolorAtlasFromPrompt(reference.imageData, activePrompt);
+    const output = result.imageData;
     const blob = await imageDataToPngBlob(output);
     if (!blob) {
       setStatus('PNG export failed.');
@@ -2310,18 +2512,21 @@ export function AiImageWorkshopTab() {
       blob,
       width: output.width,
       height: output.height,
-      settings,
+      settings: result.settings,
+      report: result.report,
+      prompt: activePrompt,
     });
-    setStatus(`Generated ${outName} with preserved canvas, UV layout, and alpha.`);
+    setStatus(`Generated ${outName}. Changed ${result.report.changed.toLocaleString()} pixels, protected ${result.report.protectedCount.toLocaleString()}, alpha preserved.`);
   };
 
   const downloadKit = () => {
+    const kitPrompt = prompt || (form.mode === 'unit' ? RTW_ATLAS_RECOLOR_TEMPLATE : buildBingStylePrompt(form, reference?.name || 'uploaded reference'));
     const kit = {
       mode: form.mode,
       reference: reference ? { name: reference.name, width: reference.width, height: reference.height } : null,
-      prompt: prompt || buildBingStylePrompt(form, reference?.name || 'uploaded reference'),
+      prompt: kitPrompt,
       ideas,
-      generated: generated ? { name: generated.name, width: generated.width, height: generated.height, settings: generated.settings } : null,
+      generated: generated ? { name: generated.name, width: generated.width, height: generated.height, settings: generated.settings, report: generated.report } : null,
       settings: form,
     };
     downloadBlob(new Blob([JSON.stringify(kit, null, 2)], { type: 'application/json' }), `ai_img2img_${form.mode}_kit.json`);
@@ -2345,6 +2550,7 @@ export function AiImageWorkshopTab() {
         </label>
         <TextField label="Faction" value={form.faction} onChange={value => update('faction', value)} />
         <TextField label="Culture combo" value={form.culture} onChange={value => update('culture', value)} />
+        <TextField label="Ethnicity/people" value={form.ethnicity} onChange={value => update('ethnicity', value)} />
         <TextField label={form.mode === 'symbol' ? 'Symbol subject' : form.mode === 'eventpic' ? 'Event scene' : form.mode === 'art' ? 'Art subject' : 'Unit subject'} value={form.subject} onChange={value => update('subject', value)} />
         <TextField label="Palette/materials" value={form.colors} onChange={value => update('colors', value)} />
         <label className="block">
@@ -2365,9 +2571,19 @@ export function AiImageWorkshopTab() {
           <Wand2 className="w-3.5 h-3.5" />
           Generate img2img prompt
         </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" className="h-8 text-xs gap-1.5" onClick={loadAtlasTemplatePrompt}>
+            <Clipboard className="w-3.5 h-3.5" />
+            RTW template
+          </Button>
+          <Button variant="outline" className="h-8 text-xs gap-1.5" onClick={pastePrompt}>
+            <Clipboard className="w-3.5 h-3.5" />
+            Paste prompt
+          </Button>
+        </div>
         <Button className="w-full h-8 text-xs gap-1.5 bg-emerald-700 hover:bg-emerald-600" onClick={generateLocalAtlasPng} disabled={!reference}>
           <Image className="w-3.5 h-3.5" />
-          Generate local PNG
+          Generate image from prompt
         </Button>
         <Button variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={() => generated?.blob && downloadBlob(generated.blob, generated.name)} disabled={!generated?.blob}>
           <Download className="w-3.5 h-3.5" />
@@ -2408,6 +2624,11 @@ export function AiImageWorkshopTab() {
                   <span className="text-xs text-slate-600">Generated atlas preview appears here.</span>
                 )}
               </div>
+              {generated?.report && (
+                <div className="rounded border border-slate-800 bg-slate-950/80 p-2 text-[10px] text-slate-400 font-mono">
+                  Canvas {generated.report.canvas} | changed {generated.report.changed.toLocaleString()} px | protected {generated.report.protectedCount.toLocaleString()} px | alpha preserved
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -2421,7 +2642,7 @@ export function AiImageWorkshopTab() {
           onChange={e => setPrompt(e.target.value)}
           spellCheck={false}
           className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 text-[11px] text-slate-200"
-          placeholder="Generated Bing/Copilot-style image-to-image prompt appears here."
+          placeholder="Paste the RTW atlas recolor prompt here. The local generator parses primary_colour and secondary_colour red/green/blue lines and exports a transparent PNG."
         />
         <div className="min-h-0 rounded border border-slate-700 bg-black/30 p-3 overflow-auto">
           <div className="flex items-center justify-between mb-2">
