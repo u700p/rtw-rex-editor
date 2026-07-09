@@ -2378,7 +2378,8 @@ export default function FactionsEditor() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border border-slate-700 rounded p-2 bg-slate-950/40">
               {[
                 ['createCharacters', 'descr_character entries'],
-                ['assignSlaveUnits', '13 units + general'],
+                ['assignSlaveUnits', 'Assign matched units'],
+                ['copySourceOwnership', 'Copy source EDU ownership'],
                 ['packUnitCards', 'Pack slave UI cards'],
               ].map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-[10px] text-slate-300">
@@ -2391,6 +2392,22 @@ export default function FactionsEditor() {
                   {label}
                 </label>
               ))}
+              {duplicateOptions.assignSlaveUnits && (
+                <label className="flex items-center gap-2 text-[10px] text-slate-300">
+                  <span>Max units</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={duplicateOptions.unitCount}
+                    onChange={(e) => setDuplicateOptions((prev) => ({
+                      ...prev,
+                      unitCount: Math.max(0, Math.min(50, Math.floor(Number(e.target.value) || 0))),
+                    }))}
+                    className="w-16 h-6 bg-slate-800 border border-slate-600 rounded px-1 text-[10px] text-slate-100"
+                  />
+                </label>
+              )}
             </div>
             
             <div className="border-t border-slate-700 pt-3">
