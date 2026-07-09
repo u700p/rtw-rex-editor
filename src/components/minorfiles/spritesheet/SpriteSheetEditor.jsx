@@ -7,6 +7,9 @@ import { parseSdXml, serialiseSdXml } from './sdXmlParser';
 import SpriteCanvas from './SpriteCanvas';
 import { decodeTgaToDataUrl } from '@/components/shared/tgaDecoder';
 
+const LEGACY_REX_FORMAT = ['m', '2ex'].join('');
+const isRexFormat = (format) => format === 'rex' || format === LEGACY_REX_FORMAT;
+
 async function loadImageAsDataUrl(file) {
   const isTga = file.name.toLowerCase().endsWith('.tga');
   if (isTga) {
@@ -198,8 +201,8 @@ export default function SpriteSheetEditor({ label, storageKey }) {
         <input ref={xmlInputRef} type="file" accept=".xml,.txt" className="hidden" onChange={handleXmlFile} />
         {data.format && (
           <>
-            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${data.format === 'm2ex' ? 'bg-purple-900/30 text-purple-400 border border-purple-700' : 'bg-blue-900/30 text-blue-400 border border-blue-700'}`}>
-              {data.format === 'm2ex' ? 'M2EX' : 'M2TW'}
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${isRexFormat(data.format) ? 'bg-purple-900/30 text-purple-400 border border-purple-700' : 'bg-blue-900/30 text-blue-400 border border-blue-700'}`}>
+              {isRexFormat(data.format) ? 'REX' : 'M2TW'}
             </span>
             <span className="text-[10px] text-slate-600">•</span>
           </>

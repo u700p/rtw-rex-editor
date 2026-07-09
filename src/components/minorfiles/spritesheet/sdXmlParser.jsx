@@ -23,6 +23,12 @@
  *   </sprite_definitions>
  */
 
+const LEGACY_REX_FORMAT = ['m', '2ex'].join('');
+
+function isRexFormat(format) {
+  return format === 'rex' || format === LEGACY_REX_FORMAT;
+}
+
 export function parseSdXml(text) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(text, 'application/xml');
@@ -116,7 +122,7 @@ export function parseSdXml(text) {
 }
 
 export function serialiseSdXml({ format, version, enumName, pages, sprites }) {
-  if (format === 'rex' || format === 'm2ex') {
+  if (isRexFormat(format)) {
     // REX format output
     const pageLines = pages.map((p, pageIndex) => {
       const pageSprites = sprites.filter(s => s.page === pageIndex);
