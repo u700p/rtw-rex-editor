@@ -1669,11 +1669,15 @@ function TextureRecolorTab() {
   }, [settings, files]);
 
   const handleFiles = async (e) => {
-    const list = Array.from(e.target.files || []).filter(file => /\.(tga|dds|png|jpe?g)$/i.test(file.name));
+    const list = Array.from(e.target.files || []).filter(file => /\.(tga|dds|png|jpe?g|webp)$/i.test(file.name));
     e.target.value = '';
     previewCacheRef.current = { file: null, imageData: null, dataUrl: '' };
     setFiles(list);
-    setStatus(`${list.length} texture files queued.`);
+    setSettings(prev => {
+      const browserOnly = list.length > 0 && list.every(file => /\.(png|jpe?g|webp)$/i.test(file.name));
+      return browserOnly && prev.outputFormat === 'both' ? { ...prev, outputFormat: 'png' } : prev;
+    });
+    setStatus(`${list.length} texture files queued${list.length && list.every(file => /\.(png|jpe?g|webp)$/i.test(file.name)) ? ' (PNG export selected).' : '.'}`);
     await loadPreview(list);
   };
 
@@ -1785,13 +1789,23 @@ function TextureRecolorTab() {
         const processed = recolorImageData(original, plan);
         const sourcePath = file.webkitRelativePath || file.name;
         const outputs = [];
-        if (settings.outputFormat === 'tga' || settings.outputFormat === 'both') {
+        if (settings.outputFormat === 'tga' || settings.outputFormat === 'both' || settings.outputFormat === 'all') {
           const outName = appendSuffix(sourcePath, settings.suffix, 'tga');
           outputs.push({ name: outName, data: encodeTga(processed) });
         }
-        if (settings.outputFormat === 'dds' || settings.outputFormat === 'both') {
+        if (settings.outputFormat === 'dds' || settings.outputFormat === 'both' || settings.outputFormat === 'all') {
           const outName = appendSuffix(sourcePath, settings.suffix, 'dds');
           outputs.push({ name: outName, data: encodeDds(processed) });
+        }
+        if (settings.outputFormat === 'png' || settings.outputFormat === 'png-tga' || settings.outputFormat === 'all') {
+          const outName = appendSuffix(sourcePath, settings.suffix, 'png');
+          const png = await imageDataToPngBlob(processed);
+          if (!png) throw new Error('Browser PNG encoder returned no data.');
+          outputs.push({ name: outName, data: png });
+        }
+        if (settings.outputFormat === 'png-tga') {
+          const outName = appendSuffix(sourcePath, settings.suffix, 'tga');
+          outputs.push({ name: outName, data: encodeTga(processed) });
         }
         completed += 1;
         if (completed === files.length || completed % progressStep === 0) setStatus(`Processed ${completed}/${files.length}: ${sourcePath}`);
@@ -1818,11 +1832,12 @@ function TextureRecolorTab() {
     <div className="grid grid-cols-[300px_1fr_300px] gap-3">
       <div className="space-y-3">
         <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
-          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg" multiple className="hidden" onChange={handleFiles} />
-          <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load TGA/DDS textures</span>
+          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg,.webp" multiple className="hidden" onChange={handleFiles} />
+          <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load texture images</span>
+          <span className="block mt-1 text-[10px] text-slate-500">Accepts TGA, DDS, PNG, JPG, and WebP, including AI-generated PNG atlases.</span>
         </label>
         <label className="block rounded border border-slate-700 bg-slate-900/60 p-3 cursor-pointer hover:border-amber-600/60">
-          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg" multiple webkitdirectory="" className="hidden" onChange={handleFiles} />
+          <input type="file" accept=".tga,.dds,.png,.jpg,.jpeg,.webp" multiple webkitdirectory="" className="hidden" onChange={handleFiles} />
           <span className="flex items-center gap-2 text-xs text-slate-200"><Image className="w-3.5 h-3.5 text-amber-400" />Load texture folder</span>
         </label>
         <div className="flex items-center justify-between text-[10px] text-slate-500">
@@ -1877,6 +1892,9 @@ function TextureRecolorTab() {
             className="w-full h-8 mt-1 px-2 text-xs bg-slate-900 border border-slate-700 rounded"
           >
             <option value="both">TGA + DDS</option>
+            <option value="png">PNG only</option>
+            <option value="png-tga">PNG + TGA</option>
+            <option value="all">PNG + TGA + DDS</option>
             <option value="tga">TGA only</option>
             <option value="dds">DDS only</option>
           </select>
@@ -3353,8 +3371,8 @@ function ModCopierTab() {
 function optimizedPngName(file, flattenTgaDds) {
   const rawPath = String(file.webkitRelativePath || file.name || 'texture').replace(/\\/g, '/');
   const withoutSuffix = flattenTgaDds
-    ? rawPath.replace(/\.tga\.dds$/i, '').replace(/\.(tga|dds)$/i, '')
-    : rawPath.replace(/\.(tga|dds)$/i, '');
+    ? rawPath.replace(/\.tga\.dds$/i, '').replace(/\.(tga|dds|png|jpe?g|webp)$/i, '')
+    : rawPath.replace(/\.(tga|dds|png|jpe?g|webp)$/i, '');
   return `${withoutSuffix || 'texture'}.png`;
 }
 
