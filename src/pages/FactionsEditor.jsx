@@ -1080,10 +1080,60 @@ function ColourPickerField({ label, colour, onChange }) {
   const c = colour || { r: 0, g: 0, b: 0 };
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(c);
+  const [textValue, setTextValue] = useState('');
+  const [pasteError, setPasteError] = useState('');
   const hex = rgbToHex(c);
 
-  const openPicker = () => {setDraft({ ...c });setOpen(true);};
+  const syncText = (next) => setTextValue(`${rgbToHex(next).toUpperCase()}  ${rgbToHslText(next)}`);
+  const openPicker = () => {setDraft({ ...c });syncText(c);setPasteError('');setOpen(true);};
+  const setDraftColour = (next) => {
+    const clean = { r: clampRgb(next.r), g: clampRgb(next.g), b: clampRgb(next.b) };
+    setDraft(clean);
+    syncText(clean);
+    setPasteError('');
+  };
   const confirm = () => {onChange(draft);setOpen(false);};
+  const applyTextValue = (value = textValue) => {
+    const parsed = parseColourInput(value);
+    if (!parsed) {
+      setPasteError('Use #RRGGBB, rgb(r,g,b), or hsl(h,s%,l%).');
+      return false;
+    }
+    setDraftColour(parsed);
+    return true;
+  };
+  const copyColour = async () => {
+    const text = `${rgbToHex(draft).toUpperCase()} ${rgbToHslText(draft)}`;
+    try {
+      await navigator.clipboard?.writeText(text);
+      setTextValue(text);
+      setPasteError('Copied.');
+    } catch {
+      setTextValue(text);
+      setPasteError('Copy blocked by browser; select the text manually.');
+    }
+  };
+  const pasteColour = async () => {
+    try {
+      const text = await navigator.clipboard?.readText();
+      if (text) {
+        setTextValue(text);
+        applyTextValue(text);
+      }
+    } catch {
+      setPasteError('Clipboard read blocked; paste into the color text box.');
+    }
+  };
+  const handleKeyDown = (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    if (event.key.toLowerCase() === 'c') {
+      event.preventDefault();
+      copyColour();
+    } else if (event.key.toLowerCase() === 'v') {
+      event.preventDefault();
+      pasteColour();
+    }
+  };
 
   return (
     <>
@@ -1097,7 +1147,7 @@ function ColourPickerField({ label, colour, onChange }) {
       </div>
       {open &&
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setOpen(false)}>
-          <div className="bg-slate-900 border border-slate-600 rounded-xl shadow-2xl p-5 w-72" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-slate-900 border border-slate-600 rounded-xl shadow-2xl p-5 w-80" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold text-slate-200">{label}</span>
               <button onClick={() => setOpen(false)} className="text-slate-300 hover:text-white"><X className="w-4 h-4" /></button>
@@ -1105,18 +1155,35 @@ function ColourPickerField({ label, colour, onChange }) {
             <div className="w-full h-16 rounded-lg border border-slate-700 mb-4" style={{ background: rgbToHex(draft) }} />
             <div className="flex items-center gap-3 mb-3">
               <input type="color" value={rgbToHex(draft)}
-            onChange={(e) => setDraft(hexToRgb(e.target.value))}
+            onChange={(e) => setDraftColour(hexToRgb(e.target.value) || draft)}
             className="w-12 h-8 rounded cursor-pointer bg-transparent border-0" />
               <span className="text-[10px] font-mono text-slate-200">{rgbToHex(draft).toUpperCase()}</span>
+              <span className="text-[10px] font-mono text-slate-400">{rgbToHslText(draft)}</span>
             </div>
+            <div className="grid grid-cols-[1fr_auto_auto] gap-1.5 mb-3">
+              <input
+                value={textValue}
+                onChange={(e) => setTextValue(e.target.value)}
+                onBlur={() => applyTextValue()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') applyTextValue();
+                  else handleKeyDown(e);
+                }}
+                placeholder="#AABBCC or hsl(210, 50%, 45%)"
+                className="min-w-0 h-7 bg-slate-800 border border-slate-700 rounded px-2 text-[10px] font-mono text-slate-200"
+              />
+              <button type="button" onClick={copyColour} className="h-7 px-2 rounded border border-slate-700 text-[10px] text-slate-300 hover:border-blue-500">Copy</button>
+              <button type="button" onClick={pasteColour} className="h-7 px-2 rounded border border-slate-700 text-[10px] text-slate-300 hover:border-blue-500">Paste</button>
+            </div>
+            {pasteError && <p className="text-[9px] text-amber-300 mb-2">{pasteError}</p>}
             {[['r', 'R', '#ef4444'], ['g', 'G', '#22c55e'], ['b', 'B', '#3b82f6']].map(([ch, lbl, col]) =>
           <div key={ch} className="flex items-center gap-2 mb-1.5">
                 <span className="text-[10px] font-bold w-4 shrink-0" style={{ color: col }}>{lbl}</span>
                 <input type="range" min={0} max={255} value={draft[ch]}
-            onChange={(e) => setDraft((d) => ({ ...d, [ch]: +e.target.value }))}
+            onChange={(e) => setDraftColour({ ...draft, [ch]: +e.target.value })}
             className="flex-1 h-2 accent-current cursor-pointer" style={{ accentColor: col }} />
                 <input type="number" min={0} max={255} value={draft[ch]}
-            onChange={(e) => setDraft((d) => ({ ...d, [ch]: Math.max(0, Math.min(255, +e.target.value || 0)) }))}
+            onChange={(e) => setDraftColour({ ...draft, [ch]: e.target.value })}
             className="w-12 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-center text-slate-200" />
               </div>
           )}

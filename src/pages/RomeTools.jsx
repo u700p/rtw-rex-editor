@@ -401,7 +401,16 @@ function normalizeColorInput(value) {
   const short = /^#?([a-f\d])([a-f\d])([a-f\d])$/i.exec(raw);
   if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase();
   const full = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(raw);
-  return full ? `#${full[1]}${full[2]}${full[3]}`.toLowerCase() : null;
+  if (full) return `#${full[1]}${full[2]}${full[3]}`.toLowerCase();
+  let rgb = raw.match(/^rgb\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/i);
+  if (rgb) return rgbToHex(Number(rgb[1]), Number(rgb[2]), Number(rgb[3])).toLowerCase();
+  const hsl = raw.match(/^hsl\(\s*([-\d.]+)\s*,?\s*([\d.]+)%?\s*,?\s*([\d.]+)%?\s*\)$/i)
+    || raw.match(/^([-\d.]+)\s+([\d.]+)%?\s+([\d.]+)%?$/i);
+  if (hsl) {
+    const converted = hslToRgb(Number(hsl[1]), Math.max(0, Math.min(100, Number(hsl[2]) || 0)) / 100, Math.max(0, Math.min(100, Number(hsl[3]) || 0)) / 100);
+    return rgbToHex(converted.r, converted.g, converted.b).toLowerCase();
+  }
+  return null;
 }
 
 function hexToRgb(hex) {
@@ -412,6 +421,12 @@ function hexToRgb(hex) {
 
 function rgbToHex(r, g, b) {
   return `#${[r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function hexToHslText(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const hsl = rgbToHsl(r, g, b);
+  return `hsl(${Math.round(hsl.h)}, ${Math.round(hsl.s * 100)}%, ${Math.round(hsl.l * 100)}%)`;
 }
 
 function rgbToHsl(r, g, b) {

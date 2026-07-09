@@ -35,7 +35,7 @@ function upsertTextLocEntries(existingEntries, incomingEntries) {
     const key = normalizeLocKey(entry.key);
     if (!key) continue;
     indexByKey.set(key.toUpperCase(), out.length);
-    out.push({ key, value: entry.value ?? '' });
+    out.push({ ...entry, key, value: entry.value ?? '' });
   }
   for (const entry of incomingEntries || []) {
     const key = normalizeLocKey(entry.key);
@@ -45,7 +45,7 @@ function upsertTextLocEntries(existingEntries, incomingEntries) {
     if (index === undefined) {
       indexByKey.set(key.toUpperCase(), out.length);
       out.push(normalized);
-    } else {
+    } else if (String(out[index].value ?? '') !== String(normalized.value ?? '') || normalizeLocKey(out[index].key) !== key) {
       out[index] = normalized;
     }
   }
