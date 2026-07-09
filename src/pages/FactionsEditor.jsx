@@ -1885,12 +1885,9 @@ export default function FactionsEditor() {
     setSelectedIdx(updated.length - 1);
     persistFactions(updated, { immediate: true });
     const characterCopied = copyDescrCharacterEntries('slave', newF.name);
-    const unitAssign = assignSlaveUnitsToFaction(newF.name, newF.name, { count: AUTO_UNIT_ASSIGNMENT_LIMIT, packUi: true });
     applyFactionAutomation(newF.name, {
       displayName: titleCaseFactionId(newF.name),
       characterCopied,
-      unitAssigned: unitAssign.count,
-      generalAssigned: unitAssign.generalAssigned,
     });
   };
 
