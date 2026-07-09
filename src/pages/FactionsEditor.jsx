@@ -59,7 +59,8 @@ function titleCaseFactionId(value) {
     .join(' ');
 }
 
-function entriesToText(entries) {
+function entriesToText(entries, rawText = '') {
+  if (rawText) return serializeTextLocEntries(entries, { rawText, preserveMissing: true });
   const map = {};
   for (const entry of entries || []) {
     const key = normalizeLocKey(entry.key);
@@ -68,16 +69,34 @@ function entriesToText(entries) {
   return serializeTextLocFile(map);
 }
 
+function locEntriesFromRawText(rawText) {
+  return textLocMapToEntries(parseTextLocFile(rawText || ''))
+    .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }))
+    .filter((entry) => entry.key);
+}
+
+function locEntriesEqual(a, b) {
+  if ((a || []).length !== (b || []).length) return false;
+  for (let i = 0; i < (a || []).length; i++) {
+    if (normalizeLocKey(a[i]?.key).toUpperCase() !== normalizeLocKey(b[i]?.key).toUpperCase()) return false;
+    if (String(a[i]?.value ?? '') !== String(b[i]?.value ?? '')) return false;
+  }
+  return true;
+}
+
 function getExpandedStringsData() {
   const store = getTextLocalizationStore();
   const expanded = store[EXPANDED_BI_FILE] || store['expanded.txt'];
+  if (expanded?.rawText) {
+    return {
+      entries: locEntriesFromRawText(expanded.rawText),
+      rawText: expanded.rawText,
+    };
+  }
   if (expanded?.entries?.length) {
     return {
-      entries: expanded.entries.map((entry) => ({
-        key: normalizeLocKey(entry.key),
-        value: entry.value ?? '',
-      })),
-      rawText: expanded.rawText || '',
+      entries: expanded.entries.map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' })),
+      rawText: '',
     };
   }
 
@@ -85,6 +104,12 @@ function getExpandedStringsData() {
     const raw = localStorage.getItem(LS_GLOBAL_STRINGS);
     if (raw) {
       const parsed = JSON.parse(raw);
+      if (parsed.rawText) {
+        return {
+          entries: locEntriesFromRawText(parsed.rawText),
+          rawText: parsed.rawText,
+        };
+      }
       return {
         entries: (parsed.entries || parsed || []).map((entry) => ({
           key: normalizeLocKey(entry.key),
@@ -103,6 +128,7 @@ function persistExpandedStrings(entries, rawText = '') {
     .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }))
     .filter((entry) => entry.key);
   const nextRawText = serializeTextLocEntries(normalizedEntries, { rawText, preserveMissing: true });
+  if (rawText && toCRLF(rawText) === nextRawText && locEntriesEqual(normalizedEntries, locEntriesFromRawText(rawText))) return false;
   const storedEntries = textLocMapToEntries(parseTextLocFile(nextRawText))
     .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value ?? '' }));
   updateTextLocalizationFile(EXPANDED_BI_FILE, {
@@ -111,6 +137,7 @@ function persistExpandedStrings(entries, rawText = '') {
     sourceFormat: 'txt',
   });
   try { localStorage.setItem(LS_GLOBAL_STRINGS, JSON.stringify({ entries: storedEntries, rawText: nextRawText })); } catch {}
+  return true;
 }
 
 function upsertTextLocEntries(existingEntries, incomingEntries) {
@@ -120,7 +147,7 @@ function upsertTextLocEntries(existingEntries, incomingEntries) {
     const key = normalizeLocKey(entry.key);
     if (!key) continue;
     indexByKey.set(key.toUpperCase(), out.length);
-    out.push({ key, value: entry.value ?? '' });
+    out.push({ ...entry, key, value: entry.value ?? '' });
   }
   for (const entry of incomingEntries || []) {
     const key = normalizeLocKey(entry.key);
@@ -130,7 +157,7 @@ function upsertTextLocEntries(existingEntries, incomingEntries) {
     if (index === undefined) {
       indexByKey.set(key.toUpperCase(), out.length);
       out.push(normalized);
-    } else {
+    } else if (String(out[index].value ?? '') !== String(normalized.value ?? '') || normalizeLocKey(out[index].key) !== key) {
       out[index] = normalized;
     }
   }
@@ -143,23 +170,27 @@ function injectMenuStringsForFaction(factionName, displayName) {
     const raw = localStorage.getItem(LS_MENU_STRINGS);
     if (!raw) return;
     const parsed = JSON.parse(raw);
-    const entries = parsed.entries || [];
+    const rawText = parsed.rawText || '';
+    const entries = rawText ? locEntriesFromRawText(rawText) : (parsed.entries || []);
     const internalId = normalizeFactionInternalId(factionName);
     const nameUpper = internalId.toUpperCase();
     const label = String(displayName || '').trim() || titleCaseFactionId(internalId) || internalId;
     const uiKey = `UI_FACTION_${nameUpper}`;
     const descKey = `UI_FACTION_${nameUpper}_DESCRIPTION`;
     let changed = false;
-    if (!entries.some(e => e.key === uiKey)) {
+    const hasKey = (key) => entries.some(e => normalizeLocKey(e.key).toUpperCase() === key.toUpperCase());
+    if (!hasKey(uiKey)) {
       entries.push({ key: uiKey, value: label });
       changed = true;
     }
-    if (!entries.some(e => e.key === descKey)) {
+    if (!hasKey(descKey)) {
       entries.push({ key: descKey, value: label });
       changed = true;
     }
     if (changed) {
-      localStorage.setItem(LS_MENU_STRINGS, JSON.stringify({ ...parsed, entries }));
+      const nextRawText = serializeTextLocEntries(entries, { rawText, preserveMissing: true });
+      const storedEntries = locEntriesFromRawText(nextRawText);
+      localStorage.setItem(LS_MENU_STRINGS, JSON.stringify({ ...parsed, entries: storedEntries, rawText: nextRawText }));
       window.dispatchEvent(new CustomEvent('menu-strings-updated'));
     }
   } catch {}
@@ -454,8 +485,10 @@ function assignSlaveUnitsToFaction(targetFaction, profileText, options = {}) {
   if (!dst || !raw) return { changed: false, count: 0, units: [] };
   const units = parseEDU(raw);
   const tokens = tokenizeProfile(`${profileText || ''} ${dst}`);
-  const requestedCount = Math.max(1, Number(options.count) || AUTO_UNIT_ASSIGNMENT_LIMIT);
-  const targetCount = Math.min(requestedCount, Number(options.maxAutoUnits) || AUTO_UNIT_ASSIGNMENT_LIMIT);
+  const requested = Number(options.count);
+  const requestedCount = Number.isFinite(requested) ? Math.max(0, Math.floor(requested)) : AUTO_UNIT_ASSIGNMENT_LIMIT;
+  const targetCount = Math.min(requestedCount, Number(options.maxAutoUnits) || requestedCount);
+  if (targetCount <= 0) return { changed: false, count: 0, units: [] };
   const minScore = Number(options.minScore) || AUTO_UNIT_MATCH_THRESHOLD;
   const candidates = units
     .map((unit, index) => ({ unit, index, source: 'slave', owners: (unit.ownership || []).map((owner) => owner.toLowerCase()) }))
@@ -463,7 +496,7 @@ function assignSlaveUnitsToFaction(targetFaction, profileText, options = {}) {
     .map((entry) => ({ ...entry, score: scoreSlaveUnit(entry.unit, tokens) }))
     .sort((a, b) => b.score - a.score || String(a.unit.type).localeCompare(String(b.unit.type)));
   const matched = candidates.filter((entry) => entry.score >= minScore);
-  const general = matched.find((entry) => isGeneralUnit(entry.unit)) || candidates.find((entry) => isGeneralUnit(entry.unit));
+  const general = matched.find((entry) => isGeneralUnit(entry.unit));
   const selected = [];
   if (general) selected.push(general);
 
@@ -727,9 +760,24 @@ function getStoredLocEntries(storageKey) {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return parsed.entries || parsed || [];
+    return parsed.rawText ? locEntriesFromRawText(parsed.rawText) : (parsed.entries || parsed || []);
   } catch {
     return [];
+  }
+}
+
+function getStoredLocRecord(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return { entries: [], rawText: '' };
+    const parsed = JSON.parse(raw);
+    const rawText = parsed.rawText || '';
+    return {
+      entries: rawText ? locEntriesFromRawText(rawText) : (parsed.entries || parsed || []),
+      rawText,
+    };
+  } catch {
+    return { entries: [], rawText: '' };
   }
 }
 
@@ -1234,6 +1282,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
   const [activeTab, setActiveTab] = useState('stratmap');
   const [tertiaryEnabled, setTertiaryEnabled] = useState(!!faction.tertiary_colour);
   const [unitAssignDescription, setUnitAssignDescription] = useState(`${faction.culture || ''} ${faction.name || ''}`.trim());
+  const [unitAssignCount, setUnitAssignCount] = useState(AUTO_UNIT_ASSIGNMENT_LIMIT);
   const [unitAssignResult, setUnitAssignResult] = useState(null);
   const set = (key, val) => setDraft({ ...draft, [key]: key === 'name' || key === 'shadow_faction' ? normalizeFactionInternalId(val) : val });
   const [saved, setSaved] = useState(false);
@@ -1241,6 +1290,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
     setDraft({ ...faction });
     setTertiaryEnabled(!!faction.tertiary_colour);
     setUnitAssignDescription(`${faction.culture || ''} ${faction.name || ''}`.trim());
+    setUnitAssignCount(AUTO_UNIT_ASSIGNMENT_LIMIT);
     setUnitAssignResult(null);
   }, [faction]);
   const handleSave = () => {
@@ -1253,7 +1303,7 @@ function FactionDetail({ faction, onChange, cultures, religions, eduUnits, onAss
   const defaultLogo = `FACTION_LOGO_${nameUpper}`;
   const defaultSmallLogo = `SMALL_FACTION_LOGO_${nameUpper}`;
   const runUnitAssignment = () => {
-    const result = onAssignUnits?.(draft.name, `${unitAssignDescription} ${draft.culture || ''} ${draft.name || ''}`.trim());
+    const result = onAssignUnits?.(draft.name, `${unitAssignDescription} ${draft.culture || ''} ${draft.name || ''}`.trim(), unitAssignCount);
     setUnitAssignResult(result || { count: 0, generalAssigned: false });
   };
 
@@ -1640,7 +1690,7 @@ export default function FactionsEditor() {
     const entries = textLocMapToEntries(parseTextLocFile(text))
       .map((entry) => ({ key: normalizeLocKey(entry.key), value: entry.value }));
     if (entries.length) {
-      localStorage.setItem(LS_MENU_STRINGS, JSON.stringify({ entries }));
+      localStorage.setItem(LS_MENU_STRINGS, JSON.stringify({ entries, rawText: text }));
       setMenuStringsLoaded(true);
       window.dispatchEvent(new CustomEvent('menu-strings-updated'));
     }
@@ -1694,9 +1744,9 @@ export default function FactionsEditor() {
       included
     );
 
-    const menuEntries = getStoredLocEntries(LS_MENU_STRINGS);
-    if (menuEntries.length) {
-      addCRLFText(zip, 'data/text/menu_english.txt', entriesToText(menuEntries), included);
+    const menuRecord = getStoredLocRecord(LS_MENU_STRINGS);
+    if (menuRecord.entries.length || menuRecord.rawText) {
+      addCRLFText(zip, 'data/text/menu_english.txt', menuRecord.rawText || entriesToText(menuRecord.entries), included);
     }
 
     let campaignDescriptionsText = getTextFileFromStore('campaign_descriptions.txt')
@@ -2185,8 +2235,8 @@ export default function FactionsEditor() {
               try {
                 const raw = localStorage.getItem(LS_MENU_STRINGS);
                 if (!raw) return;
-                const { entries } = JSON.parse(raw);
-                const blob = textBlob(entriesToText(entries));
+                const { entries, rawText } = JSON.parse(raw);
+                const blob = textBlob(rawText || entriesToText(entries));
                 const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'menu_english.txt'; a.click();
               } catch {}
             }}>
