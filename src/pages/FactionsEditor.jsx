@@ -650,6 +650,148 @@ function imageDataToDataUrl(imageData) {
   return canvas.toDataURL('image/png');
 }
 
+function alphaBoundsFromImageData(imageData) {
+  const { width, height, data } = imageData;
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha <= 8) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < minX || maxY < minY) return { x: 0, y: 0, w: width, h: height };
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+function bleedTransparentEdges(imageData, iterations = 2) {
+  const { width, height, data } = imageData;
+  for (let pass = 0; pass < iterations; pass++) {
+    const previous = new Uint8ClampedArray(data);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = (y * width + x) * 4;
+        if (previous[index + 3] > 4) continue;
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            if (!ox && !oy) continue;
+            const nx = x + ox, ny = y + oy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            const ni = (ny * width + nx) * 4;
+            if (previous[ni + 3] <= 4) continue;
+            r += previous[ni];
+            g += previous[ni + 1];
+            b += previous[ni + 2];
+            count++;
+          }
+        }
+        if (!count) continue;
+        data[index] = Math.round(r / count);
+        data[index + 1] = Math.round(g / count);
+        data[index + 2] = Math.round(b / count);
+      }
+    }
+  }
+  return imageData;
+}
+
+function applyLogoVariant(imageData, variant) {
+  const out = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  const data = out.data;
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i], g = data[i + 1], b = data[i + 2];
+    if (variant === 'grey') {
+      const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      r = lum; g = lum; b = lum;
+    } else if (variant === 'roll') {
+      r = Math.min(255, Math.round(r * 1.18 + 18));
+      g = Math.min(255, Math.round(g * 1.14 + 12));
+      b = Math.min(255, Math.round(b * 1.06 + 4));
+    } else if (variant === 'select') {
+      r = Math.round(r * 0.70 + 196 * 0.30);
+      g = Math.round(g * 0.70 + 142 * 0.30);
+      b = Math.round(b * 0.72 + 42 * 0.28);
+    }
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+  }
+  return bleedTransparentEdges(out);
+}
+
+function renderLogoFrame(sourceImageData, size, variant = 'standard') {
+  const bounds = alphaBoundsFromImageData(sourceImageData);
+  const src = document.createElement('canvas');
+  src.width = sourceImageData.width;
+  src.height = sourceImageData.height;
+  src.getContext('2d').putImageData(sourceImageData, 0, 0);
+
+  const dst = document.createElement('canvas');
+  dst.width = size;
+  dst.height = size;
+  const ctx = dst.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  const padding = Math.max(1, Math.round(size * 0.04));
+  const inner = size - padding * 2;
+  const scale = Math.min(inner / Math.max(1, bounds.w), inner / Math.max(1, bounds.h));
+  const dw = Math.max(1, Math.round(bounds.w * scale));
+  const dh = Math.max(1, Math.round(bounds.h * scale));
+  const dx = Math.round((size - dw) / 2);
+  const dy = Math.round((size - dh) / 2);
+  ctx.drawImage(src, bounds.x, bounds.y, bounds.w, bounds.h, dx, dy, dw, dh);
+  return applyLogoVariant(ctx.getImageData(0, 0, size, size), variant);
+}
+
+const LOGO_SOURCE_PRIORITY = [
+  'loading_symbol128',
+  'symbol48',
+  'symbol24',
+  'symbol48_select',
+  'symbol48_roll',
+  'symbol24_select',
+  'symbol24_roll',
+  'symbol48_grey',
+  'symbol24_grey',
+];
+
+async function pickBestLogoSource(images) {
+  let best = null;
+  for (const key of LOGO_SOURCE_PRIORITY) {
+    const dataUrl = images?.[key];
+    if (!dataUrl) continue;
+    const imageData = await imageDataFromDataUrl(dataUrl);
+    const area = imageData.width * imageData.height;
+    const priority = LOGO_SOURCE_PRIORITY.length - LOGO_SOURCE_PRIORITY.indexOf(key);
+    const score = area * 100 + priority;
+    if (!best || score > best.score) best = { key, imageData, score };
+  }
+  return best;
+}
+
+function regenerateLogoSetFromSource(sourceImageData) {
+  const spec = [
+    ['symbol24', 128, 'standard'],
+    ['symbol24_grey', 128, 'grey'],
+    ['symbol24_roll', 128, 'roll'],
+    ['symbol24_select', 128, 'select'],
+    ['symbol48', 128, 'standard'],
+    ['symbol48_grey', 128, 'grey'],
+    ['symbol48_roll', 128, 'roll'],
+    ['symbol48_select', 128, 'select'],
+    ['loading_symbol128', 256, 'standard'],
+  ];
+  return Object.fromEntries(spec.map(([key, size, variant]) => [
+    key,
+    imageDataToDataUrl(renderLogoFrame(sourceImageData, size, variant)),
+  ]));
+}
+
 function encodeSymbolTga(imageData) {
   const { width, height, data } = imageData;
   const header = new Uint8Array(18);
@@ -1777,7 +1919,7 @@ export default function FactionsEditor() {
   const regenerateAllFactionLogos = useCallback(async () => {
     if (!factions?.length || logoBatchLoading) return;
     setLogoBatchLoading(true);
-    setLogoBatchStatus('Regenerating cached logos at FE 128x128 and loading 256x256...');
+    setLogoBatchStatus('Regenerating full logo sets from cached sources at FE 128x128 and loading 256x256...');
     let factionCount = 0;
     let slotCount = 0;
     try {
@@ -1785,25 +1927,18 @@ export default function FactionsEditor() {
         const factionName = normalizeFactionName(faction?.name);
         if (!factionName) continue;
         const images = loadFactionSymbols(factionName);
-        const next = {};
-        for (const slot of allSymbolSlots(factionName)) {
-          const dataUrl = images[slot.key];
-          if (!dataUrl) continue;
-          const imageData = await imageDataFromDataUrl(dataUrl);
-          const sized = resizeImageData(imageData, symbolTargetSize(slot.key));
-          next[slot.key] = imageDataToDataUrl(sized);
-          slotCount++;
-        }
-        if (Object.keys(next).length) {
-          storeFactionSymbols(factionName, { ...images, ...next });
-          factionCount++;
-        }
+        const source = await pickBestLogoSource(images);
+        if (!source) continue;
+        const next = regenerateLogoSetFromSource(source.imageData);
+        storeFactionSymbols(factionName, { ...images, ...next });
+        slotCount += Object.keys(next).length;
+        factionCount++;
         if (factionCount && factionCount % 6 === 0) {
           await new Promise(resolve => setTimeout(resolve, 0));
         }
       }
       setLogoBatchStatus(slotCount
-        ? `Regenerated ${slotCount} cached logo slot${slotCount === 1 ? '' : 's'} for ${factionCount} faction${factionCount === 1 ? '' : 's'}. FE icons are 128x128; loading symbols are 256x256.`
+        ? `Regenerated ${slotCount} logo slot${slotCount === 1 ? '' : 's'} for ${factionCount} faction${factionCount === 1 ? '' : 's'}. FE icons are 128x128; loading symbols are 256x256.`
         : 'No cached faction logos found to regenerate. Load or generate logos first.');
     } catch (err) {
       setLogoBatchStatus(`Logo regeneration failed: ${err.message}`);
