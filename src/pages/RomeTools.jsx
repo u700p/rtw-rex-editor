@@ -1436,8 +1436,18 @@ function shadeMatchedTargetColor(hsl, pass) {
   return hslToRgb(pass.tgt.h, targetSat, targetLight);
 }
 
-function recolorAtlasFromPrompt(imageData, promptText) {
-  const settings = buildAtlasPromptSettings(promptText);
+function shouldProtectAtlasPixel(protectedType, r, g, b, hsl, plan) {
+  if (['skin', 'metal', 'dark_metal', 'white_armor', 'leather'].includes(protectedType)) return true;
+  if (protectedType !== 'bronze') return false;
+  return !plan.passes.some(pass => (
+    pass.src.s >= 0.18 &&
+    hsl.s >= 0.18 &&
+    hueDistance(hsl.h, pass.src.h) <= 34 &&
+    weightedColorDistance(r, g, b, pass.srcRgb) <= 132
+  ));
+}
+
+function runAtlasRecolorWithSettings(imageData, settings, extraReport = {}) {
   const plan = buildRecolorPlan(settings);
   const out = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
   const src = imageData.data;
@@ -1457,7 +1467,7 @@ function recolorAtlasFromPrompt(imageData, promptText) {
     const r = src[i], g = src[i + 1], b = src[i + 2];
     const hsl = rgbToHsl(r, g, b);
     const protectedType = materialProtectionType(r, g, b, hsl, true);
-    if (['skin', 'metal', 'dark_metal', 'white_armor', 'leather', 'bronze'].includes(protectedType)) {
+    if (shouldProtectAtlasPixel(protectedType, r, g, b, hsl, plan)) {
       protectedPixels[pixel] = 1;
       protectedCount++;
       continue;
@@ -1522,39 +1532,20 @@ function recolorAtlasFromPrompt(imageData, promptText) {
       candidatePixels,
       alphaPreserved: true,
       canvas: `${width}x${height}`,
+      ...extraReport,
     },
   };
 }
 
-function generateAiImageIdeas({ mode, faction, culture, colors }) {
-  const ideas = [];
-  const count = 8;
-  for (let i = 0; i < count; i++) {
-    const material = colors || randomPick(AI_IDEA_PARTS.materials);
-    const mood = randomPick(AI_IDEA_PARTS.moods);
-    if (mode === 'symbol') {
-      const motif = randomPick(AI_IDEA_PARTS.symbolMotifs);
-      ideas.push(`${faction || 'Faction'} symbol: ${motif}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, readable at tiny UI sizes`);
-    } else if (mode === 'eventpic') {
-      const scene = randomPick(AI_IDEA_PARTS.eventScenes);
-      ideas.push(`${faction || 'Faction'} event picture: ${scene}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, RTW campaign event art`);
-    } else if (mode === 'art') {
-      const role = randomPick(AI_IDEA_PARTS.unitRoles);
-      ideas.push(`${faction || 'Faction'} concept art: ${role}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, useful as event/loading/art reference`);
-    } else {
-      const role = randomPick(AI_IDEA_PARTS.unitRoles);
-      ideas.push(`${faction || 'Faction'} ${role}: ${culture || 'ancient mixed culture'}, ${material}, ${mood}, preserve RTW UV/card layout`);
-    }
-  }
-  return ideas;
-}
-
-function detectFactionColorCandidates(imageData, maxCandidates = 5) {
+function detectFactionColorCandidates(imageData, maxCandidates = 5, options = {}) {
   if (!imageData?.data) return [];
   const { data, width, height } = imageData;
   const buckets = new Map();
   const total = width * height;
-  const step = Math.max(1, Math.floor(total / 160000));
+  const step = Math.max(1, Math.floor(total / 180000));
+  const minSat = options.minSat ?? 0.22;
+  const minLight = options.minLight ?? 0.06;
+  const maxLight = options.maxLight ?? 0.88;
 
   for (let pixel = 0; pixel < total; pixel += step) {
     const i = pixel * 4;
@@ -1562,8 +1553,9 @@ function detectFactionColorCandidates(imageData, maxCandidates = 5) {
     if (a < 16) continue;
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const hsl = rgbToHsl(r, g, b);
-    if (hsl.s < 0.22 || hsl.l < 0.06 || hsl.l > 0.88) continue;
-    if (materialProtectionType(r, g, b, hsl, true)) continue;
+    if (hsl.s < minSat || hsl.l < minLight || hsl.l > maxLight) continue;
+    const protectedType = materialProtectionType(r, g, b, hsl, true);
+    if (protectedType && !(options.allowBronze && protectedType === 'bronze')) continue;
     const key = `${Math.round(hsl.h / 8)}:${Math.round(hsl.s * 12)}:${Math.round(hsl.l * 10)}`;
     const bucket = buckets.get(key) || { r: 0, g: 0, b: 0, count: 0, sat: 0, light: 0 };
     bucket.r += r;
@@ -1575,8 +1567,9 @@ function detectFactionColorCandidates(imageData, maxCandidates = 5) {
     buckets.set(key, bucket);
   }
 
+  const minCount = options.minCount ?? 8;
   const ranked = Array.from(buckets.values())
-    .filter(bucket => bucket.count >= 8)
+    .filter(bucket => bucket.count >= minCount)
     .map(bucket => {
       const r = bucket.r / bucket.count;
       const g = bucket.g / bucket.count;
@@ -1603,7 +1596,101 @@ function detectFactionColorCandidates(imageData, maxCandidates = 5) {
     if (!duplicate) picked.push(candidate);
     if (picked.length >= maxCandidates) break;
   }
-  return picked.map(({ rgb, hsl, ...candidate }) => candidate);
+  return options.includeRaw ? picked : picked.map(({ rgb, hsl, ...candidate }) => candidate);
+}
+
+function pickAutoAtlasSource(candidates, sourceRgb, targetRgb, used = new Set()) {
+  const sourceHsl = sourceRgb ? rgbToHsl(sourceRgb.r, sourceRgb.g, sourceRgb.b) : null;
+  const ranked = candidates
+    .filter(candidate => !used.has(candidate.hex))
+    .filter(candidate => !targetRgb || weightedColorDistance(candidate.rgb.r, candidate.rgb.g, candidate.rgb.b, targetRgb) > 32)
+    .map(candidate => {
+      const sourceDistance = sourceRgb ? weightedColorDistance(candidate.rgb.r, candidate.rgb.g, candidate.rgb.b, sourceRgb) : 128;
+      const hueBonus = sourceHsl ? Math.max(0, 70 - hueDistance(candidate.hsl.h, sourceHsl.h)) * 18 : 0;
+      const sourceBonus = Math.max(0, 180 - sourceDistance) * 5;
+      return { candidate, rank: candidate.score + sourceBonus + hueBonus };
+    })
+    .sort((a, b) => b.rank - a.rank);
+  return ranked[0]?.candidate || null;
+}
+
+function buildAutoAtlasSettings(imageData, promptText) {
+  const parsed = parseRtwPromptColorPairs(promptText);
+  const base = buildAtlasPromptSettings(promptText);
+  const candidates = detectFactionColorCandidates(imageData, 10, {
+    includeRaw: true,
+    allowBronze: true,
+    minSat: 0.12,
+    minLight: 0.035,
+    maxLight: 0.90,
+    minCount: 4,
+  });
+  if (!candidates.length) return null;
+  const used = new Set();
+  const primary = pickAutoAtlasSource(candidates, parsed.primarySource, parsed.primaryTarget, used);
+  if (!primary) return null;
+  used.add(primary.hex);
+  const secondary = parsed.secondaryTarget
+    ? pickAutoAtlasSource(candidates, parsed.secondarySource, parsed.secondaryTarget, used)
+    : null;
+  if (secondary) used.add(secondary.hex);
+
+  return {
+    ...base,
+    source: primary.hex,
+    secondaryEnabled: !!secondary,
+    secondarySource: secondary?.hex || base.secondarySource,
+    tolerance: 36,
+    rgbTolerance: 178,
+    strength: 100,
+    minSat: 8,
+    targetMix: 92,
+    recolorNeutrals: false,
+    _autoSources: [
+      `primary ${primary.hex.toUpperCase()}`,
+      ...(secondary ? [`secondary ${secondary.hex.toUpperCase()}`] : []),
+    ],
+  };
+}
+
+function recolorAtlasFromPrompt(imageData, promptText) {
+  const exactSettings = buildAtlasPromptSettings(promptText);
+  const exact = runAtlasRecolorWithSettings(imageData, exactSettings, { autoDetected: false });
+  const changedTooLittle = exact.report.changed < Math.max(750, Math.floor(exact.report.total * 0.0015));
+  const candidatesTooLow = exact.report.candidatePixels < Math.max(1000, Math.floor(exact.report.total * 0.003));
+  if (!changedTooLittle && !candidatesTooLow) return exact;
+
+  const autoSettings = buildAutoAtlasSettings(imageData, promptText);
+  if (!autoSettings) return exact;
+  const auto = runAtlasRecolorWithSettings(imageData, autoSettings, {
+    autoDetected: true,
+    exactChanged: exact.report.changed,
+    autoSources: autoSettings._autoSources || [],
+  });
+  return auto.report.changed > exact.report.changed * 3 ? auto : exact;
+}
+
+function generateAiImageIdeas({ mode, faction, culture, colors }) {
+  const ideas = [];
+  const count = 8;
+  for (let i = 0; i < count; i++) {
+    const material = colors || randomPick(AI_IDEA_PARTS.materials);
+    const mood = randomPick(AI_IDEA_PARTS.moods);
+    if (mode === 'symbol') {
+      const motif = randomPick(AI_IDEA_PARTS.symbolMotifs);
+      ideas.push(`${faction || 'Faction'} symbol: ${motif}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, readable at tiny UI sizes`);
+    } else if (mode === 'eventpic') {
+      const scene = randomPick(AI_IDEA_PARTS.eventScenes);
+      ideas.push(`${faction || 'Faction'} event picture: ${scene}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, RTW campaign event art`);
+    } else if (mode === 'art') {
+      const role = randomPick(AI_IDEA_PARTS.unitRoles);
+      ideas.push(`${faction || 'Faction'} concept art: ${role}, ${culture || 'ancient mixed culture'}, ${material}, ${mood}, useful as event/loading/art reference`);
+    } else {
+      const role = randomPick(AI_IDEA_PARTS.unitRoles);
+      ideas.push(`${faction || 'Faction'} ${role}: ${culture || 'ancient mixed culture'}, ${material}, ${mood}, preserve RTW UV/card layout`);
+    }
+  }
+  return ideas;
 }
 
 function buildUvLockedPrompt(settings, brief, textureName = 'RTW texture') {
@@ -2557,7 +2644,10 @@ export function AiImageWorkshopTab({ recolorOnly = false } = {}) {
       report: result.report,
       prompt: activePrompt,
     });
-    setStatus(`Generated ${outName}. Changed ${result.report.changed.toLocaleString()} pixels, protected ${result.report.protectedCount.toLocaleString()}, alpha preserved.`);
+    const autoNote = result.report.autoDetected
+      ? ` Auto-detected ${result.report.autoSources?.join(', ') || 'source colors'} after exact prompt matching only changed ${Number(result.report.exactChanged || 0).toLocaleString()} pixels.`
+      : '';
+    setStatus(`Generated ${outName}. Changed ${result.report.changed.toLocaleString()} pixels, protected ${result.report.protectedCount.toLocaleString()}, alpha preserved.${autoNote}`);
   };
 
   const useGeneratedAsReference = () => {
@@ -2692,6 +2782,7 @@ export function AiImageWorkshopTab({ recolorOnly = false } = {}) {
               {generated?.report && (
                 <div className="rounded border border-slate-800 bg-slate-950/80 p-2 text-[10px] text-slate-400 font-mono">
                   Canvas {generated.report.canvas} | changed {generated.report.changed.toLocaleString()} px | protected {generated.report.protectedCount.toLocaleString()} px | alpha preserved
+                  {generated.report.autoDetected ? ` | auto ${generated.report.autoSources?.join(', ') || 'source colors'} | exact ${Number(generated.report.exactChanged || 0).toLocaleString()} px` : ''}
                 </div>
               )}
             </div>
